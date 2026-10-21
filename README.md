@@ -16,10 +16,11 @@ Implemented:
 - Restricted ZIP32 archive extraction with path, collision and resource-limit checks.
 - A content-addressed artifact store with digest verification and independent writable copies.
 - An HTTPS network broker with destination validation, scoped credentials, bounded responses and cancellation.
+- Resumable artifact downloads with durable checkpoints and whole-file digest verification before storage.
 
 The current implementation has been tested on Windows. macOS and Linux are target platforms; they have not yet been validated on physical devices.
 
-Next: resumable downloads, recoverable installation transactions, Java management, Microsoft sign-in and actual game launching. Fabric, Forge/NeoForge and modpack workflows are planned, not currently supported features.
+Next: shared download scheduling and retries, recoverable installation transactions, Java management, Microsoft sign-in and actual game launching. Fabric, Forge/NeoForge and modpack workflows are planned, not currently supported features.
 
 ## Microsoft / Minecraft integration
 

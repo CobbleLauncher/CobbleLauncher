@@ -15,7 +15,7 @@
 //! Failed/cancelled transfers may leave a partial; no outcome commits to CAS.
 
 use crate::broker::{ConnectionLeases, ResponseMetadata};
-use crate::policy::Endpoint;
+use crate::policy::{Endpoint, Origin};
 use crate::{Broker, CredentialId, NetError, TimeoutPhase};
 use curl::easy::{Easy2, Handler, HttpVersion, List, NetRc, SslVersion, WriteError};
 use http::{HeaderMap, HeaderName, HeaderValue};
@@ -40,6 +40,21 @@ const HEADER_COUNT: usize = 64;
 pub trait ArtifactFile: Read + Write + Seek + Send + 'static {
     fn file_len(&self) -> std::io::Result<u64>;
     fn truncate(&mut self, len: u64) -> std::io::Result<()>;
+    /// Runs only inside the bounded blocking transfer worker, after the entire
+    /// final header gate passes and before truncation, seeking or any body write.
+    fn accepted_headers(&mut self, _headers: AcceptedArtifactHeaders) -> std::io::Result<()> {
+        Ok(())
+    }
+    /// Explicit blocking-worker finalization on both transport success/failure.
+    /// Drop must remain free of SQLite/fsync I/O: queued/cancelled sinks may be
+    /// destroyed on an async executor without ever entering the worker.
+    fn finish_transfer(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+pub enum AcceptedArtifactHeaders {
+    Full { etag: Option<StrongEtag> },
+    Resume { etag: StrongEtag },
 }
 impl ArtifactFile for std::fs::File {
     fn file_len(&self) -> std::io::Result<u64> {
@@ -61,6 +76,9 @@ impl ArtifactFile for std::fs::File {
 #[derive(Clone, PartialEq, Eq)]
 pub struct StrongEtag(String);
 impl StrongEtag {
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
     pub fn new(value: &str) -> Result<Self, TransferError> {
         if value.len() < 2
             || value.len() > 1024
@@ -91,12 +109,15 @@ pub struct ArtifactTransferRequest {
 }
 #[derive(Default)]
 struct CancellationState {
-    cancelled: AtomicBool,
+    cancelled: Arc<AtomicBool>,
     changed: tokio::sync::Notify,
 }
 #[derive(Clone, Default)]
 pub struct TransferCancellation(Arc<CancellationState>);
 impl TransferCancellation {
+    pub(crate) fn stop_flag(&self) -> Arc<AtomicBool> {
+        self.0.cancelled.clone()
+    }
     pub fn cancel(&self) {
         self.0.cancelled.store(true, Ordering::Release);
         self.0.changed.notify_waiters();
@@ -104,7 +125,7 @@ impl TransferCancellation {
     pub fn is_cancelled(&self) -> bool {
         self.0.cancelled.load(Ordering::Acquire)
     }
-    async fn cancelled(&self) {
+    pub(crate) async fn cancelled(&self) {
         let notified = self.0.changed.notified();
         tokio::pin!(notified);
         notified.as_mut().enable();
@@ -113,9 +134,9 @@ impl TransferCancellation {
         }
     }
 }
-struct CancelOnDrop {
-    cancellation: TransferCancellation,
-    armed: bool,
+pub(crate) struct CancelOnDrop {
+    pub(crate) cancellation: TransferCancellation,
+    pub(crate) armed: bool,
 }
 impl Drop for CancelOnDrop {
     fn drop(&mut self) {
@@ -136,6 +157,7 @@ pub enum TransferError {
     SizeMismatch,
     HttpStatus(u16),
     Worker,
+    SourceNotAuthorized,
 }
 impl fmt::Display for TransferError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -160,6 +182,17 @@ pub struct TransferReceipt<S> {
     pub outcome: TransferOutcome,
     pub metadata: ResponseMetadata,
 }
+/// Internal typed grant, constructed from the same validated request endpoint.
+/// Public-IP safety and provider/source authority are separate checks.
+pub(crate) struct SameOriginGrant(Origin);
+impl SameOriginGrant {
+    pub(crate) fn new(endpoint: &Endpoint) -> Self {
+        Self(endpoint.origin())
+    }
+    fn permits(&self, endpoint: &Endpoint) -> bool {
+        self.0 == endpoint.origin()
+    }
+}
 
 impl Broker {
     /// Streaming artifact transfer through the same broker policy/credentials.
@@ -169,6 +202,26 @@ impl Broker {
         request: ArtifactTransferRequest,
         file: S,
         cancel: TransferCancellation,
+    ) -> Result<TransferReceipt<S>, TransferError> {
+        self.artifact_transfer_inner(request, file, cancel, None)
+            .await
+    }
+    pub(crate) async fn artifact_transfer_granted<S: ArtifactFile>(
+        &self,
+        request: ArtifactTransferRequest,
+        file: S,
+        cancel: TransferCancellation,
+        grant: SameOriginGrant,
+    ) -> Result<TransferReceipt<S>, TransferError> {
+        self.artifact_transfer_inner(request, file, cancel, Some(grant))
+            .await
+    }
+    async fn artifact_transfer_inner<S: ArtifactFile>(
+        &self,
+        request: ArtifactTransferRequest,
+        file: S,
+        cancel: TransferCancellation,
+        grant: Option<SameOriginGrant>,
     ) -> Result<TransferReceipt<S>, TransferError> {
         let mut cancel_on_drop = CancelOnDrop {
             cancellation: cancel.clone(),
@@ -190,6 +243,12 @@ impl Broker {
             for hop in 0..=config.max_redirects {
                 if cancel.is_cancelled() {
                     return Err(TransferError::Cancelled);
+                }
+                if grant
+                    .as_ref()
+                    .is_some_and(|grant| !grant.permits(&endpoint))
+                {
+                    return Err(TransferError::SourceNotAuthorized);
                 }
                 let (addresses, headers, leases) = self
                     .artifact_hop(&endpoint, request.credential.as_ref().filter(|_| !stripped))
@@ -330,13 +389,17 @@ struct Worker<S> {
     _connections: ConnectionLeases,
 }
 impl<S: ArtifactFile> Worker<S> {
-    fn check_live(&self) -> Result<(), TransferError> {
+    fn check_job_budget(&self) -> Result<(), TransferError> {
         if self.cancel.is_cancelled() {
             return Err(TransferError::Cancelled);
         }
         if Instant::now() >= self.deadline {
             return Err(NetError::Timeout(TimeoutPhase::Total).into());
         }
+        Ok(())
+    }
+    fn check_live(&self) -> Result<(), TransferError> {
+        self.check_job_budget()?;
         if self.last_progress.elapsed() >= self.no_progress {
             return Err(NetError::Timeout(TimeoutPhase::Body).into());
         }
@@ -417,6 +480,20 @@ impl<S: ArtifactFile> Worker<S> {
         if length.is_some_and(|n| n != self.expected - start) {
             return Err(TransferError::SizeMismatch);
         }
+        let accepted = if self.status == 206 {
+            AcceptedArtifactHeaders::Resume {
+                etag: StrongEtag::new(etag.as_deref().ok_or(TransferError::InvalidRange)?)?,
+            }
+        } else {
+            AcceptedArtifactHeaders::Full {
+                etag: etag
+                    .as_deref()
+                    .and_then(|value| StrongEtag::new(value).ok()),
+            }
+        };
+        self.file
+            .accepted_headers(accepted)
+            .map_err(|_| TransferError::Sink)?;
         if start == 0 {
             self.file.truncate(0).map_err(|_| TransferError::Sink)?;
         }
@@ -462,6 +539,13 @@ impl<S: ArtifactFile> Handler for Worker<S> {
             if let Err(error) = self.finish_headers() {
                 return self.fail(error);
             }
+            if let Err(error) = self.check_job_budget() {
+                return self.fail(error);
+            }
+            // Validated headers and completed durable sink preparation are
+            // progress, just like a completed blocking write callback. Their
+            // execution time remains charged to the unchanged total deadline.
+            self.last_progress = Instant::now();
             return matches!(self.gate, Gate::Accept);
         }
         let Some(colon) = data.iter().position(|b| *b == b':') else {
@@ -537,130 +621,153 @@ fn run_hop<S: ArtifactFile>(
         return Err(TransferError::InvalidRequest);
     }
     let mut easy = Easy2::new(CurlHandler(Some(worker)));
-    let set = |_: curl::Error| TransferError::Network(NetError::Protocol);
-    easy.url(endpoint.url.as_str()).map_err(set)?;
-    easy.proxy("").map_err(set)?;
-    easy.noproxy("*").map_err(set)?;
-    easy.netrc(NetRc::Ignored).map_err(set)?;
-    easy.follow_location(false).map_err(set)?;
-    easy.fresh_connect(true).map_err(set)?;
-    easy.forbid_reuse(true).map_err(set)?;
-    easy.ssl_verify_peer(true).map_err(set)?;
-    easy.ssl_verify_host(true).map_err(set)?;
-    easy.ssl_version(SslVersion::Tlsv12).map_err(set)?;
-    easy.http_version(HttpVersion::V11).map_err(set)?;
-    easy.http_content_decoding(false).map_err(set)?;
-    easy.connect_timeout(connect_timeout).map_err(set)?;
-    easy.timeout(remaining).map_err(set)?;
-    easy.progress(true).map_err(set)?;
-    easy.useragent("CobbleLauncher/0.1").map_err(set)?;
-    let mut resolve = List::new();
-    let ips = addresses
-        .iter()
-        .map(|a| match a.ip() {
-            IpAddr::V4(ip) => ip.to_string(),
-            IpAddr::V6(ip) => format!("[{ip}]"),
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    resolve
-        .append(&format!("{}:443:{ips}", endpoint.host_header()))
-        .map_err(set)?;
-    easy.resolve(resolve).map_err(set)?;
-    #[cfg(test)]
-    if fixture.0 {
-        let mut connect = List::new();
-        connect
-            .append(&format!(
-                "{}:443:{}:{}",
-                endpoint.host_header(),
-                addresses[0].ip(),
-                addresses[0].port()
-            ))
+    let operation = (|| -> Result<(), TransferError> {
+        let set = |_: curl::Error| TransferError::Network(NetError::Protocol);
+        easy.url(endpoint.url.as_str()).map_err(set)?;
+        easy.proxy("").map_err(set)?;
+        easy.noproxy("*").map_err(set)?;
+        easy.netrc(NetRc::Ignored).map_err(set)?;
+        easy.follow_location(false).map_err(set)?;
+        easy.fresh_connect(true).map_err(set)?;
+        easy.forbid_reuse(true).map_err(set)?;
+        easy.ssl_verify_peer(true).map_err(set)?;
+        easy.ssl_verify_host(true).map_err(set)?;
+        easy.ssl_version(SslVersion::Tlsv12).map_err(set)?;
+        easy.http_version(HttpVersion::V11).map_err(set)?;
+        easy.http_content_decoding(false).map_err(set)?;
+        easy.connect_timeout(connect_timeout).map_err(set)?;
+        easy.progress(true).map_err(set)?;
+        easy.useragent("CobbleLauncher/0.1").map_err(set)?;
+        let mut resolve = List::new();
+        let ips = addresses
+            .iter()
+            .map(|a| match a.ip() {
+                IpAddr::V4(ip) => ip.to_string(),
+                IpAddr::V6(ip) => format!("[{ip}]"),
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        resolve
+            .append(&format!("{}:443:{ips}", endpoint.host_header()))
             .map_err(set)?;
-        easy.connect_to(connect).map_err(set)?;
-        if fixture.1 {
-            easy.ssl_cainfo_blob(include_bytes!("../tests/fixtures/synthetic-root.pem"))
+        easy.resolve(resolve).map_err(set)?;
+        #[cfg(test)]
+        if fixture.0 {
+            let mut connect = List::new();
+            connect
+                .append(&format!(
+                    "{}:443:{}:{}",
+                    endpoint.host_header(),
+                    addresses[0].ip(),
+                    addresses[0].port()
+                ))
                 .map_err(set)?;
-            // The original offline test CA has no CRL/OCSP responder. Only
-            // this private synthetic trust path omits Schannel revocation;
-            // CA signatures, validity and hostname checks remain enabled.
-            #[cfg(windows)]
-            {
-                let mut options = curl::easy::SslOpt::new();
-                options.no_revoke(true);
-                easy.ssl_options(&options).map_err(set)?;
+            easy.connect_to(connect).map_err(set)?;
+            if fixture.1 {
+                easy.ssl_cainfo_blob(include_bytes!("../tests/fixtures/synthetic-root.pem"))
+                    .map_err(set)?;
+                // The original offline test CA has no CRL/OCSP responder. Only
+                // this private synthetic trust path omits Schannel revocation;
+                // CA signatures, validity and hostname checks remain enabled.
+                #[cfg(windows)]
+                {
+                    let mut options = curl::easy::SslOpt::new();
+                    options.no_revoke(true);
+                    easy.ssl_options(&options).map_err(set)?;
+                }
             }
         }
-    }
-    let mut request_headers = List::new();
-    request_headers
-        .append("Accept-Encoding: identity")
-        .map_err(set)?;
-    request_headers.append("Connection: close").map_err(set)?;
-    for (name, value) in headers.iter() {
+        let mut request_headers = List::new();
         request_headers
-            .append(&format!(
-                "{}: {}",
-                name.as_str(),
-                value.to_str().map_err(|_| NetError::CredentialScope)?
-            ))
+            .append("Accept-Encoding: identity")
             .map_err(set)?;
-    }
-    if let TransferMode::Resume { offset, etag } = &easy.get_ref().state().mode {
-        let range = format!("{offset}-");
-        request_headers
-            .append(&format!("If-Range: {}", etag.0))
-            .map_err(set)?;
-        easy.range(&range).map_err(set)?;
-    }
-    easy.http_headers(request_headers).map_err(set)?;
-    let result = easy.perform();
-    if let Some(error) = easy.get_ref().state().error {
-        return Err(error);
-    }
-    if matches!(easy.get_ref().state().gate, Gate::Pending) {
-        return Err(match result {
-            Err(error) if error.is_operation_timedout() => NetError::Timeout(TimeoutPhase::Total),
-            Err(error) if error.is_peer_failed_verification() || error.is_ssl_connect_error() => {
-                NetError::Tls
+        request_headers.append("Connection: close").map_err(set)?;
+        for (name, value) in headers.iter() {
+            request_headers
+                .append(&format!(
+                    "{}: {}",
+                    name.as_str(),
+                    value.to_str().map_err(|_| NetError::CredentialScope)?
+                ))
+                .map_err(set)?;
+        }
+        if let TransferMode::Resume { offset, etag } = &easy.get_ref().state().mode {
+            let range = format!("{offset}-");
+            request_headers
+                .append(&format!("If-Range: {}", etag.0))
+                .map_err(set)?;
+            easy.range(&range).map_err(set)?;
+        }
+        easy.http_headers(request_headers).map_err(set)?;
+        // Blocking-pool queueing, file checks and native handle setup consume
+        // the total budget, not an idle-body interval before HTTP even starts.
+        let left = easy
+            .get_ref()
+            .state()
+            .deadline
+            .saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(NetError::Timeout(TimeoutPhase::Total).into());
+        }
+        easy.timeout(left).map_err(set)?;
+        easy.get_mut().state_mut().last_progress = Instant::now();
+        let result = easy.perform();
+        if let Some(error) = easy.get_ref().state().error {
+            return Err(error);
+        }
+        if matches!(easy.get_ref().state().gate, Gate::Pending) {
+            return Err(match result {
+                Err(error) if error.is_operation_timedout() => {
+                    NetError::Timeout(TimeoutPhase::Total)
+                }
+                Err(error)
+                    if error.is_peer_failed_verification() || error.is_ssl_connect_error() =>
+                {
+                    NetError::Tls
+                }
+                _ => NetError::Protocol,
             }
-            _ => NetError::Protocol,
+            .into());
         }
-        .into());
-    }
-    // Additional post-transfer observation, never advertised as a pre-body check.
-    let peer = easy
-        .primary_ip()
-        .map_err(set)?
-        .and_then(|s| s.parse::<IpAddr>().ok());
-    let port = easy.primary_port().map_err(set)?;
-    if !addresses
-        .iter()
-        .any(|a| Some(a.ip()) == peer && a.port() == port)
-    {
-        return Err(NetError::PeerMismatch.into());
-    }
-    if matches!(easy.get_ref().state().gate, Gate::Accept) {
-        if let Err(error) = result {
-            return Err(if error.is_operation_timedout() {
-                NetError::Timeout(TimeoutPhase::Total).into()
-            } else {
-                NetError::Protocol.into()
-            });
+        // Additional post-transfer observation, never advertised as a pre-body check.
+        let peer = easy
+            .primary_ip()
+            .map_err(set)?
+            .and_then(|s| s.parse::<IpAddr>().ok());
+        let port = easy.primary_port().map_err(set)?;
+        if !addresses
+            .iter()
+            .any(|a| Some(a.ip()) == peer && a.port() == port)
+        {
+            return Err(NetError::PeerMismatch.into());
         }
-        let state = easy.get_mut().state_mut();
-        let wanted = state.expected - if state.status == 206 { offset } else { 0 };
-        if state.received != wanted {
-            return Err(TransferError::SizeMismatch);
+        if matches!(easy.get_ref().state().gate, Gate::Accept) {
+            if let Err(error) = result {
+                return Err(if error.is_operation_timedout() {
+                    NetError::Timeout(TimeoutPhase::Total).into()
+                } else {
+                    NetError::Protocol.into()
+                });
+            }
+            let state = easy.get_mut().state_mut();
+            let wanted = state.expected - if state.status == 206 { offset } else { 0 };
+            if state.received != wanted {
+                return Err(TransferError::SizeMismatch);
+            }
+            state.file.flush().map_err(|_| TransferError::Sink)?;
+        } else if matches!(easy.get_ref().state().gate, Gate::Pending) {
+            return Err(NetError::Protocol.into());
         }
-        state.file.flush().map_err(|_| TransferError::Sink)?;
-    } else if matches!(easy.get_ref().state().gate, Gate::Pending) {
-        return Err(NetError::Protocol.into());
-    }
-    // perform has ended; cleanup the native handle before releasing worker leases.
+        Ok(())
+    })();
+    // No Drop checkpoint: explicit finalization always happens on this actual
+    // blocking worker, even if its async caller has already been cancelled.
+    let finalized = easy.get_mut().state_mut().file.finish_transfer();
     let state = easy.get_mut().0.take().expect("owned worker");
     drop(easy);
+    finalized.map_err(|_| TransferError::Sink)?;
+    operation?;
+    state.check_job_budget()?;
     Ok(state)
 }
 

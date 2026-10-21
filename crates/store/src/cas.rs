@@ -146,8 +146,9 @@ pub enum PublicationDurability {
     /// File data/metadata and affected directory handles were synced. Actual
     /// power-loss behavior remains filesystem/hardware dependent.
     FileAndDirectoriesSynced,
-    /// Windows file FlushFileBuffers completed. Directory entry crash
-    /// durability has not been established and is not promised by this slice.
+    /// File data was synced; directory entry crash durability is unverified.
+    /// This is normal on Windows, and conservative after publication recovery
+    /// on any OS. No complete directory-tree durability is promised.
     FileSyncedDirectoryDurabilityUnverified,
 }
 
@@ -227,7 +228,25 @@ impl ContentStore {
     pub fn open_verified(
         &self,
         sha256: [u8; 32],
+        expectation: ArtifactExpectation,
+    ) -> Result<VerifiedArtifact, CasError> {
+        self.open_verified_inner(sha256, expectation, None)
+    }
+    /// Cooperative full-file confirmation for download recovery. Check the
+    /// typed stop/deadline between bounded reads; never publish on this path.
+    pub fn open_verified_with_budget(
+        &self,
+        sha256: [u8; 32],
+        expectation: ArtifactExpectation,
+        budget: &crate::StageRecoveryBudget,
+    ) -> Result<VerifiedArtifact, CasError> {
+        self.open_verified_inner(sha256, expectation, Some(budget))
+    }
+    fn open_verified_inner(
+        &self,
+        sha256: [u8; 32],
         mut expectation: ArtifactExpectation,
+        budget: Option<&crate::StageRecoveryBudget>,
     ) -> Result<VerifiedArtifact, CasError> {
         if expectation
             .digests
@@ -245,10 +264,14 @@ impl ContentStore {
             .open_dir_nofollow(&digest[..2])
             .map_err(absent)?;
         check_directory(&prefix)?;
-        let mut input = open_regular(&prefix, &digest).map_err(|error| match error {
+        let input = open_regular(&prefix, &digest).map_err(|error| match error {
             CasError::Io(error) => absent(error),
             other => other,
         })?;
+        let mut input = BudgetRead {
+            file: input,
+            budget,
+        };
         stream_verified(&mut input, &mut io::sink(), expectation).map_err(existing_error)
     }
 
@@ -338,6 +361,21 @@ impl ContentStore {
             Err(TryLockError::WouldBlock) => Err(CasError::Busy),
             Err(TryLockError::Error(error)) => Err(error.into()),
         }
+    }
+}
+
+struct BudgetRead<'a> {
+    file: File,
+    budget: Option<&'a crate::StageRecoveryBudget>,
+}
+impl Read for BudgetRead<'_> {
+    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+        if let Some(budget) = self.budget {
+            budget
+                .check()
+                .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "verification stopped"))?;
+        }
+        self.file.read(out)
     }
 }
 

@@ -20,6 +20,11 @@ use cap_fs_ext::{DirExt, FollowSymlinks, MetadataExt, OpenOptionsFollowExt};
 use cap_std::fs::{Dir, File, OpenOptions};
 use rusqlite::{Connection, MAIN_DB, config::DbConfig, limits::Limit, params};
 use sha2::{Digest, Sha256};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use std::time::Instant;
 use std::{
     fmt,
     fs::TryLockError,
@@ -48,6 +53,8 @@ pub enum StageError {
     /// The new snapshot may already be visible. Keep the part and reopen the
     /// job after releasing ownership; never interpret this as proof of absence.
     CheckpointMayExist,
+    Deadline,
+    Cancelled,
 }
 impl fmt::Display for StageError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -63,6 +70,8 @@ impl fmt::Display for StageError {
             Self::IdentityMismatch => "checkpoint request identity mismatch",
             Self::RandomUnavailable => "OS randomness unavailable",
             Self::CheckpointMayExist => "checkpoint may exist; durability needs recovery",
+            Self::Deadline => "download staging recovery deadline exceeded",
+            Self::Cancelled => "download staging recovery cancelled",
         })
     }
 }
@@ -107,6 +116,26 @@ pub struct DownloadStaging {
     root: Dir,
     jobs: Dir,
 }
+/// Typed cooperative recovery control; no caller code is invoked by the store.
+#[derive(Clone)]
+pub struct StageRecoveryBudget {
+    deadline: Instant,
+    stop: Arc<AtomicBool>,
+}
+impl StageRecoveryBudget {
+    pub fn new(deadline: Instant, stop: Arc<AtomicBool>) -> Self {
+        Self { deadline, stop }
+    }
+    pub(crate) fn check(&self) -> Result<(), StageError> {
+        if self.stop.load(Ordering::Acquire) {
+            Err(StageError::Cancelled)
+        } else if Instant::now() >= self.deadline {
+            Err(StageError::Deadline)
+        } else {
+            Ok(())
+        }
+    }
+}
 pub struct DownloadStage {
     root: Dir,
     jobs: Dir,
@@ -115,6 +144,7 @@ pub struct DownloadStage {
     identity: StageIdentity,
     recovery: StageRecovery,
     prefix: Option<PrefixHash>,
+    recovery_budget: Option<StageRecoveryBudget>,
     #[cfg(test)]
     prefix_bytes_read: u64,
     _lifecycle: std::fs::File,
@@ -140,6 +170,35 @@ impl DownloadStaging {
     }
 
     pub fn open_job(&self, identity: StageIdentity) -> Result<DownloadStage, StageError> {
+        self.open_job_inner(identity, None)
+    }
+    /// Bounded recovery scanning. OS file I/O itself cannot be forcibly
+    /// interrupted; the deadline is checked between prefix-read chunks.
+    pub fn open_job_with_deadline(
+        &self,
+        identity: StageIdentity,
+        deadline: Instant,
+    ) -> Result<DownloadStage, StageError> {
+        self.open_job_with_budget(
+            identity,
+            StageRecoveryBudget::new(deadline, Arc::new(AtomicBool::new(false))),
+        )
+    }
+    pub fn open_job_with_budget(
+        &self,
+        identity: StageIdentity,
+        budget: StageRecoveryBudget,
+    ) -> Result<DownloadStage, StageError> {
+        self.open_job_inner(identity, Some(budget))
+    }
+    fn open_job_inner(
+        &self,
+        identity: StageIdentity,
+        budget: Option<StageRecoveryBudget>,
+    ) -> Result<DownloadStage, StageError> {
+        if let Some(budget) = &budget {
+            budget.check()?;
+        }
         let identity = identity.validate()?;
         let lifecycle = lease(&self.root, ".lifecycle.lock", false)?;
         let name = hex(&identity.request_key);
@@ -161,6 +220,7 @@ impl DownloadStaging {
             identity,
             recovery: StageRecovery::Full,
             prefix: None,
+            recovery_budget: budget,
             #[cfg(test)]
             prefix_bytes_read: 0,
             _lifecycle: lifecycle,
@@ -227,6 +287,35 @@ impl DownloadStaging {
 }
 
 impl DownloadStage {
+    /// After a confirmed CAS publication, remove only this private job's part
+    /// and checkpoint while retaining both owner leases through all operations.
+    /// Failure never authorizes deleting the CAS artifact or implies its absence.
+    pub fn discard(self) -> Result<PublicationDurability, StageError> {
+        let Self {
+            root,
+            jobs,
+            job,
+            file,
+            _lifecycle,
+            _owner,
+            ..
+        } = self;
+        drop(file);
+        for name in [PART, SNAPSHOT] {
+            match open_file(&job, name, false, false) {
+                Ok(file) => {
+                    drop(file);
+                    job.remove_file(name)?;
+                }
+                Err(StageError::Io(error)) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+        sync_dir(&job)?;
+        sync_dir(&jobs)?;
+        sync_dir(&root)?;
+        Ok(durability())
+    }
     pub fn recovery(&self) -> &StageRecovery {
         &self.recovery
     }
@@ -303,6 +392,9 @@ impl DownloadStage {
             let mut left = length;
             let mut buffer = [0_u8; 64 * 1024];
             while left > 0 {
+                if let Some(budget) = &self.recovery_budget {
+                    budget.check()?;
+                }
                 let count = self
                     .file
                     .read(&mut buffer[..left.min(64 * 1024) as usize])?;

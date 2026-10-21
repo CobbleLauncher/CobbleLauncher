@@ -473,6 +473,8 @@ name = "cobble-net"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "cap-std",
+ "cobble-store",
  "curl",
  "http",
  "http-body-util",

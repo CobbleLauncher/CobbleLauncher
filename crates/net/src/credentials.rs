@@ -2,6 +2,28 @@
 use crate::NetError;
 use crate::policy::{Endpoint, Origin, path_safe};
 use http::header::{AUTHORIZATION, COOKIE, HeaderMap, HeaderValue};
+use sha2::{Digest, Sha256};
+
+/// Stable nonsecret provider/principal permission-record identity asserted by
+/// trusted Core. Never pass tokens, cookies or API keys. This is a partition,
+/// not authentication: provider authorization/rotation belongs to auth adapters.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct CredentialPartition(pub(crate) [u8; 32]);
+impl CredentialPartition {
+    pub fn new(nonsecret_label: &str) -> Result<Self, NetError> {
+        if nonsecret_label.is_empty()
+            || nonsecret_label.len() > 128
+            || !nonsecret_label.bytes().all(|b| b.is_ascii_graphic())
+        {
+            return Err(NetError::CredentialScope);
+        }
+        let mut hash = Sha256::new();
+        hash.update(b"CobbleLauncher credential partition v1\0");
+        hash.update((nonsecret_label.len() as u32).to_be_bytes());
+        hash.update(nonsecret_label.as_bytes());
+        Ok(Self(hash.finalize().into()))
+    }
+}
 
 /// Opaque process-local credential reference. No secrets are returned by it.
 #[derive(Clone)]
@@ -42,7 +64,7 @@ impl CredentialScope {
             prefix,
         })
     }
-    fn matches(&self, endpoint: &Endpoint) -> bool {
+    pub(crate) fn matches(&self, endpoint: &Endpoint) -> bool {
         let path = endpoint.url.path();
         self.origin == endpoint.origin()
             && endpoint.credential_path_safe
@@ -56,8 +78,9 @@ impl CredentialScope {
 }
 
 pub(crate) struct CredentialEntry {
-    scope: CredentialScope,
+    pub(crate) scope: CredentialScope,
     headers: HeaderMap,
+    pub(crate) download_partition: Option<CredentialPartition>,
 }
 impl CredentialEntry {
     pub fn new(scope: CredentialScope, secrets: ProviderCredentials) -> Result<Self, NetError> {
@@ -86,7 +109,11 @@ impl CredentialEntry {
         if headers.is_empty() {
             return Err(NetError::CredentialScope);
         }
-        Ok(Self { scope, headers })
+        Ok(Self {
+            scope,
+            headers,
+            download_partition: None,
+        })
     }
     pub fn attach(&self, endpoint: &Endpoint, headers: &mut HeaderMap) {
         if self.scope.matches(endpoint) {

@@ -21,4 +21,5 @@ pub use cas::{
 mod staging;
 pub use staging::{
     DownloadCheckpoint, DownloadStage, DownloadStaging, StageError, StageIdentity, StageRecovery,
+    StageRecoveryBudget,
 };

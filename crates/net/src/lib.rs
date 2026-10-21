@@ -7,14 +7,18 @@
 mod artifact;
 mod broker;
 mod credentials;
+mod download;
 mod policy;
 pub use artifact::{
-    ArtifactFile, ArtifactTransferRequest, StrongEtag, TransferCancellation, TransferError,
-    TransferMode, TransferOutcome, TransferReceipt,
+    AcceptedArtifactHeaders, ArtifactFile, ArtifactTransferRequest, StrongEtag,
+    TransferCancellation, TransferError, TransferMode, TransferOutcome, TransferReceipt,
 };
 pub use broker::{
     Broker, BrokerConfig, BufferedResponse, NetError, ResponseMetadata, TimeoutPhase,
 };
-pub use credentials::{CredentialId, CredentialScope, ProviderCredentials};
+pub use credentials::{CredentialId, CredentialPartition, CredentialScope, ProviderCredentials};
+pub use download::{
+    ArtifactDownloader, DownloadAuthority, DownloadError, DownloadRequest, DownloadResult,
+};
 #[cfg(test)]
 mod tests;

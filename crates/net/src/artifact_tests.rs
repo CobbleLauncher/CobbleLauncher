@@ -563,3 +563,99 @@ async fn curl_dropping_future_keeps_worker_leases_until_actual_exit() {
     drop(release);
     settled(&observed).await;
 }
+
+struct SlowPreparation {
+    file: TestFile,
+    during_headers: bool,
+}
+impl Read for SlowPreparation {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        self.file.read(out)
+    }
+}
+impl Write for SlowPreparation {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.file.write(bytes)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file.flush()
+    }
+}
+impl Seek for SlowPreparation {
+    fn seek(&mut self, at: SeekFrom) -> std::io::Result<u64> {
+        self.file.seek(at)
+    }
+}
+impl ArtifactFile for SlowPreparation {
+    fn file_len(&self) -> std::io::Result<u64> {
+        if !self.during_headers {
+            std::thread::sleep(Duration::from_millis(650));
+        }
+        self.file.file_len()
+    }
+    fn truncate(&mut self, len: u64) -> std::io::Result<()> {
+        self.file.truncate(len)
+    }
+    fn accepted_headers(&mut self, _: crate::AcceptedArtifactHeaders) -> std::io::Result<()> {
+        if self.during_headers {
+            std::thread::sleep(Duration::from_millis(650));
+        }
+        Ok(())
+    }
+}
+#[tokio::test]
+async fn curl_no_progress_clock_does_not_charge_worker_or_accepted_header_preparation_as_idle_body()
+{
+    for during_headers in [false, true] {
+        let server = Server::new(|_| ok()).await;
+        let (_temp, file, _) = file(b"");
+        let result = server
+            .broker(config())
+            .artifact_transfer(
+                request(TransferMode::Full, 3),
+                SlowPreparation {
+                    file,
+                    during_headers,
+                },
+                TransferCancellation::default(),
+            )
+            .await;
+        assert!(
+            result.is_ok(),
+            "preparation was incorrectly charged as idle body: {:?}",
+            result.err()
+        );
+        assert_eq!(server.captured().len(), 1);
+    }
+    // Preparation is still covered by the total deadline. Its blocking worker
+    // retains the file/leases until it actually notices expiration and exits.
+    for during_headers in [false, true] {
+        let server = Server::new(|_| {
+            raw(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec())
+        })
+        .await;
+        let (_temp, file, observed) = file(b"");
+        let mut settings = config();
+        settings.total_timeout = Duration::from_millis(200);
+        let result = server
+            .broker(settings)
+            .artifact_transfer(
+                request(TransferMode::Full, 0),
+                SlowPreparation {
+                    file,
+                    during_headers,
+                },
+                TransferCancellation::default(),
+            )
+            .await;
+        assert!(matches!(
+            result,
+            Err(TransferError::Network(NetError::Timeout(
+                TimeoutPhase::Total
+            )))
+        ));
+        settled(&observed).await;
+        assert_eq!(server.captured().len(), usize::from(during_headers));
+        assert_eq!(observed.writes.load(Ordering::Relaxed), 0);
+    }
+}

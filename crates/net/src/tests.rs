@@ -38,7 +38,7 @@ pub(crate) struct FixtureRouting {
     calls: Arc<AtomicUsize>,
 }
 impl FixtureRouting {
-    fn new(address: SocketAddr) -> Self {
+    pub(crate) fn new(address: SocketAddr) -> Self {
         let mut routes = HashMap::new();
         for host in [
             "one.fixture.invalid",
@@ -76,13 +76,13 @@ impl FixtureRouting {
 }
 
 type Plan = Vec<(Duration, Vec<u8>)>;
-struct Server {
-    address: SocketAddr,
+pub(crate) struct Server {
+    pub(crate) address: SocketAddr,
     requests: Arc<Mutex<Vec<String>>>,
     task: tokio::task::JoinHandle<()>,
 }
 impl Server {
-    async fn new(handler: impl Fn(&str) -> Plan + Send + Sync + 'static) -> Self {
+    pub(crate) async fn new(handler: impl Fn(&str) -> Plan + Send + Sync + 'static) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let identity = native_tls::Identity::from_pkcs12(
@@ -138,10 +138,10 @@ impl Server {
             task,
         }
     }
-    fn broker(&self, config: BrokerConfig) -> Broker {
+    pub(crate) fn broker(&self, config: BrokerConfig) -> Broker {
         Broker::fixture(config, FixtureRouting::new(self.address), Some(root()))
     }
-    fn captured(&self) -> Vec<String> {
+    pub(crate) fn captured(&self) -> Vec<String> {
         self.requests.lock().unwrap().clone()
     }
 }
@@ -150,11 +150,11 @@ impl Drop for Server {
         self.task.abort();
     }
 }
-fn root() -> native_tls::Certificate {
+pub(crate) fn root() -> native_tls::Certificate {
     native_tls::Certificate::from_der(include_bytes!("../tests/fixtures/synthetic-root.der"))
         .unwrap()
 }
-fn config() -> BrokerConfig {
+pub(crate) fn config() -> BrokerConfig {
     BrokerConfig {
         connect_timeout: Duration::from_secs(2),
         no_progress_timeout: Duration::from_millis(500),
@@ -162,7 +162,7 @@ fn config() -> BrokerConfig {
         ..BrokerConfig::default()
     }
 }
-fn raw(bytes: impl Into<Vec<u8>>) -> Plan {
+pub(crate) fn raw(bytes: impl Into<Vec<u8>>) -> Plan {
     vec![(Duration::ZERO, bytes.into())]
 }
 fn ok() -> Plan {

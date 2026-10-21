@@ -205,6 +205,22 @@ fn stage_closed_sqlite_schema_version_rows_and_header_profile_fail_closed() {
 fn stage_limits_exclusive_owner_cleanup_and_scoped_names() {
     let temp = Temp::new();
     let mut staging = temp.staging();
+    let stopped = StageRecoveryBudget::new(
+        Instant::now() + Duration::from_secs(1),
+        Arc::new(AtomicBool::new(true)),
+    );
+    assert!(matches!(
+        staging.open_job_with_budget(identity(), stopped),
+        Err(StageError::Cancelled)
+    ));
+    let expired = StageRecoveryBudget::new(
+        Instant::now() - Duration::from_secs(1),
+        Arc::new(AtomicBool::new(false)),
+    );
+    assert!(matches!(
+        staging.open_job_with_budget(identity(), expired),
+        Err(StageError::Deadline)
+    ));
     let mut stage = staging.open_job(identity()).unwrap();
     assert!(matches!(
         staging.open_job(identity()),

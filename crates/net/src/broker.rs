@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 use crate::credentials::CredentialEntry;
+use crate::credentials::CredentialPartition;
 use crate::policy::{Endpoint, Origin, validate_addresses};
 use crate::{CredentialId, CredentialScope, ProviderCredentials};
 use bytes::Bytes;
@@ -167,13 +168,40 @@ impl Broker {
         scope: CredentialScope,
         secrets: ProviderCredentials,
     ) -> Result<CredentialId, NetError> {
-        let entry = CredentialEntry::new(scope, secrets)?;
+        self.register_credential_entry(scope, secrets, None)
+    }
+    /// Download registration binds a stable nonsecret permission partition to
+    /// this exact broker entry. Duplicate partitions are refused; credential
+    /// rotation needs an explicit future auth transition, not accidental reuse.
+    pub fn register_download_credentials(
+        &self,
+        scope: CredentialScope,
+        secrets: ProviderCredentials,
+        partition: CredentialPartition,
+    ) -> Result<CredentialId, NetError> {
+        self.register_credential_entry(scope, secrets, Some(partition))
+    }
+    fn register_credential_entry(
+        &self,
+        scope: CredentialScope,
+        secrets: ProviderCredentials,
+        partition: Option<CredentialPartition>,
+    ) -> Result<CredentialId, NetError> {
+        let mut entry = CredentialEntry::new(scope, secrets)?;
+        entry.download_partition = partition;
         let mut entries = self
             .inner
             .credentials
             .lock()
             .map_err(|_| NetError::CredentialScope)?;
         if entries.len() >= 64 {
+            return Err(NetError::CredentialScope);
+        }
+        if partition.is_some()
+            && entries
+                .iter()
+                .any(|entry| entry.download_partition == partition)
+        {
             return Err(NetError::CredentialScope);
         }
         let id = CredentialId {
@@ -510,6 +538,30 @@ pub(crate) struct ConnectionLeases {
 // Shared policy, credential namespace and resource budgets for the libcurl
 // artifact adapter. Metadata requests continue to use the existing transport.
 impl Broker {
+    pub(crate) fn check_download_credentials(
+        &self,
+        endpoint: &Endpoint,
+        credential: Option<&CredentialId>,
+        partition: Option<CredentialPartition>,
+    ) -> Result<(), NetError> {
+        match (credential, partition) {
+            (None, None) => Ok(()),
+            (Some(id), Some(partition)) if Arc::ptr_eq(&id.identity, &self.inner.identity) => {
+                let entries = self
+                    .inner
+                    .credentials
+                    .lock()
+                    .map_err(|_| NetError::CredentialScope)?;
+                let entry = entries.get(id.index).ok_or(NetError::CredentialScope)?;
+                if entry.download_partition == Some(partition) && entry.scope.matches(endpoint) {
+                    Ok(())
+                } else {
+                    Err(NetError::CredentialScope)
+                }
+            }
+            _ => Err(NetError::CredentialScope),
+        }
+    }
     pub(crate) fn artifact_config(&self) -> BrokerConfig {
         self.inner.config
     }
