@@ -9,7 +9,7 @@ test('first render uses no external network or simulated game state', async ({ p
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '还没有游戏' })).toBeVisible();
   await expect(page.locator('body')).not.toContainText('本地界面已就绪');
-  await expect(page.getByRole('button', { name: '创建游戏' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '创建游戏', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: '导入整合包' })).toBeDisabled();
   await page.context().setOffline(true);
   await page.getByRole('button', { name: '打开设置' }).click();

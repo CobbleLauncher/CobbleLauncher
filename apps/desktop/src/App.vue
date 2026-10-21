@@ -1,11 +1,48 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue';
-import { isTauri } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { DialogRoot, DialogTrigger, DialogPortal, DialogOverlay, DialogContent, DialogTitle, DialogDescription, DialogClose, RadioGroupRoot, RadioGroupItem } from 'reka-ui';
 import { applyTheme, readTheme, type Theme } from './theme';
 import { defaultDownloadSettings, readDownloadSettings, saveDownloadSettings, validateDownloadSettings } from './download-settings';
+import CreateGameDialog from './CreateGameDialog.vue';
+import GameCard from './GameCard.vue';
+import type { Game } from './games';
+const createDialog = ref<InstanceType<typeof CreateGameDialog>>();
+const games = ref<Game[]>([]);
+const retrying = ref<string[]>([]);
+let unlisten: UnlistenFn | undefined;
+let disposed = false;
+function updateGame(game: Game) {
+  const index = games.value.findIndex((item) => item.id === game.id);
+  if (index < 0) games.value.unshift(game);
+  else games.value[index] = game;
+}
+function addCreatedGame(game: Game) {
+  if (!games.value.some((item) => item.id === game.id)) games.value.unshift(game);
+}
+async function loadGames() {
+  if (!native) return;
+  try {
+    const stop = await listen<Game>('game-install', (event) => updateGame(event.payload));
+    if (disposed) { stop(); return; }
+    unlisten = stop;
+    const stored = await invoke<Game[]>('list_games');
+    for (const game of stored) if (!games.value.some((item) => item.id === game.id)) games.value.push(game);
+  } catch { error.value = '无法读取游戏库，请重新打开应用'; }
+}
+async function retryGame(id: string) {
+  if (retrying.value.includes(id)) return;
+  retrying.value.push(id);
+  try {
+    const game = await invoke<Game>('retry_game', { id });
+    if (games.value.find((item) => item.id === id)?.status === 'failed') updateGame(game);
+  }
+  catch (cause) { error.value = `无法重试安装：${String(cause)}`; }
+  finally { retrying.value = retrying.value.filter((item) => item !== id); }
+}
 const theme = ref<Theme>(readTheme());
 const native = isTauri();
 const maximized = ref(false);
@@ -51,8 +88,8 @@ async function windowAction(action: 'minimize' | 'toggleMaximize' | 'close') {
   try { error.value = ''; await getCurrentWindow()[action](); await syncWindow(); }
   catch { error.value = '窗口操作失败，请重试'; }
 }
-onMounted(() => { applyTheme(theme.value); void syncWindow(); window.addEventListener('resize', syncWindow); });
-onUnmounted(() => window.removeEventListener('resize', syncWindow));
+onMounted(() => { applyTheme(theme.value); void syncWindow(); void loadGames(); window.addEventListener('resize', syncWindow); });
+onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('resize', syncWindow); });
 </script>
 <template>
   <div class="launcher">
@@ -105,7 +142,7 @@ onUnmounted(() => window.removeEventListener('resize', syncWindow));
         <div>
           <p class="overline">
             MINECRAFT JAVA
-          </p><h1>游戏库<span class="count">0</span></h1>
+          </p><h1>游戏库<span class="count">{{ games.length }}</span></h1>
         </div>
         <DialogRoot
           :open="settingsOpen"
@@ -233,6 +270,7 @@ onUnmounted(() => window.removeEventListener('resize', syncWindow));
         </DialogRoot>
       </div>
       <section
+        v-if="!games.length"
         class="empty-library"
         aria-labelledby="empty-title"
       >
@@ -311,9 +349,7 @@ onUnmounted(() => window.removeEventListener('resize', syncWindow));
         <div class="start-actions">
           <button
             class="primary-button"
-            disabled
-            title="暂不可用"
-            aria-describedby="feature-availability"
+            @click="createDialog?.show()"
           >
             <span aria-hidden="true">＋</span>创建游戏
           </button><button
@@ -327,8 +363,31 @@ onUnmounted(() => window.removeEventListener('resize', syncWindow));
         </div><span
           id="feature-availability"
           class="sr-only"
-        >创建和导入暂不可用</span>
+        >导入整合包暂不可用</span>
       </section>
+      <section
+        v-else
+        class="game-library"
+        aria-label="已创建的游戏"
+      >
+        <GameCard
+          v-for="game in games"
+          :key="game.id"
+          :game="game"
+          :retrying="retrying.includes(game.id)"
+          @retry="retryGame"
+        />
+        <button
+          class="add-game-button"
+          @click="createDialog?.show()"
+        >
+          <span aria-hidden="true">＋</span> 创建游戏
+        </button>
+      </section>
+      <CreateGameDialog
+        ref="createDialog"
+        @created="addCreatedGame"
+      />
       <p
         v-if="error"
         role="alert"

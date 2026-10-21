@@ -5,7 +5,6 @@ use cobble_minecraft::{DownloadSource, VersionCatalog, VersionKind};
 use cobble_net::{Broker, BrokerConfig};
 use std::io::{self, Write};
 use std::process::ExitCode;
-mod cache;
 mod install;
 
 fn main() -> ExitCode {

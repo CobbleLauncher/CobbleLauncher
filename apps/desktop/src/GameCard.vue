@@ -1,0 +1,97 @@
+<!-- SPDX-License-Identifier: MIT -->
+<script setup lang="ts">
+import { computed } from 'vue';
+import type { Game } from './games';
+const props = defineProps<{ game: Game; retrying: boolean }>();
+defineEmits<{ retry: [id: string] }>();
+const phase = computed(() => ({ metadata: '获取游戏信息', files: '下载游戏文件', assets: '下载游戏资源', complete: '安装完成' })[props.game.progress?.phase ?? 'metadata']);
+const percent = computed(() => {
+  const progress = props.game.progress;
+  return progress && progress.total > 0 ? Math.min(100, progress.completed / progress.total * 100) : 0;
+});
+</script>
+
+<template>
+  <article
+    class="game-card"
+    :aria-label="game.name"
+  >
+    <div
+      class="game-cover"
+      aria-hidden="true"
+    >
+      <svg
+        viewBox="0 0 80 80"
+        stroke="none"
+      ><path
+        fill="var(--scene-top)"
+        d="m12 24 28-16 28 16-28 16z"
+      /><path
+        fill="var(--scene-left)"
+        d="m12 24 28 16v32L12 56z"
+      /><path
+        fill="var(--scene-right)"
+        d="m40 40 28-16v32L40 72z"
+      /><path
+        fill="var(--stone-left)"
+        d="m12 35 28 16v21L12 56z"
+      /><path
+        fill="var(--stone-right)"
+        d="m40 51 28-16v21L40 72z"
+      /></svg>
+    </div>
+    <div class="game-details">
+      <div class="game-card-title">
+        <h2>{{ game.name }}</h2><span
+          v-if="game.status === 'installed'"
+          class="installed-label"
+        >✓ 已安装</span><span
+          v-else-if="game.status === 'failed'"
+          class="failed-label"
+        >安装未完成</span>
+      </div>
+      <p class="game-version">
+        Minecraft {{ game.version }} <span>· 原版</span>
+      </p>
+      <template v-if="game.status === 'installing'">
+        <div
+          class="install-status"
+          role="status"
+        >
+          <span>{{ phase }}</span><span v-if="game.progress && game.progress.total > 0">{{ game.progress.completed }} / {{ game.progress.total }}</span>
+        </div>
+        <div
+          class="install-track"
+          role="progressbar"
+          :aria-label="phase"
+          :aria-valuenow="game.progress?.completed"
+          :aria-valuemax="game.progress?.total || undefined"
+        >
+          <div :style="{ width: `${percent}%` }" />
+        </div>
+      </template>
+      <p
+        v-if="game.status === 'failed'"
+        class="game-error"
+        role="alert"
+      >
+        {{ game.error || '安装中断，请重试' }}
+      </p>
+      <p
+        v-if="game.status === 'installed'"
+        class="game-directory"
+        :title="game.directory"
+      >
+        {{ game.directory }}
+      </p>
+    </div>
+    <button
+      v-if="game.status === 'failed'"
+      class="secondary-button retry-button"
+      :disabled="retrying"
+      @click="$emit('retry', game.id)"
+    >
+      {{ retrying ? '重试中…' : '重试安装' }}
+    </button>
+  </article>
+</template>

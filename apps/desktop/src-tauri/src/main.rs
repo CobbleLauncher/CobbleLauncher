@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod games;
 
 #[tauri::command]
 fn get_app_info() -> cobble_domain::AppInfo {
@@ -18,10 +19,17 @@ fn set_download_settings(settings: cobble_minecraft::DownloadSettings) -> Result
 
 fn main() {
     tauri::Builder::default()
+        .manage(games::GameLibrary::load())
         .invoke_handler(tauri::generate_handler![
             get_app_info,
             get_download_settings,
-            set_download_settings
+            set_download_settings,
+            games::list_game_versions,
+            games::list_games,
+            games::default_game_directory,
+            games::pick_game_directory,
+            games::create_game,
+            games::retry_game
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Cobble Launcher");
