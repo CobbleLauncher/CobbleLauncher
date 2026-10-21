@@ -17,10 +17,12 @@ Implemented:
 - A content-addressed artifact store with digest verification and independent writable copies.
 - An HTTPS network broker with destination validation, scoped credentials, bounded responses and cancellation.
 - Resumable artifact downloads with durable checkpoints and whole-file digest verification before storage.
+- Shared in-process downloads with independent cancellation and bounded retries.
+- A live Minecraft version catalog available through the CLI.
 
 The current implementation has been tested on Windows. macOS and Linux are target platforms; they have not yet been validated on physical devices.
 
-Next: shared download scheduling and retries, recoverable installation transactions, Java management, Microsoft sign-in and actual game launching. Fabric, Forge/NeoForge and modpack workflows are planned, not currently supported features.
+Next: version metadata and installation, Java management, Microsoft sign-in and actual game launching. Fabric, Forge/NeoForge and modpack workflows are planned, not currently supported features.
 
 ## Microsoft / Minecraft integration
 
@@ -52,6 +54,15 @@ pnpm desktop:build
 ```
 
 This builds the current desktop shell; it does not enable unfinished game features.
+
+List available Minecraft versions:
+
+```sh
+cargo run -p cobble-cli --locked -- versions
+cargo run -p cobble-cli --locked -- versions --all
+```
+
+The default lists the latest 20 releases. `--all` includes snapshots and historical versions; listing a version does not imply that installation or launch is supported yet.
 
 ## Tests
 

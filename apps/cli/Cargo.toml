@@ -8,6 +8,9 @@ publish.workspace = true
 
 [dependencies]
 cobble-core.workspace = true
+cobble-minecraft.workspace = true
+cobble-net.workspace = true
+tokio.workspace = true
 
 [[bin]]
 name = "cobble"

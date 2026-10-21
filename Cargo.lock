@@ -432,6 +432,9 @@ name = "cobble-cli"
 version = "0.1.0"
 dependencies = [
  "cobble-core",
+ "cobble-minecraft",
+ "cobble-net",
+ "tokio",
 ]
 
 [[package]]
@@ -467,6 +470,11 @@ dependencies = [
 [[package]]
 name = "cobble-minecraft"
 version = "0.1.0"
+dependencies = [
+ "cobble-net",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "cobble-net"

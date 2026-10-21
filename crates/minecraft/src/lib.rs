@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
-//! Minecraft metadata, Java selection and launch argument construction.
-//!
-//! Reserved module boundary; implementation has not started.
+//! Minecraft version catalog. Installation and launch planning follow separately.
+
+mod catalog;
+pub use catalog::{CatalogError, LatestVersions, VersionCatalog, VersionKind, VersionSummary};
