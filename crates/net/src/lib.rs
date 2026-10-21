@@ -4,9 +4,14 @@
 //! encoding only; no proxy, automatic redirect, cookie jar or retry behavior.
 //! This crate exposes no renderer IPC and grants no provider authorization.
 
+mod artifact;
 mod broker;
 mod credentials;
 mod policy;
+pub use artifact::{
+    ArtifactFile, ArtifactTransferRequest, StrongEtag, TransferCancellation, TransferError,
+    TransferMode, TransferOutcome, TransferReceipt,
+};
 pub use broker::{
     Broker, BrokerConfig, BufferedResponse, NetError, ResponseMetadata, TimeoutPhase,
 };

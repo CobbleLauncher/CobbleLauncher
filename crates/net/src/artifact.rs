@@ -1,0 +1,691 @@
+// SPDX-License-Identifier: MIT
+//! Thin libcurl artifact transport, not an installer or a verified CAS handle.
+//! Core owns the pre-opened file; renderer/plugins receive no paths or options.
+//! Every hop uses a fresh, non-reusable libcurl handle, pinned DNS addresses,
+//! verified TLS, no proxy and no automatic redirects. The safe binding cannot
+//! inspect the socket peer from a header callback without reentrant FFI: pinning
+//! fixes the destination structurally; primary IP/port is checked after perform.
+//! No claim is made that the peer was read from the socket before body writes.
+//!
+//! Filesystem writes run on bounded blocking workers. Dropping the future marks
+//! cancellation; it never releases worker leases or pretends to stop a live
+//! blocking task. libcurl cancellation is cooperative (idle callbacks can be
+//! about one second apart), with a hard libcurl transfer deadline as backstop.
+//! Arbitrary blocking filesystem implementations cannot be forcibly interrupted.
+//! Failed/cancelled transfers may leave a partial; no outcome commits to CAS.
+
+use crate::broker::{ConnectionLeases, ResponseMetadata};
+use crate::policy::Endpoint;
+use crate::{Broker, CredentialId, NetError, TimeoutPhase};
+use curl::easy::{Easy2, Handler, HttpVersion, List, NetRc, SslVersion, WriteError};
+use http::{HeaderMap, HeaderName, HeaderValue};
+use std::{
+    fmt,
+    io::{Read, Seek, SeekFrom, Write},
+    net::{IpAddr, SocketAddr},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
+};
+use tokio::sync::OwnedSemaphorePermit;
+
+const HARD_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+const HEADER_BYTES: usize = 16 * 1024;
+const HEADER_COUNT: usize = 64;
+
+/// Core-only pre-opened regular file. Implementations must provide real file
+/// length/truncation, not accept an untrusted path or run arbitrary host code.
+pub trait ArtifactFile: Read + Write + Seek + Send + 'static {
+    fn file_len(&self) -> std::io::Result<u64>;
+    fn truncate(&mut self, len: u64) -> std::io::Result<()>;
+}
+impl ArtifactFile for std::fs::File {
+    fn file_len(&self) -> std::io::Result<u64> {
+        let metadata = self.metadata()?;
+        if !metadata.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "regular file required",
+            ));
+        }
+        Ok(metadata.len())
+    }
+    fn truncate(&mut self, len: u64) -> std::io::Result<()> {
+        self.set_len(len)
+    }
+}
+
+/// Strong opaque HTTP entity tag; deliberately no Debug/Display.
+#[derive(Clone, PartialEq, Eq)]
+pub struct StrongEtag(String);
+impl StrongEtag {
+    pub fn new(value: &str) -> Result<Self, TransferError> {
+        if value.len() < 2
+            || value.len() > 1024
+            || !value.starts_with('"')
+            || !value.ends_with('"')
+            || value.as_bytes()[1..value.len() - 1]
+                .iter()
+                .any(|b| !matches!(b, 0x21 | 0x23..=0x7e))
+        {
+            return Err(TransferError::InvalidRequest);
+        }
+        Ok(Self(value.to_owned()))
+    }
+}
+#[derive(Clone)]
+pub enum TransferMode {
+    Full,
+    Resume { offset: u64, etag: StrongEtag },
+}
+/// This slice requires a known artifact size. Digests/provenance remain the
+/// installer's T006 verification responsibility, including the existing prefix.
+pub struct ArtifactTransferRequest {
+    pub url: String,
+    pub credential: Option<CredentialId>,
+    pub expected_size: u64,
+    pub max_bytes: u64,
+    pub mode: TransferMode,
+}
+#[derive(Default)]
+struct CancellationState {
+    cancelled: AtomicBool,
+    changed: tokio::sync::Notify,
+}
+#[derive(Clone, Default)]
+pub struct TransferCancellation(Arc<CancellationState>);
+impl TransferCancellation {
+    pub fn cancel(&self) {
+        self.0.cancelled.store(true, Ordering::Release);
+        self.0.changed.notify_waiters();
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.0.cancelled.load(Ordering::Acquire)
+    }
+    async fn cancelled(&self) {
+        let notified = self.0.changed.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        if !self.is_cancelled() {
+            notified.await;
+        }
+    }
+}
+struct CancelOnDrop {
+    cancellation: TransferCancellation,
+    armed: bool,
+}
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        if self.armed {
+            self.cancellation.cancel();
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransferError {
+    Network(NetError),
+    InvalidRequest,
+    Sink,
+    Cancelled,
+    RestartRequired,
+    InvalidRange,
+    SizeMismatch,
+    HttpStatus(u16),
+    Worker,
+}
+impl fmt::Display for TransferError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "artifact transfer: {self:?}")
+    }
+}
+impl std::error::Error for TransferError {}
+impl From<NetError> for TransferError {
+    fn from(value: NetError) -> Self {
+        Self::Network(value)
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransferOutcome {
+    Transferred,
+    /// Transport did not write anything or verify the whole file. The caller
+    /// must re-read size + every trusted digest before considering completion.
+    NeedsWholeFileVerification,
+}
+pub struct TransferReceipt<S> {
+    pub file: S,
+    pub outcome: TransferOutcome,
+    pub metadata: ResponseMetadata,
+}
+
+impl Broker {
+    /// Streaming artifact transfer through the same broker policy/credentials.
+    /// Success means transport completion only, never upstream/hash verification.
+    pub async fn artifact_transfer<S: ArtifactFile>(
+        &self,
+        request: ArtifactTransferRequest,
+        file: S,
+        cancel: TransferCancellation,
+    ) -> Result<TransferReceipt<S>, TransferError> {
+        let mut cancel_on_drop = CancelOnDrop {
+            cancellation: cancel.clone(),
+            armed: true,
+        };
+        let config = self.artifact_config();
+        let deadline = Instant::now() + config.total_timeout;
+        let operation = async {
+            if request.max_bytes > HARD_BYTES
+                || request.expected_size > request.max_bytes
+                || matches!(request.mode, TransferMode::Resume { offset, .. } if offset == 0 || offset > request.expected_size)
+            {
+                return Err(TransferError::InvalidRequest);
+            }
+            let mut endpoint = Endpoint::parse(&request.url)?;
+            let request_lease = Arc::new(self.artifact_request_lease().await?);
+            let mut file = file;
+            let mut stripped = false;
+            for hop in 0..=config.max_redirects {
+                if cancel.is_cancelled() {
+                    return Err(TransferError::Cancelled);
+                }
+                let (addresses, headers, leases) = self
+                    .artifact_hop(&endpoint, request.credential.as_ref().filter(|_| !stripped))
+                    .await?;
+                let worker = Worker {
+                    file,
+                    mode: request.mode.clone(),
+                    expected: request.expected_size,
+                    max_bytes: request.max_bytes,
+                    received: 0,
+                    status: 0,
+                    headers: HeaderMap::new(),
+                    header_bytes: 0,
+                    header_count: 0,
+                    gate: Gate::Pending,
+                    error: None,
+                    cancel: cancel.clone(),
+                    deadline,
+                    last_progress: Instant::now(),
+                    no_progress: config.no_progress_timeout,
+                    _request: request_lease.clone(),
+                    _connections: leases,
+                };
+                let endpoint_for_worker = endpoint.clone();
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                // cfg(test) routing is private and never enabled by features.
+                #[cfg(test)]
+                let fixture = self.artifact_fixture();
+                let result = tokio::task::spawn_blocking(move || {
+                    run_hop(
+                        worker,
+                        endpoint_for_worker,
+                        addresses,
+                        headers,
+                        config.connect_timeout.min(remaining),
+                        remaining,
+                        #[cfg(test)]
+                        fixture,
+                    )
+                })
+                .await
+                .map_err(|_| TransferError::Worker)??;
+                file = result.file;
+                match result.gate {
+                    Gate::Redirect(location) => {
+                        if hop == config.max_redirects {
+                            return Err(NetError::RedirectLimit.into());
+                        }
+                        let next = endpoint.redirect(&location)?;
+                        stripped |= next.origin() != endpoint.origin();
+                        endpoint = next;
+                    }
+                    Gate::Accept | Gate::Verify => {
+                        return Ok(TransferReceipt {
+                            file,
+                            outcome: if matches!(result.gate, Gate::Verify) {
+                                TransferOutcome::NeedsWholeFileVerification
+                            } else {
+                                TransferOutcome::Transferred
+                            },
+                            metadata: ResponseMetadata {
+                                status: result.status,
+                                body_bytes: result.received,
+                                redirects: hop,
+                                final_origin: endpoint.origin().0,
+                                content_length: number(&result.headers, "content-length")?,
+                                etag: text(&result.headers, "etag")?,
+                                last_modified: text(&result.headers, "last-modified")?,
+                                content_range: text(&result.headers, "content-range")?,
+                            },
+                        });
+                    }
+                    Gate::Pending => return Err(NetError::Protocol.into()),
+                }
+            }
+            Err(NetError::RedirectLimit.into())
+        };
+        let result = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err(TransferError::Cancelled),
+            result = tokio::time::timeout(config.total_timeout, operation) => result,
+        };
+        match result {
+            Ok(result) => {
+                cancel_on_drop.armed = false;
+                result
+            }
+            Err(_) => Err(TransferError::Network(NetError::Timeout(
+                TimeoutPhase::Total,
+            ))),
+        }
+    }
+}
+
+enum Gate {
+    Pending,
+    Accept,
+    Redirect(String),
+    Verify,
+}
+struct CurlHandler<S>(Option<Worker<S>>);
+impl<S> CurlHandler<S> {
+    fn state(&self) -> &Worker<S> {
+        self.0.as_ref().expect("owned worker")
+    }
+    fn state_mut(&mut self) -> &mut Worker<S> {
+        self.0.as_mut().expect("owned worker")
+    }
+}
+impl<S: ArtifactFile> Handler for CurlHandler<S> {
+    fn header(&mut self, data: &[u8]) -> bool {
+        self.0.as_mut().is_some_and(|s| s.header(data))
+    }
+    fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
+        self.0.as_mut().map_or(Ok(0), |s| s.write(data))
+    }
+    fn progress(&mut self, a: f64, b: f64, c: f64, d: f64) -> bool {
+        self.0.as_mut().is_some_and(|s| s.progress(a, b, c, d))
+    }
+}
+struct Worker<S> {
+    file: S,
+    mode: TransferMode,
+    expected: u64,
+    max_bytes: u64,
+    received: u64,
+    status: u16,
+    headers: HeaderMap,
+    header_bytes: usize,
+    header_count: usize,
+    gate: Gate,
+    error: Option<TransferError>,
+    cancel: TransferCancellation,
+    deadline: Instant,
+    last_progress: Instant,
+    no_progress: Duration,
+    _request: Arc<OwnedSemaphorePermit>,
+    _connections: ConnectionLeases,
+}
+impl<S: ArtifactFile> Worker<S> {
+    fn check_live(&self) -> Result<(), TransferError> {
+        if self.cancel.is_cancelled() {
+            return Err(TransferError::Cancelled);
+        }
+        if Instant::now() >= self.deadline {
+            return Err(NetError::Timeout(TimeoutPhase::Total).into());
+        }
+        if self.last_progress.elapsed() >= self.no_progress {
+            return Err(NetError::Timeout(TimeoutPhase::Body).into());
+        }
+        Ok(())
+    }
+    fn fail(&mut self, error: TransferError) -> bool {
+        self.error = Some(error);
+        false
+    }
+    fn finish_headers(&mut self) -> Result<(), TransferError> {
+        // Validate all singular metadata before changing the destination file.
+        let length = number(&self.headers, "content-length")?;
+        let etag = text(&self.headers, "etag")?;
+        let _ = text(&self.headers, "last-modified")?;
+        let range = text(&self.headers, "content-range")?;
+        let content_type = text(&self.headers, "content-type")?;
+        if self.status == 206
+            && content_type.as_deref().is_some_and(|value| {
+                value
+                    .split(';')
+                    .next()
+                    .is_some_and(|kind| kind.trim().eq_ignore_ascii_case("multipart/byteranges"))
+            })
+        {
+            return Err(TransferError::InvalidRange);
+        }
+        let encoding = text(&self.headers, "content-encoding")?;
+        if encoding
+            .as_deref()
+            .is_some_and(|s| !s.eq_ignore_ascii_case("identity"))
+        {
+            return Err(NetError::UnsupportedEncoding.into());
+        }
+        if matches!(self.status, 301 | 302 | 303 | 307 | 308) {
+            // A redirected partial has no authority to inherit its validator,
+            // source permissions or prefix. The installer must restart Full.
+            if matches!(self.mode, TransferMode::Resume { .. }) {
+                return Err(TransferError::RestartRequired);
+            }
+            self.gate = Gate::Redirect(text(&self.headers, "location")?.ok_or(NetError::Protocol)?);
+            return Ok(());
+        }
+        if self.status == 416 {
+            if !matches!(self.mode, TransferMode::Resume { offset, .. } if offset == self.expected)
+                || range.as_deref() != Some(format!("bytes */{}", self.expected).as_str())
+            {
+                return Err(TransferError::InvalidRange);
+            }
+            self.gate = Gate::Verify;
+            return Ok(());
+        }
+        let start = match (&self.mode, self.status) {
+            (_, 200) => {
+                if range.is_some() {
+                    return Err(TransferError::InvalidRange);
+                }
+                0
+            }
+            (
+                TransferMode::Resume {
+                    offset,
+                    etag: expected_etag,
+                },
+                206,
+            ) => {
+                if etag.as_deref() != Some(expected_etag.0.as_str()) {
+                    return Err(TransferError::RestartRequired);
+                }
+                let wanted = format!("bytes {}-{}/{}", offset, self.expected - 1, self.expected);
+                if range.as_deref() != Some(wanted.as_str()) {
+                    return Err(TransferError::InvalidRange);
+                }
+                *offset
+            }
+            (_, 206) => return Err(TransferError::InvalidRange),
+            (_, code) => return Err(TransferError::HttpStatus(code)),
+        };
+        if length.is_some_and(|n| n != self.expected - start) {
+            return Err(TransferError::SizeMismatch);
+        }
+        if start == 0 {
+            self.file.truncate(0).map_err(|_| TransferError::Sink)?;
+        }
+        self.file
+            .seek(SeekFrom::Start(start))
+            .map_err(|_| TransferError::Sink)?;
+        self.gate = Gate::Accept;
+        Ok(())
+    }
+}
+impl<S: ArtifactFile> Handler for Worker<S> {
+    fn header(&mut self, data: &[u8]) -> bool {
+        // No trailers or second final response may reclassify/reset the file.
+        // This check precedes status-line and empty-line handling deliberately.
+        if !matches!(self.gate, Gate::Pending) {
+            return self.fail(NetError::Protocol.into());
+        }
+        if let Err(error) = self.check_live() {
+            return self.fail(error);
+        }
+        self.last_progress = Instant::now();
+        self.header_bytes = self.header_bytes.saturating_add(data.len());
+        self.header_count += 1;
+        if self.header_bytes > HEADER_BYTES || self.header_count > HEADER_COUNT {
+            return self.fail(NetError::HeaderLimit.into());
+        }
+        if data.starts_with(b"HTTP/") {
+            let Some(status) = std::str::from_utf8(data)
+                .ok()
+                .and_then(|s| s.split_whitespace().nth(1))
+                .and_then(|s| s.parse::<u16>().ok())
+            else {
+                return self.fail(NetError::Protocol.into());
+            };
+            self.status = status;
+            self.headers.clear();
+            return true;
+        }
+        if data == b"\r\n" {
+            if (100..200).contains(&self.status) {
+                return true;
+            }
+            if let Err(error) = self.finish_headers() {
+                return self.fail(error);
+            }
+            return matches!(self.gate, Gate::Accept);
+        }
+        let Some(colon) = data.iter().position(|b| *b == b':') else {
+            return self.fail(NetError::Protocol.into());
+        };
+        let Ok(name) = HeaderName::from_bytes(&data[..colon]) else {
+            return self.fail(NetError::Protocol.into());
+        };
+        let value = data[colon + 1..].trim_ascii();
+        let Ok(value) = HeaderValue::from_bytes(value) else {
+            return self.fail(NetError::Protocol.into());
+        };
+        self.headers.append(name, value);
+        true
+    }
+    fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
+        let result = (|| {
+            self.check_live()?;
+            if !matches!(self.gate, Gate::Accept) {
+                return Err(NetError::Protocol.into());
+            }
+            let next = self
+                .received
+                .checked_add(data.len() as u64)
+                .ok_or(NetError::BodyLimit)?;
+            let start = if self.status == 206 {
+                match self.mode {
+                    TransferMode::Resume { offset, .. } => offset,
+                    _ => 0,
+                }
+            } else {
+                0
+            };
+            if next > self.max_bytes || next > self.expected - start {
+                return Err(NetError::BodyLimit.into());
+            }
+            self.file.write_all(data).map_err(|_| TransferError::Sink)?;
+            self.received = next;
+            self.last_progress = Instant::now();
+            Ok(())
+        })();
+        if let Err(error) = result {
+            self.error = Some(error);
+            return Ok(0);
+        }
+        Ok(data.len())
+    }
+    fn progress(&mut self, _: f64, _: f64, _: f64, _: f64) -> bool {
+        match self.check_live() {
+            Ok(()) => true,
+            Err(error) => self.fail(error),
+        }
+    }
+}
+
+fn run_hop<S: ArtifactFile>(
+    worker: Worker<S>,
+    endpoint: Endpoint,
+    addresses: Vec<SocketAddr>,
+    headers: HeaderMap,
+    connect_timeout: Duration,
+    remaining: Duration,
+    #[cfg(test)] fixture: (bool, bool),
+) -> Result<Worker<S>, TransferError> {
+    if remaining.is_zero() {
+        return Err(NetError::Timeout(TimeoutPhase::Total).into());
+    }
+    let offset = match worker.mode {
+        TransferMode::Resume { offset, .. } => offset,
+        TransferMode::Full => 0,
+    };
+    if worker.file.file_len().map_err(|_| TransferError::Sink)? != offset {
+        return Err(TransferError::InvalidRequest);
+    }
+    let mut easy = Easy2::new(CurlHandler(Some(worker)));
+    let set = |_: curl::Error| TransferError::Network(NetError::Protocol);
+    easy.url(endpoint.url.as_str()).map_err(set)?;
+    easy.proxy("").map_err(set)?;
+    easy.noproxy("*").map_err(set)?;
+    easy.netrc(NetRc::Ignored).map_err(set)?;
+    easy.follow_location(false).map_err(set)?;
+    easy.fresh_connect(true).map_err(set)?;
+    easy.forbid_reuse(true).map_err(set)?;
+    easy.ssl_verify_peer(true).map_err(set)?;
+    easy.ssl_verify_host(true).map_err(set)?;
+    easy.ssl_version(SslVersion::Tlsv12).map_err(set)?;
+    easy.http_version(HttpVersion::V11).map_err(set)?;
+    easy.http_content_decoding(false).map_err(set)?;
+    easy.connect_timeout(connect_timeout).map_err(set)?;
+    easy.timeout(remaining).map_err(set)?;
+    easy.progress(true).map_err(set)?;
+    easy.useragent("CobbleLauncher/0.1").map_err(set)?;
+    let mut resolve = List::new();
+    let ips = addresses
+        .iter()
+        .map(|a| match a.ip() {
+            IpAddr::V4(ip) => ip.to_string(),
+            IpAddr::V6(ip) => format!("[{ip}]"),
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    resolve
+        .append(&format!("{}:443:{ips}", endpoint.host_header()))
+        .map_err(set)?;
+    easy.resolve(resolve).map_err(set)?;
+    #[cfg(test)]
+    if fixture.0 {
+        let mut connect = List::new();
+        connect
+            .append(&format!(
+                "{}:443:{}:{}",
+                endpoint.host_header(),
+                addresses[0].ip(),
+                addresses[0].port()
+            ))
+            .map_err(set)?;
+        easy.connect_to(connect).map_err(set)?;
+        if fixture.1 {
+            easy.ssl_cainfo_blob(include_bytes!("../tests/fixtures/synthetic-root.pem"))
+                .map_err(set)?;
+            // The original offline test CA has no CRL/OCSP responder. Only
+            // this private synthetic trust path omits Schannel revocation;
+            // CA signatures, validity and hostname checks remain enabled.
+            #[cfg(windows)]
+            {
+                let mut options = curl::easy::SslOpt::new();
+                options.no_revoke(true);
+                easy.ssl_options(&options).map_err(set)?;
+            }
+        }
+    }
+    let mut request_headers = List::new();
+    request_headers
+        .append("Accept-Encoding: identity")
+        .map_err(set)?;
+    request_headers.append("Connection: close").map_err(set)?;
+    for (name, value) in headers.iter() {
+        request_headers
+            .append(&format!(
+                "{}: {}",
+                name.as_str(),
+                value.to_str().map_err(|_| NetError::CredentialScope)?
+            ))
+            .map_err(set)?;
+    }
+    if let TransferMode::Resume { offset, etag } = &easy.get_ref().state().mode {
+        let range = format!("{offset}-");
+        request_headers
+            .append(&format!("If-Range: {}", etag.0))
+            .map_err(set)?;
+        easy.range(&range).map_err(set)?;
+    }
+    easy.http_headers(request_headers).map_err(set)?;
+    let result = easy.perform();
+    if let Some(error) = easy.get_ref().state().error {
+        return Err(error);
+    }
+    if matches!(easy.get_ref().state().gate, Gate::Pending) {
+        return Err(match result {
+            Err(error) if error.is_operation_timedout() => NetError::Timeout(TimeoutPhase::Total),
+            Err(error) if error.is_peer_failed_verification() || error.is_ssl_connect_error() => {
+                NetError::Tls
+            }
+            _ => NetError::Protocol,
+        }
+        .into());
+    }
+    // Additional post-transfer observation, never advertised as a pre-body check.
+    let peer = easy
+        .primary_ip()
+        .map_err(set)?
+        .and_then(|s| s.parse::<IpAddr>().ok());
+    let port = easy.primary_port().map_err(set)?;
+    if !addresses
+        .iter()
+        .any(|a| Some(a.ip()) == peer && a.port() == port)
+    {
+        return Err(NetError::PeerMismatch.into());
+    }
+    if matches!(easy.get_ref().state().gate, Gate::Accept) {
+        if let Err(error) = result {
+            return Err(if error.is_operation_timedout() {
+                NetError::Timeout(TimeoutPhase::Total).into()
+            } else {
+                NetError::Protocol.into()
+            });
+        }
+        let state = easy.get_mut().state_mut();
+        let wanted = state.expected - if state.status == 206 { offset } else { 0 };
+        if state.received != wanted {
+            return Err(TransferError::SizeMismatch);
+        }
+        state.file.flush().map_err(|_| TransferError::Sink)?;
+    } else if matches!(easy.get_ref().state().gate, Gate::Pending) {
+        return Err(NetError::Protocol.into());
+    }
+    // perform has ended; cleanup the native handle before releasing worker leases.
+    let state = easy.get_mut().0.take().expect("owned worker");
+    drop(easy);
+    Ok(state)
+}
+
+fn text(headers: &HeaderMap, name: &str) -> Result<Option<String>, TransferError> {
+    let mut values = headers.get_all(name).iter();
+    let value = values
+        .next()
+        .map(|v| {
+            v.to_str()
+                .map(str::to_owned)
+                .map_err(|_| TransferError::Network(NetError::Protocol))
+        })
+        .transpose()?;
+    if values.next().is_some() {
+        return Err(NetError::Protocol.into());
+    }
+    Ok(value)
+}
+fn number(headers: &HeaderMap, name: &str) -> Result<Option<u64>, TransferError> {
+    text(headers, name)?
+        .map(|s| {
+            if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+                return Err(NetError::Protocol.into());
+            }
+            s.parse().map_err(|_| NetError::Protocol.into())
+        })
+        .transpose()
+}

@@ -16,6 +16,7 @@ hyper.workspace = true
 hyper-util.workspace = true
 native-tls.workspace = true
 tokio-native-tls.workspace = true
+curl.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros"] }

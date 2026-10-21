@@ -19,3 +19,13 @@ The Linux GTK3 build graph includes unmaintained **proc-macro-error 1.0.4** (RUS
 Original hostile archive samples and the publicly known synthetic TLS test identity are test data created for this project. The TLS identity is trusted only in test builds and is never used for production authentication or signing.
 
 This is a source-repository notice, not a complete license inventory for a future distributed binary release.
+
+## libcurl artifact transport
+
+The unmodified Rust wrappers **curl 0.4.51** and **curl-sys 0.4.91+curl-8.22.0** are MIT-licensed. Source: https://github.com/sagebind/curl-rust. Their packaged VCS revision is `b4f5eeebb6e4746224fb73078aa4af47bc70dd84`; Cargo.lock pins the registry archives and their checksums. This revision was read from registry metadata, not independently fetched.
+
+The native **libcurl** sources bundled by curl-sys retain the **curl license**, which is distinct from the wrappers' MIT license. The unmodified copyright and permission notice is retained in `third-party/licenses/libcurl-8.22.0/COPYING`; source: https://curl.se/download.html. The tested Windows runtime reports `libcurl 8.22.0-DEV / Schannel` from the vendored sources; the version label is not a claim of an upstream stable 8.22 release; other platforms may select a system libcurl, so the vendored version is not a promise about every runtime. TLS certificate checks remain enabled.
+
+The unmodified **libz-sys 1.1.30** wrapper is MIT OR Apache-2.0, and bundled **zlib** retains its own zlib license in `third-party/licenses/zlib/LICENSE`. Source: https://github.com/rust-lang/libz-sys. **openssl-probe 0.1.6** declares MIT/Apache-2.0 and is used by the Rust curl wrapper on applicable Unix platforms; source: https://github.com/alexcrichton/openssl-probe. Platform TLS libraries retain their own licenses.
+
+aria2 was evaluated as a locally installed development tool. Its binary is not bundled with this application or committed to this repository.

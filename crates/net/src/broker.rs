@@ -129,6 +129,8 @@ struct Inner {
     tls: native_tls::TlsConnector,
     #[cfg(test)]
     fixture: Option<crate::tests::FixtureRouting>,
+    #[cfg(test)]
+    artifact_test_trust: bool,
 }
 /// Share one cloned broker across Core adapters for collective budgets.
 /// Separate instances have separate budgets and credential namespaces.
@@ -155,6 +157,8 @@ impl Broker {
                 tls,
                 #[cfg(test)]
                 fixture: None,
+                #[cfg(test)]
+                artifact_test_trust: false,
             }),
         })
     }
@@ -499,9 +503,70 @@ impl Broker {
         Ok(size)
     }
 }
-struct ConnectionLeases {
+pub(crate) struct ConnectionLeases {
     _global: OwnedSemaphorePermit,
     _origin: OwnedSemaphorePermit,
+}
+// Shared policy, credential namespace and resource budgets for the libcurl
+// artifact adapter. Metadata requests continue to use the existing transport.
+impl Broker {
+    pub(crate) fn artifact_config(&self) -> BrokerConfig {
+        self.inner.config
+    }
+    #[cfg(test)]
+    pub(crate) fn artifact_fixture(&self) -> (bool, bool) {
+        (self.inner.fixture.is_some(), self.inner.artifact_test_trust)
+    }
+
+    pub(crate) async fn artifact_request_lease(&self) -> Result<OwnedSemaphorePermit, NetError> {
+        self.inner
+            .requests
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| NetError::InvalidConfig)
+    }
+
+    pub(crate) async fn artifact_hop(
+        &self,
+        endpoint: &Endpoint,
+        credential: Option<&CredentialId>,
+    ) -> Result<(Vec<SocketAddr>, HeaderMap, ConnectionLeases), NetError> {
+        let addresses = self.resolve(endpoint).await?;
+        let mut headers = HeaderMap::new();
+        if let Some(id) = credential {
+            if !Arc::ptr_eq(&id.identity, &self.inner.identity) {
+                return Err(NetError::CredentialScope);
+            }
+            self.inner
+                .credentials
+                .lock()
+                .map_err(|_| NetError::CredentialScope)?
+                .get(id.index)
+                .ok_or(NetError::CredentialScope)?
+                .attach(endpoint, &mut headers);
+        }
+        let origin = self
+            .origin_semaphore(endpoint.origin())?
+            .acquire_owned()
+            .await
+            .map_err(|_| NetError::InvalidConfig)?;
+        let global = self
+            .inner
+            .connections
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| NetError::InvalidConfig)?;
+        Ok((
+            addresses,
+            headers,
+            ConnectionLeases {
+                _global: global,
+                _origin: origin,
+            },
+        ))
+    }
 }
 struct ConnectionGuard {
     task: Option<tokio::task::JoinHandle<()>>,
@@ -563,6 +628,7 @@ impl Broker {
     ) -> Self {
         let mut broker = Self::new(config).unwrap();
         let inner = Arc::get_mut(&mut broker.inner).unwrap();
+        inner.artifact_test_trust = trust.is_some();
         if let Some(root) = trust {
             inner.tls = native_tls::TlsConnector::builder()
                 .min_protocol_version(Some(native_tls::Protocol::Tlsv12))

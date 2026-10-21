@@ -26,6 +26,9 @@ use tokio::{
     sync::oneshot,
 };
 
+#[path = "artifact_tests.rs"]
+mod artifact_tests;
+
 #[derive(Clone)]
 pub(crate) struct FixtureRouting {
     routes: Arc<Mutex<HashMap<String, VecDeque<Vec<SocketAddr>>>>>,
