@@ -7,6 +7,7 @@ import { defaultDownloadSettings, readDownloadSettings, validateDownloadSettings
 import type { Game, PackPreview } from './games';
 import { loaderLabel } from './games';
 
+const props = defineProps<{ initialPreview?: PackPreview | null }>();
 const emit = defineEmits<{ created: [game: Game] }>();
 const preview = ref<PackPreview | null>(null);
 const name = ref('');
@@ -27,6 +28,11 @@ async function initialize() {
   } catch (cause) { error.value = `无法读取游戏设置：${String(cause)}`; }
   finally { loading.value = false; }
 }
+function applyPreview(selected: PackPreview) {
+  preview.value = selected;
+  name.value = selected.name;
+  optionalFiles.value = [];
+}
 async function choosePack() {
   if (picking.value || submitting.value || loading.value) return;
   if (!isTauri()) { error.value = '请在桌面应用中导入整合包'; return; }
@@ -35,9 +41,7 @@ async function choosePack() {
   try {
     const selected = await invoke<PackPreview | null>('preview_mrpack');
     if (disposed || !selected) return;
-    preview.value = selected;
-    name.value = selected.name;
-    optionalFiles.value = [];
+    applyPreview(selected);
   } catch (cause) { if (!disposed) error.value = `无法读取整合包：${String(cause)}`; }
   finally { picking.value = false; }
 }
@@ -64,16 +68,17 @@ async function create() {
   finally { submitting.value = false; }
 }
 function fileSize(bytes: number) { return bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`; }
-onMounted(() => { void initialize(); });
+onMounted(() => { if (props.initialPreview) applyPreview(props.initialPreview); void initialize(); });
 onUnmounted(() => { disposed = true; });
 </script>
 
 <template>
   <div class="import-page page-content">
     <p class="create-description">
-      把喜欢的整合包，变成一个新的世界。
+      {{ initialPreview ? '确认内容，然后安装为独立游戏。' : '把喜欢的整合包，变成一个新的世界。' }}
     </p>
     <button
+      v-if="!initialPreview"
       class="pack-picker"
       :class="{ 'has-pack': preview }"
       :disabled="loading || picking || submitting"

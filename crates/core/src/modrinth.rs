@@ -5,7 +5,7 @@
 use crate::InstallProgress;
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::fs::{Dir, OpenOptions};
-use cobble_content::{ModrinthPlan, ResolvedMod};
+use cobble_content::{ModrinthFile, ModrinthPlan, ResolvedMod};
 use cobble_net::{
     ArtifactDownloader, Broker, BrokerConfig, DownloadAuthority, DownloadManager, DownloadRequest,
     TransferCancellation,
@@ -74,12 +74,16 @@ impl ModDownloads {
     }
 
     pub async fn fetch(&self, selected: &ResolvedMod) -> Result<VerifiedArtifact, Error> {
-        let expected = expectation(selected)?;
+        self.fetch_file(&selected.file).await
+    }
+
+    pub async fn fetch_file(&self, file: &ModrinthFile) -> Result<VerifiedArtifact, Error> {
+        let expected = file_expectation(file)?;
         let artifact = match crate::cache::lookup(&self.content, &self.index, expected)? {
             Some(artifact) => artifact,
             None => {
                 let request = DownloadRequest::new(
-                    &selected.file.url,
+                    &file.url,
                     expected,
                     DownloadAuthority::same_origin(
                         "modrinth",
@@ -230,16 +234,20 @@ fn digest<const N: usize>(value: &str) -> Result<[u8; N], Error> {
 }
 
 fn expectation(selected: &ResolvedMod) -> Result<ArtifactExpectation, Error> {
-    if selected.file.size == 0 || selected.file.size > MAX_FILE {
+    file_expectation(&selected.file)
+}
+
+fn file_expectation(file: &ModrinthFile) -> Result<ArtifactExpectation, Error> {
+    if file.size == 0 || file.size > MAX_FILE {
         return Err("Modrinth file size exceeds supported limit".into());
     }
     Ok(ArtifactExpectation {
-        expected_size: Some(selected.file.size),
-        max_bytes: selected.file.size,
+        expected_size: Some(file.size),
+        max_bytes: file.size,
         basis: IntegrityBasis::TrustedMetadata,
         digests: ExpectedDigests {
-            sha1: Some(digest(&selected.file.sha1)?),
-            sha512: selected.file.sha512.as_deref().map(digest).transpose()?,
+            sha1: Some(digest(&file.sha1)?),
+            sha512: file.sha512.as_deref().map(digest).transpose()?,
             ..ExpectedDigests::default()
         },
     })

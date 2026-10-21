@@ -69,7 +69,7 @@ pub struct IdentifiedMod {
 fn error(message: impl Into<String>) -> BoxError {
     io::Error::other(message.into()).into()
 }
-fn identifier(value: &str) -> Result<(), BoxError> {
+pub(super) fn identifier(value: &str) -> Result<(), BoxError> {
     if value.is_empty()
         || value.len() > 64
         || !value
@@ -133,14 +133,16 @@ fn search_facets(mc: &str, loader: &str) -> Result<String, BoxError> {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-struct Version {
-    id: String,
-    project_id: String,
-    version_number: String,
-    version_type: String,
-    date_published: String,
-    game_versions: Vec<String>,
-    loaders: Vec<String>,
+pub(super) struct Version {
+    pub id: String,
+    pub project_id: String,
+    pub version_number: String,
+    pub version_type: String,
+    pub date_published: String,
+    pub game_versions: Vec<String>,
+    pub loaders: Vec<String>,
+    #[serde(default)]
+    pub name: String,
     dependencies: Vec<Dependency>,
     files: Vec<ApiFile>,
 }
@@ -159,10 +161,10 @@ struct ApiFile {
     primary: bool,
 }
 #[derive(Deserialize)]
-struct Project {
-    id: String,
-    project_type: String,
-    client_side: String,
+pub(super) struct Project {
+    pub id: String,
+    pub project_type: String,
+    pub client_side: String,
     title: String,
 }
 trait Api {
@@ -180,18 +182,18 @@ trait Api {
         ))
     }
 }
-struct LiveApi {
+pub(super) struct LiveApi {
     broker: Broker,
     requests: usize,
 }
 impl LiveApi {
-    fn new() -> Result<Self, BoxError> {
+    pub fn new() -> Result<Self, BoxError> {
         Ok(Self {
             broker: Broker::new(BrokerConfig::default())?,
             requests: 0,
         })
     }
-    async fn get<T: DeserializeOwned>(&mut self, url: Url) -> Result<T, BoxError> {
+    pub async fn get<T: DeserializeOwned>(&mut self, url: Url) -> Result<T, BoxError> {
         self.get_optional(url)
             .await?
             .ok_or_else(|| error("Modrinth: project or version not found (HTTP 404)"))
@@ -251,7 +253,7 @@ impl Api for LiveApi {
         #[derive(Deserialize)]
         #[serde(untagged)]
         enum Matches {
-            One(Version),
+            One(Box<Version>),
             Many(Vec<Version>),
         }
         let mut url = Url::parse(&format!("{API}version_file/{hash}"))?;
@@ -260,7 +262,7 @@ impl Api for LiveApi {
             .append_pair("multiple", "true");
         Ok(match self.get_optional::<Matches>(url).await? {
             None => Vec::new(),
-            Some(Matches::One(version)) => vec![version],
+            Some(Matches::One(version)) => vec![*version],
             Some(Matches::Many(versions)) => versions,
         })
     }
@@ -472,6 +474,13 @@ fn compatible(version: &Version, mc: &str, loader: &str) -> bool {
     version.game_versions.iter().any(|v| v == mc) && version.loaders.iter().any(|v| v == loader)
 }
 fn file(version: &Version) -> Result<ModrinthFile, BoxError> {
+    file_with_extension(version, ".jar")
+}
+
+pub(super) fn file_with_extension(
+    version: &Version,
+    extension: &str,
+) -> Result<ModrinthFile, BoxError> {
     let primary: Vec<_> = version.files.iter().filter(|f| f.primary).collect();
     let selected = match primary.as_slice() {
         [one] => *one,
@@ -495,11 +504,11 @@ fn file(version: &Version) -> Result<ModrinthFile, BoxError> {
     }
     let filename = &selected.filename;
     if filename.len() > 240
-        || !filename.to_ascii_lowercase().ends_with(".jar")
+        || !filename.to_ascii_lowercase().ends_with(extension)
         || filename.contains(['/', '\\', ':'])
         || filename.chars().any(char::is_control)
     {
-        return Err(error("Invalid Modrinth JAR filename"));
+        return Err(error("Invalid Modrinth artifact filename"));
     }
     let sha1 = selected
         .hashes

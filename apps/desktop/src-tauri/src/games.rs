@@ -3,6 +3,8 @@
 pub mod local_packs;
 #[path = "management.rs"]
 pub mod management;
+#[path = "marketplace.rs"]
+pub mod marketplace;
 #[path = "mod_updates.rs"]
 pub mod mod_updates;
 use cobble_core::InstallProgress;
@@ -95,6 +97,52 @@ pub struct PackOptionalFile {
     size: u64,
 }
 
+fn next_pack_id() -> Result<String, String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    Ok(format!(
+        "{:x}{:016x}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_nanos(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ))
+}
+
+fn store_pack_preview(
+    app: &AppHandle,
+    id: String,
+    pack: cobble_content::Mrpack,
+) -> Result<PackPreview, String> {
+    let preview = PackPreview {
+        preview_id: id.clone(),
+        name: pack.name.clone(),
+        version_id: pack.version_id.clone(),
+        summary: pack.summary.clone(),
+        minecraft_version: pack.minecraft_version.clone(),
+        loader_version: pack.loader_version.clone(),
+        loader_kind: pack.loader_kind.clone(),
+        required_files: pack.files.iter().filter(|file| !file.optional).count(),
+        optional_files: pack
+            .files
+            .iter()
+            .filter(|file| file.optional)
+            .map(|file| PackOptionalFile {
+                path: file.path.clone(),
+                size: file.file_size,
+            })
+            .collect(),
+        overrides: pack.overrides.len(),
+    };
+    app.state::<GameLibrary>()
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .picked_pack = Some(PackSelection { id, pack });
+    Ok(preview)
+}
+
 #[tauri::command]
 pub async fn preview_mrpack(
     window: WebviewWindow,
@@ -111,15 +159,10 @@ pub async fn preview_mrpack(
     };
     let source = file.path().to_owned();
     tauri::async_runtime::spawn_blocking(move || {
-        let id = format!(
-            "{:x}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|e| e.to_string())?
-                .as_nanos()
-        );
+        let id = next_pack_id()?;
         let archive = pack_archive_path(&id)?;
         fs::create_dir_all(archive.parent().expect("archive parent")).map_err(|e| e.to_string())?;
+        let mut created = false;
         let result = (|| {
             let mut input = fs::File::open(&source).map_err(|e| e.to_string())?;
             let mut output = fs::OpenOptions::new()
@@ -127,6 +170,7 @@ pub async fn preview_mrpack(
                 .create_new(true)
                 .open(&archive)
                 .map_err(|e| e.to_string())?;
+            created = true;
             std::io::copy(&mut input, &mut output).map_err(|e| e.to_string())?;
             drop(output);
             cobble_content::read_mrpack(&archive).map_err(|e| e.to_string())
@@ -134,36 +178,13 @@ pub async fn preview_mrpack(
         let pack = match result {
             Ok(pack) => pack,
             Err(error) => {
-                let _ = fs::remove_file(&archive);
+                if created {
+                    let _ = fs::remove_file(&archive);
+                }
                 return Err(error);
             }
         };
-        let preview = PackPreview {
-            preview_id: id.clone(),
-            name: pack.name.clone(),
-            version_id: pack.version_id.clone(),
-            summary: pack.summary.clone(),
-            minecraft_version: pack.minecraft_version.clone(),
-            loader_version: pack.loader_version.clone(),
-            loader_kind: pack.loader_kind.clone(),
-            required_files: pack.files.iter().filter(|f| !f.optional).count(),
-            optional_files: pack
-                .files
-                .iter()
-                .filter(|f| f.optional)
-                .map(|f| PackOptionalFile {
-                    path: f.path.clone(),
-                    size: f.file_size,
-                })
-                .collect(),
-            overrides: pack.overrides.len(),
-        };
-        app.state::<GameLibrary>()
-            .0
-            .lock()
-            .map_err(|e| e.to_string())?
-            .picked_pack = Some(PackSelection { id, pack });
-        Ok(Some(preview))
+        store_pack_preview(&app, id, pack).map(Some)
     })
     .await
     .map_err(|e| e.to_string())?

@@ -7,6 +7,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { applyTheme, readTheme } from './theme';
 import CreateGamePage from './CreateGamePage.vue';
 import ImportPackPage from './ImportPackPage.vue';
+import DiscoverPacksPage from './DiscoverPacksPage.vue';
 import SettingsPage from './SettingsPage.vue';
 import GameCard from './GameCard.vue';
 import GameDetailsPage from './GameDetailsPage.vue';
@@ -14,7 +15,7 @@ import GameActionsPage from './GameActionsPage.vue';
 import ProfileSwitcher from './ProfileSwitcher.vue';
 import ProfilesPage from './ProfilesPage.vue';
 import AddProfilePage from './AddProfilePage.vue';
-import { effectiveProfile, type Game, type GameAction, type ProfileLibrary } from './games';
+import { effectiveProfile, type Game, type GameAction, type PackPreview, type ProfileLibrary } from './games';
 const games = ref<Game[]>([]);
 const profileLibrary = ref<ProfileLibrary>({ profiles: [], active_id: null });
 const profileReady = ref(false);
@@ -117,7 +118,14 @@ async function retryGame(id: string) {
   catch (cause) { error.value = `无法重试安装：${String(cause)}`; }
   finally { retrying.value = retrying.value.filter((item) => item !== id); }
 }
-const view = ref<'library' | 'create' | 'import' | 'settings' | 'details' | 'profiles' | 'add-profile' | 'game-action'>('library');
+const view = ref<'library' | 'create' | 'import' | 'settings' | 'details' | 'profiles' | 'add-profile' | 'game-action' | 'discover-packs'>('library');
+const discoverPacksVisited = ref(false);
+const packPreviewBusy = ref(false);
+const importOrigin = ref<'library' | 'discover-packs'>('library');
+const initialPackPreview = ref<PackPreview | null>(null);
+function openDiscoverPacks() { discoverPacksVisited.value = true; view.value = 'discover-packs'; }
+function openLocalImport() { initialPackPreview.value = null; importOrigin.value = 'library'; view.value = 'import'; }
+function openOnlineImport(preview: PackPreview) { initialPackPreview.value = preview; importOrigin.value = 'discover-packs'; view.value = 'import'; }
 const gameAction = ref<GameAction>('copy');
 const gameActionBusy = ref(false);
 const contentBusy = ref(false);
@@ -143,8 +151,9 @@ function removeFromLibrary(id: string) {
   view.value = 'library';
 }
 function goBack() {
-  if (profileBusy.value || gameActionBusy.value || contentBusy.value) return;
-  if (view.value === 'game-action') view.value = 'details';
+  if (profileBusy.value || gameActionBusy.value || contentBusy.value || packPreviewBusy.value) return;
+  if (view.value === 'import') view.value = importOrigin.value;
+  else if (view.value === 'game-action') view.value = 'details';
   else if (view.value === 'profiles' || view.value === 'add-profile') leaveProfiles();
   else view.value = 'library';
 }
@@ -336,9 +345,15 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
               <span aria-hidden="true">＋</span>创建游戏
             </button><button
               class="secondary-button"
-              @click="view = 'import'"
+              @click="openLocalImport"
             >
               <svg viewBox="0 0 20 20"><path d="M10 3v9m-4-4 4 4 4-4M4 13v4h12v-4" /></svg>导入整合包
+            </button>
+            <button
+              class="secondary-button"
+              @click="openDiscoverPacks"
+            >
+              发现整合包
             </button>
           </div>
         </section>
@@ -366,9 +381,15 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
           </button>
           <button
             class="add-game-button"
-            @click="view = 'import'"
+            @click="openLocalImport"
           >
             <span aria-hidden="true">↓</span> 导入整合包
+          </button>
+          <button
+            class="add-game-button"
+            @click="openDiscoverPacks"
+          >
+            发现整合包
           </button>
         </section>
       </template>
@@ -376,14 +397,14 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
         <div class="page-header">
           <button
             class="back-button"
-            :aria-label="view === 'game-action' ? '返回游戏详情' : view === 'profiles' || view === 'add-profile' ? '返回' : '返回游戏库'"
-            :disabled="profileBusy || gameActionBusy || contentBusy"
+            :aria-label="view === 'import' && importOrigin === 'discover-packs' ? '返回发现整合包' : view === 'game-action' ? '返回游戏详情' : view === 'profiles' || view === 'add-profile' ? '返回' : '返回游戏库'"
+            :disabled="profileBusy || gameActionBusy || contentBusy || packPreviewBusy"
             @click="goBack"
           >
-            <svg viewBox="0 0 20 20"><path d="m11 4-6 6 6 6M5 10h11" /></svg>{{ view === 'game-action' ? '游戏详情' : view === 'profiles' || view === 'add-profile' ? '返回' : '游戏库' }}
+            <svg viewBox="0 0 20 20"><path d="m11 4-6 6 6 6M5 10h11" /></svg>{{ view === 'import' && importOrigin === 'discover-packs' ? '发现整合包' : view === 'game-action' ? '游戏详情' : view === 'profiles' || view === 'add-profile' ? '返回' : '游戏库' }}
           </button>
           <h1 tabindex="-1">
-            {{ view === 'create' ? '创建游戏' : view === 'import' ? '导入整合包' : view === 'details' ? selectedGame?.name : view === 'game-action' ? gameActionTitle : view === 'profiles' ? '玩家档案' : view === 'add-profile' ? '添加玩家档案' : '设置' }}
+            {{ view === 'create' ? '创建游戏' : view === 'import' ? '导入整合包' : view === 'discover-packs' ? '发现整合包' : view === 'details' ? selectedGame?.name : view === 'game-action' ? gameActionTitle : view === 'profiles' ? '玩家档案' : view === 'add-profile' ? '添加玩家档案' : '设置' }}
           </h1>
         </div>
         <CreateGamePage
@@ -392,6 +413,7 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
         />
         <ImportPackPage
           v-else-if="view === 'import'"
+          :initial-preview="initialPackPreview"
           @created="addCreatedGame"
         />
         <GameDetailsPage
@@ -444,6 +466,12 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
           @saved="view = 'library'"
         />
       </template>
+      <DiscoverPacksPage
+        v-if="discoverPacksVisited"
+        v-show="view === 'discover-packs'"
+        @busy="packPreviewBusy = $event"
+        @selected-pack="openOnlineImport"
+      />
       <p
         v-if="profileError && view === 'library'"
         role="alert"

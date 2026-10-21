@@ -15,6 +15,7 @@ mod modrecognition;
 mod modrinth;
 mod modupdates;
 mod mrpack;
+mod pack_download;
 mod runner;
 pub use fabric::{FabricVersion, install_fabric, list_fabric_versions, list_fabric_versions_from};
 pub use forge::{
@@ -30,6 +31,7 @@ pub use modupdates::{
     check_modrinth_updates, managed_mod_count, prepare_modrinth_updates,
 };
 pub use mrpack::{MrpackInstallOutcome, install_mrpack};
+pub use pack_download::download_modrinth_pack;
 pub use runner::{
     RunningGame, prepare_offline_arguments, start_offline_game, start_offline_game_with_options,
 };

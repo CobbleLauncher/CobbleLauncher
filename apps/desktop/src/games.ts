@@ -50,3 +50,4 @@ export type ModUpdateResult = { updated: number; added: number };
 export type ModRecognitionResult = { recognized: number; unmatched: number };
 export type LocalPackKind = 'resource_pack' | 'shader_pack';
 export type LocalPack = { file_name: string; name: string; description: string | null; size_bytes: number; pack_format: number | null };
+export type ModrinthPackVersion = { version_id: string; name: string; version_number: string; minecraft_versions: string[]; loaders: string[]; version_type: string; date_published: string };
