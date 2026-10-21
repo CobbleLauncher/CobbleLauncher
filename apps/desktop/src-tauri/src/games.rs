@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #[path = "management.rs"]
 pub mod management;
+#[path = "mod_updates.rs"]
+pub mod mod_updates;
 use cobble_core::InstallProgress;
 use cobble_minecraft::{DownloadSettings, VersionCatalog, VersionKind};
 use serde::{Deserialize, Serialize};
@@ -49,6 +51,8 @@ pub struct Game {
     pack_source_id: Option<String>,
     #[serde(default)]
     pack_optional_files: Vec<String>,
+    #[serde(default)]
+    pack_mod_files: Vec<String>,
 }
 
 fn idle() -> String {
@@ -230,6 +234,7 @@ pub fn create_mrpack_game(
         pack_version: Some(selection.pack.version_id.clone()),
         pack_source_id: Some(selection.id.clone()),
         pack_optional_files: optional_files,
+        pack_mod_files: Vec::new(),
     };
     library.games.push(game.clone());
     if let Err(error) = save(&library.games) {
@@ -247,6 +252,7 @@ struct Library {
     picked_directory: Option<PathBuf>,
     load_error: Option<String>,
     mod_plans: HashMap<String, (String, cobble_content::ModrinthPlan)>,
+    update_plans: HashMap<String, (String, cobble_core::ModUpdatePlan)>,
     picked_pack: Option<PackSelection>,
 }
 #[derive(Default)]
@@ -438,6 +444,7 @@ pub fn create_game(
         pack_version: None,
         pack_source_id: None,
         pack_optional_files: Vec::new(),
+        pack_mod_files: Vec::new(),
     };
     library.games.push(game.clone());
     if let Err(error) = save(&library.games) {
@@ -759,7 +766,7 @@ fn with_game_mods(
         return Err("请先关闭游戏，再修改 Mod".into());
     }
     let items = operation(&game.directory).map_err(|e| e.to_string())?;
-    let mut owned = std::collections::HashSet::new();
+    let mut owned: std::collections::HashSet<_> = game.pack_mod_files.iter().cloned().collect();
     if let Some(source_id) = &game.pack_source_id
         && let Ok(path) = pack_archive_path(source_id)
         && let Ok(pack) = cobble_content::read_mrpack(&path)

@@ -25,7 +25,7 @@ use std::{
 };
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
-const MARKER: &str = ".cobble-modrinth.json";
+pub(super) const MARKER: &str = ".cobble-modrinth.json";
 const MAX_FILE: u64 = 512 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
@@ -35,13 +35,71 @@ pub struct ModrinthInstallOutcome {
     pub reused: usize,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-struct ManagedMod {
-    version_id: String,
-    filename: String,
-    sha1: String,
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub(super) struct ManagedMod {
+    pub version_id: String,
+    pub filename: String,
+    pub sha1: String,
 }
-type Provenance = BTreeMap<String, ManagedMod>;
+pub(super) type Provenance = BTreeMap<String, ManagedMod>;
+
+pub(super) struct ModDownloads {
+    pub content: ContentStore,
+    index: Dir,
+    downloader: DownloadManager,
+}
+
+impl ModDownloads {
+    pub fn open() -> Result<Self, Error> {
+        let cache = dirs::cache_dir()
+            .ok_or("could not locate user cache")?
+            .join("CobbleLauncher");
+        for name in ["downloads", "content", "sha1"] {
+            std::fs::create_dir_all(cache.join(name))?;
+        }
+        let open =
+            |name: &str| Dir::open_ambient_dir(cache.join(name), cap_std::ambient_authority());
+        Ok(Self {
+            content: ContentStore::open(open("content")?)?,
+            index: open("sha1")?,
+            downloader: DownloadManager::new(ArtifactDownloader::new(
+                Broker::new(BrokerConfig {
+                    total_timeout: std::time::Duration::from_secs(300),
+                    ..BrokerConfig::default()
+                })?,
+                DownloadStaging::open(open("downloads")?)?,
+                ContentStore::open(open("content")?)?,
+            )),
+        })
+    }
+
+    pub async fn fetch(&self, selected: &ResolvedMod) -> Result<VerifiedArtifact, Error> {
+        let expected = expectation(selected)?;
+        let artifact = match crate::cache::lookup(&self.content, &self.index, expected)? {
+            Some(artifact) => artifact,
+            None => {
+                let request = DownloadRequest::new(
+                    &selected.file.url,
+                    expected,
+                    DownloadAuthority::same_origin(
+                        "modrinth",
+                        "mod-install",
+                        "official-cdn-v1",
+                        None,
+                    )?,
+                    None,
+                )?;
+                self.downloader
+                    .download(request, TransferCancellation::default())
+                    .await?
+                    .artifact
+                    .clone()
+            }
+        };
+        let _ = crate::cache::record(&self.index, &artifact);
+        Ok(artifact)
+    }
+}
 
 /// Downloads the complete plan before publishing any JAR. No game is launched.
 /// Partial publication is recorded before copies and can be retried; this is
@@ -62,29 +120,12 @@ pub async fn install_modrinth_plan(
     if let Some(mods) = &mods {
         preflight(plan, mods, &mut provenance)?;
     }
-    let cache = dirs::cache_dir()
-        .ok_or("could not locate user cache")?
-        .join("CobbleLauncher");
-    for name in ["downloads", "content", "sha1"] {
-        std::fs::create_dir_all(cache.join(name))?;
-    }
-    let open = |name: &str| Dir::open_ambient_dir(cache.join(name), cap_std::ambient_authority());
-    let content = ContentStore::open(open("content")?)?;
-    let index = open("sha1")?;
-    let downloader = DownloadManager::new(ArtifactDownloader::new(
-        Broker::new(BrokerConfig {
-            total_timeout: std::time::Duration::from_secs(300),
-            ..BrokerConfig::default()
-        })?,
-        DownloadStaging::open(open("downloads")?)?,
-        ContentStore::open(open("content")?)?,
-    ));
+    let downloads = ModDownloads::open()?;
     let mut artifacts: Vec<Option<VerifiedArtifact>> = Vec::new();
     let mut reused = 0;
     let total = plan.mods.len();
     on_progress(progress("mod-download", 0, total, reused));
     for (i, selected) in plan.mods.iter().enumerate() {
-        let expected = expectation(selected)?;
         let existing = mods
             .as_ref()
             .map(|mods| existing_matches(mods, selected))
@@ -94,28 +135,7 @@ pub async fn install_modrinth_plan(
             reused += 1;
             artifacts.push(None);
         } else {
-            let artifact = match crate::cache::lookup(&content, &index, expected)? {
-                Some(artifact) => artifact,
-                None => {
-                    let request = DownloadRequest::new(
-                        &selected.file.url,
-                        expected,
-                        DownloadAuthority::same_origin(
-                            "modrinth",
-                            "mod-install",
-                            "official-cdn-v1",
-                            None,
-                        )?,
-                        None,
-                    )?;
-                    downloader
-                        .download(request, TransferCancellation::default())
-                        .await?
-                        .artifact
-                        .clone()
-                }
-            };
-            let _ = crate::cache::record(&index, &artifact);
+            let artifact = downloads.fetch(selected).await?;
             artifacts.push(Some(artifact));
         }
         on_progress(progress("mod-download", i + 1, total, reused));
@@ -144,7 +164,7 @@ pub async fn install_modrinth_plan(
         } else {
             let artifact =
                 artifact.ok_or("an existing mod disappeared during installation; retry")?;
-            content.copy_to(
+            downloads.content.copy_to(
                 &artifact,
                 &mods,
                 &SafeRelativePath::parse(&selected.file.filename)?,
@@ -169,7 +189,7 @@ fn progress(phase: &str, completed: usize, total: usize, reused: usize) -> Insta
     }
 }
 
-fn validate_plan(plan: &ModrinthPlan) -> Result<(), Error> {
+pub(super) fn validate_plan(plan: &ModrinthPlan) -> Result<(), Error> {
     if plan.mods.is_empty() || plan.mods.len() > 256 {
         return Err("invalid Modrinth plan length".into());
     }
@@ -323,7 +343,7 @@ fn existing_matches(mods: &Dir, selected: &ResolvedMod) -> Result<bool, Error> {
     Ok(found)
 }
 
-fn read_provenance(root: &Dir) -> Result<Provenance, Error> {
+pub(super) fn read_provenance(root: &Dir) -> Result<Provenance, Error> {
     let mut options = OpenOptions::new();
     options.read(true).follow(FollowSymlinks::No);
     match root.open_with(MARKER, &options) {
@@ -333,7 +353,7 @@ fn read_provenance(root: &Dir) -> Result<Provenance, Error> {
     }
 }
 
-fn write_provenance(root: &Dir, provenance: &Provenance) -> Result<(), Error> {
+pub(super) fn write_provenance(root: &Dir, provenance: &Provenance) -> Result<(), Error> {
     let temporary = ".cobble-modrinth.json.tmp";
     let mut options = OpenOptions::new();
     options

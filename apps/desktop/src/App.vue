@@ -120,6 +120,7 @@ async function retryGame(id: string) {
 const view = ref<'library' | 'create' | 'import' | 'settings' | 'details' | 'profiles' | 'add-profile' | 'game-action'>('library');
 const gameAction = ref<GameAction>('copy');
 const gameActionBusy = ref(false);
+const contentBusy = ref(false);
 const gameActionTitle = computed(() => ({ copy: '复制游戏', export: '导出整合包', remove: '移除游戏' })[gameAction.value]);
 const selectedGameId = ref('');
 const selectedGame = computed(() => games.value.find((game) => game.id === selectedGameId.value));
@@ -142,7 +143,7 @@ function removeFromLibrary(id: string) {
   view.value = 'library';
 }
 function goBack() {
-  if (profileBusy.value || gameActionBusy.value) return;
+  if (profileBusy.value || gameActionBusy.value || contentBusy.value) return;
   if (view.value === 'game-action') view.value = 'details';
   else if (view.value === 'profiles' || view.value === 'add-profile') leaveProfiles();
   else view.value = 'library';
@@ -376,7 +377,7 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
           <button
             class="back-button"
             :aria-label="view === 'game-action' ? '返回游戏详情' : view === 'profiles' || view === 'add-profile' ? '返回' : '返回游戏库'"
-            :disabled="profileBusy || gameActionBusy"
+            :disabled="profileBusy || gameActionBusy || contentBusy"
             @click="goBack"
           >
             <svg viewBox="0 0 20 20"><path d="m11 4-6 6 6 6M5 10h11" /></svg>{{ view === 'game-action' ? '游戏详情' : view === 'profiles' || view === 'add-profile' ? '返回' : '游戏库' }}
@@ -403,6 +404,7 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
           @renamed="updateGame"
           @profile-changed="updateGame"
           @action="openGameAction"
+          @content-busy="contentBusy = $event"
         />
         <GameActionsPage
           v-else-if="view === 'game-action' && selectedGame"

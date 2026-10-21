@@ -53,6 +53,12 @@ pub struct ModrinthFile {
     pub sha512: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct ModrinthUpdate {
+    pub current_version: String,
+    pub selected: ResolvedMod,
+}
+
 fn error(message: impl Into<String>) -> BoxError {
     io::Error::other(message.into()).into()
 }
@@ -237,6 +243,110 @@ pub async fn resolve_modrinth(
     identifier(&project.id)?;
     resolve(&mut api, &project.id, mc, loader).await
 }
+
+/// Joint resolution for explicitly selected update roots. Their latest releases
+/// stay pinned so a dependency cannot silently downgrade another selected root.
+pub async fn resolve_modrinth_many(
+    project_ids: &[String],
+    mc: &str,
+    loader: &str,
+) -> Result<ModrinthPlan, BoxError> {
+    target(mc, loader)?;
+    let mut api = LiveApi::new()?;
+    resolve_many(&mut api, project_ids, mc, loader).await
+}
+
+pub async fn find_modrinth_update(
+    project_id: &str,
+    current_version: &str,
+    mc: &str,
+    loader: &str,
+) -> Result<Option<ModrinthUpdate>, BoxError> {
+    target(mc, loader)?;
+    identifier(project_id)?;
+    identifier(current_version)?;
+    let mut api = LiveApi::new()?;
+    find_update(&mut api, project_id, current_version, mc, loader).await
+}
+
+/// Read the display version of an installed managed Mod, validating its project.
+pub async fn modrinth_version_number(
+    project_id: &str,
+    version_id: &str,
+) -> Result<String, BoxError> {
+    identifier(project_id)?;
+    identifier(version_id)?;
+    let version = LiveApi::new()?.version(version_id).await?;
+    if version.id != version_id || version.project_id != project_id {
+        return Err(error(
+            "Installed Modrinth version does not belong to this project",
+        ));
+    }
+    Ok(version.version_number)
+}
+
+fn latest_release<'a>(
+    versions: &'a [Version],
+    project: &str,
+    mc: &str,
+    loader: &str,
+) -> Option<&'a Version> {
+    versions
+        .iter()
+        .filter(|version| {
+            version.project_id == project
+                && version.version_type == "release"
+                && compatible(version, mc, loader)
+        })
+        .max_by(|a, b| {
+            a.date_published
+                .cmp(&b.date_published)
+                .then(a.id.cmp(&b.id))
+        })
+}
+
+async fn find_update(
+    api: &mut impl Api,
+    project_id: &str,
+    current_version: &str,
+    mc: &str,
+    loader: &str,
+) -> Result<Option<ModrinthUpdate>, BoxError> {
+    let current = api.version(current_version).await?;
+    if current.id != current_version || current.project_id != project_id {
+        return Err(error(
+            "Installed Modrinth version does not belong to this project",
+        ));
+    }
+    let versions = api.versions(project_id, mc, loader).await?;
+    let Some(next) = latest_release(&versions, project_id, mc, loader) else {
+        return Ok(None);
+    };
+    if next.id == current.id || next.date_published <= current.date_published {
+        return Ok(None);
+    }
+    let project = api.project(project_id).await?;
+    if project.id != project_id
+        || project.project_type != "mod"
+        || !matches!(
+            project.client_side.as_str(),
+            "required" | "optional" | "unknown"
+        )
+    {
+        return Err(error("Project is not a supported client mod"));
+    }
+    Ok(Some(ModrinthUpdate {
+        current_version: current.version_number,
+        selected: ResolvedMod {
+            project_id: project_id.to_owned(),
+            version_id: next.id.clone(),
+            name: project.title,
+            version_number: next.version_number.clone(),
+            file: file(next)?,
+            required_by: None,
+        },
+    }))
+}
 fn compatible(version: &Version, mc: &str, loader: &str) -> bool {
     version.game_versions.iter().any(|v| v == mc) && version.loaders.iter().any(|v| v == loader)
 }
@@ -301,14 +411,45 @@ async fn resolve(
     mc: &str,
     loader: &str,
 ) -> Result<ModrinthPlan, BoxError> {
+    resolve_many(api, &[root.to_owned()], mc, loader).await
+}
+
+async fn resolve_many(
+    api: &mut impl Api,
+    roots: &[String],
+    mc: &str,
+    loader: &str,
+) -> Result<ModrinthPlan, BoxError> {
+    if roots.is_empty() || roots.len() > MAX_PROJECTS {
+        return Err(error("Select between 1 and 128 Modrinth projects"));
+    }
+    let root = &roots[0];
     let mut versions = HashMap::<String, Vec<Version>>::new();
     let mut exact = HashMap::<String, Version>::new();
     let mut projects = HashMap::<String, Project>::new();
-    let mut pins = BTreeMap::<String, String>::new();
+    let mut root_pins = BTreeMap::<String, String>::new();
+    for root in roots {
+        identifier(root)?;
+        if root_pins.contains_key(root) {
+            return Err(error("Duplicate selected Modrinth project"));
+        }
+        let choices = api.versions(root, mc, loader).await?;
+        let chosen = latest_release(&choices, root, mc, loader)
+            .ok_or_else(|| {
+                error(format!(
+                    "No compatible release for project {root} on Minecraft {mc} / {loader}"
+                ))
+            })?
+            .clone();
+        root_pins.insert(root.clone(), chosen.id.clone());
+        exact.insert(chosen.id.clone(), chosen);
+        versions.insert(root.clone(), choices);
+    }
+    let mut pins = root_pins.clone();
     for _ in 0..MAX_PROJECTS {
         let mut selected = BTreeMap::<String, (Version, Option<String>)>::new();
-        let mut discovered = BTreeMap::<String, String>::new();
-        let mut queue = VecDeque::from([(root.to_string(), None)]);
+        let mut discovered = root_pins.clone();
+        let mut queue: VecDeque<_> = roots.iter().map(|root| (root.clone(), None)).collect();
         while let Some((id, parent)) = queue.pop_front() {
             if selected.contains_key(&id) {
                 continue;
@@ -348,18 +489,7 @@ async fn resolve(
                 if !versions.contains_key(&id) {
                     versions.insert(id.clone(), api.versions(&id, mc, loader).await?);
                 }
-                versions[&id]
-                    .iter()
-                    .filter(|v| {
-                        v.project_id == id
-                            && v.version_type == "release"
-                            && compatible(v, mc, loader)
-                    })
-                    .max_by(|a, b| {
-                        a.date_published
-                            .cmp(&b.date_published)
-                            .then(a.id.cmp(&b.id))
-                    })
+                latest_release(&versions[&id], &id, mc, loader)
                     .cloned()
                     .ok_or_else(|| {
                         error(format!(
@@ -505,6 +635,84 @@ mod tests {
     }
     fn version(project: &str, id: &str, date: &str, deps: serde_json::Value) -> Version {
         serde_json::from_value(json!({"project_id":project,"id":id,"version_number":id,"version_type":"release","date_published":date,"game_versions":["1.21.1"],"loaders":["fabric"],"dependencies":deps,"files":[{"url":"https://cdn.modrinth.com/data/Example/versions/Example/example.jar","filename":format!("{project}.jar"),"size":100,"primary":true,"hashes":{"sha1":"0123456789012345678901234567890123456789"}}]})).unwrap()
+    }
+
+    #[test]
+    fn update_check_never_downgrades_a_newer_beta_to_an_older_release() {
+        let mut beta = version("Root", "Beta", "2026-03-01", json!([]));
+        beta.version_type = "beta".into();
+        let old_release = version("Root", "Old", "2026-02-01", json!([]));
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let mut api = Fixture {
+            versions: vec![beta.clone(), old_release],
+        };
+        assert!(
+            runtime
+                .block_on(find_update(&mut api, "Root", "Beta", "1.21.1", "fabric"))
+                .unwrap()
+                .is_none()
+        );
+        api.versions
+            .push(version("Root", "New", "2026-04-01", json!([])));
+        let update = runtime
+            .block_on(find_update(&mut api, "Root", "Beta", "1.21.1", "fabric"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(update.current_version, "Beta");
+        assert_eq!(update.selected.version_id, "New");
+        assert!(
+            runtime
+                .block_on(find_update(&mut api, "Root", "New", "1.21.1", "fabric"))
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn jointly_resolved_roots_deduplicate_dependencies_and_reject_cross_root_pins() {
+        let root = version(
+            "Root",
+            "RootV",
+            "2026-03-01",
+            json!([{"project_id":"Lib","dependency_type":"required"}]),
+        );
+        let other = version(
+            "Other",
+            "OtherV",
+            "2026-03-01",
+            json!([{"project_id":"Lib","dependency_type":"required"}]),
+        );
+        let lib = version("Lib", "LibV", "2026-03-01", json!([]));
+        let roots = vec!["Root".to_owned(), "Other".to_owned()];
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let mut api = Fixture {
+            versions: vec![root.clone(), other, lib],
+        };
+        let plan = runtime
+            .block_on(resolve_many(&mut api, &roots, "1.21.1", "fabric"))
+            .unwrap();
+        assert_eq!(plan.mods.len(), 3);
+        assert_eq!(
+            plan.mods
+                .iter()
+                .filter(|item| item.project_id == "Lib")
+                .count(),
+            1
+        );
+        let old_other = version("Other", "OldOther", "2026-01-01", json!([]));
+        api.versions.push(old_other);
+        api.versions[0].dependencies = serde_json::from_value(
+            json!([{"project_id":"Other","version_id":"OldOther","dependency_type":"required"}]),
+        )
+        .unwrap();
+        let error = runtime
+            .block_on(resolve_many(&mut api, &roots, "1.21.1", "fabric"))
+            .unwrap_err();
+        assert!(error.to_string().contains("Conflicting required pins"));
     }
     fn run(versions: Vec<Version>) -> Result<ModrinthPlan, BoxError> {
         run_for_loader(versions, "fabric")

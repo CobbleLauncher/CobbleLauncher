@@ -6,10 +6,11 @@ import { DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenu
 import type { Game, GameAction, LocalMod, PlayerProfile, ProfileLibrary } from './games';
 import { gameLoaderLabel } from './games';
 import DiscoverMods from './DiscoverMods.vue';
+import ModUpdates from './ModUpdates.vue';
 import GameRuntimeSettings from './GameRuntimeSettings.vue';
 
 const props = defineProps<{ game: Game; starting: boolean; profile: PlayerProfile | null; library: ProfileLibrary }>();
-const emit = defineEmits<{ play: [id: string]; renamed: [game: Game]; profileChanged: [game: Game]; action: [action: GameAction] }>();
+const emit = defineEmits<{ play: [id: string]; renamed: [game: Game]; profileChanged: [game: Game]; action: [action: GameAction]; contentBusy: [value: boolean] }>();
 const pageTab = ref<'content' | 'runtime'>('content');
 const profileBindingBusy = ref(false);
 const profileBindingError = ref('');
@@ -60,29 +61,56 @@ async function openLocation(command: 'open_game_directory' | 'open_game_log') {
   finally { actionBusy.value = false; }
 }
 const mods = ref<LocalMod[]>([]);
-const tab = ref<'installed' | 'discover'>('installed');
+const tab = ref<'installed' | 'discover' | 'updates'>('installed');
+const updatingMods = ref(false);
 const installingMod = ref(false);
-const contentInstalling = computed(() => installingMod.value || !!props.game.content_installing);
+const contentInstalling = computed(() => installingMod.value || updatingMods.value || !!props.game.content_installing);
 async function installed() { await refresh(); tab.value = 'installed'; }
 const query = ref('');
 const loading = ref(false);
 const busy = ref(false);
 const error = ref('');
 const deleting = ref<string | null>(null);
+const selectedMods = ref<string[]>([]);
+const batchDeleting = ref(false);
+const contentBusy = computed(() => busy.value || installingMod.value || updatingMods.value);
+watch(() => busy.value || updatingMods.value, (value) => emit('contentBusy', value));
+watch(mods, (value) => { selectedMods.value = selectedMods.value.filter((file) => value.some((mod) => mod.file_name === file)); });
+const allVisibleSelected = computed(() => filtered.value.length > 0 && filtered.value.every((mod) => selectedMods.value.includes(mod.file_name)));
+function selectMod(file: string, checked: boolean) { selectedMods.value = checked ? [...new Set([...selectedMods.value, file])] : selectedMods.value.filter((value) => value !== file); batchDeleting.value = false; }
+function selectVisible(checked: boolean) {
+  const visible = new Set(filtered.value.map((mod) => mod.file_name));
+  selectedMods.value = checked ? [...new Set([...selectedMods.value, ...visible])] : selectedMods.value.filter((file) => !visible.has(file));
+  batchDeleting.value = false;
+}
+async function batch(command: 'set_game_mod_enabled' | 'remove_game_mod', enabled = false) {
+  if (locked.value || busy.value || loading.value || !selectedMods.value.length) return;
+  const targets = mods.value.filter((mod) => selectedMods.value.includes(mod.file_name));
+  busy.value = true; batchDeleting.value = false; deleting.value = null; error.value = '';
+  let currentName = '';
+  try {
+    for (const mod of targets) {
+      currentName = mod.name;
+      await invoke(command, { id: props.game.id, fileName: mod.file_name, ...(command === 'set_game_mod_enabled' ? { enabled } : {}) });
+      selectedMods.value = selectedMods.value.filter((file) => file !== mod.file_name);
+    }
+  } catch (cause) { error.value = `未能处理 ${currentName}：${String(cause)}`; }
+  finally { await refresh(true); busy.value = false; }
+}
 let request = 0;
 const locked = computed(() => contentInstalling.value || props.starting || props.game.launch_state === 'preparing' || props.game.launch_state === 'running');
 const filtered = computed(() => {
   const search = query.value.trim().toLocaleLowerCase();
   return mods.value.filter((mod) => [mod.name, mod.file_name, mod.version, mod.loader, ...mod.authors].some((value) => value?.toLocaleLowerCase().includes(search)));
 });
-async function refresh() {
+async function refresh(preserveError = false) {
   const current = ++request;
   loading.value = true;
-  error.value = '';
+  if (!preserveError) error.value = '';
   try {
     const result = await invoke<LocalMod[]>('list_game_mods', { id: props.game.id });
     if (current === request) mods.value = result;
-  } catch (cause) { if (current === request) error.value = `无法读取内容：${String(cause)}`; }
+  } catch (cause) { if (current === request && (!preserveError || !error.value)) error.value = `无法读取内容：${String(cause)}`; }
   finally { if (current === request) loading.value = false; }
 }
 async function mutate(command: string, args: Record<string, unknown> = {}) {
@@ -101,8 +129,8 @@ function remove(mod: LocalMod) {
   deleting.value = null;
   void mutate('remove_game_mod', { fileName: mod.file_name });
 }
-watch(locked, (value) => { if (value) deleting.value = null; });
-watch(() => props.game.id, () => { mods.value = []; busy.value = false; query.value = ''; void refresh(); }, { immediate: true });
+watch(locked, (value) => { if (value) { deleting.value = null; batchDeleting.value = false; } });
+watch(() => props.game.id, () => { mods.value = []; selectedMods.value = []; batchDeleting.value = false; busy.value = false; query.value = ''; void refresh(); }, { immediate: true });
 onUnmounted(() => { disposed = true; ++request; });
 </script>
 
@@ -115,6 +143,7 @@ onUnmounted(() => { disposed = true; ++request; });
         </p>
         <button
           class="text-button launch-identity"
+          :disabled="contentBusy"
           @click="pageTab = 'runtime'"
         >
           {{ profile ? `使用 ${profile.name} · 离线` : '请选择玩家档案' }} <span aria-hidden="true">⌄</span>
@@ -131,13 +160,13 @@ onUnmounted(() => { disposed = true; ++request; });
         :disabled="locked || busy || profileBindingBusy"
         @click="$emit('play', game.id)"
       >
-        {{ contentInstalling ? '安装 Mod 中' : game.launch_state === 'running' ? '运行中' : locked ? '启动中…' : profile ? `以 ${profile.name} 开始` : '选择玩家档案' }}
+        {{ updatingMods ? '更新 Mod 中' : contentInstalling ? '安装 Mod 中' : game.launch_state === 'running' ? '运行中' : locked ? '启动中…' : profile ? `以 ${profile.name} 开始` : '选择玩家档案' }}
       </button>
     </div>
     <div class="game-management-actions">
       <button
         class="text-button"
-        :disabled="actionBusy || editingName"
+        :disabled="actionBusy || editingName || contentBusy"
         @click="editName"
       >
         更改名称
@@ -160,7 +189,7 @@ onUnmounted(() => { disposed = true; ++request; });
         <DropdownMenuTrigger
           class="text-button game-more-trigger"
           aria-label="更多游戏操作"
-          :disabled="actionBusy || editingName"
+          :disabled="actionBusy || editingName || contentBusy"
         >
           更多 <span aria-hidden="true">⌄</span>
         </DropdownMenuTrigger>
@@ -261,6 +290,7 @@ onUnmounted(() => { disposed = true; ++request; });
         role="tab"
         :aria-selected="pageTab === 'content'"
         aria-controls="game-content-panel"
+        :disabled="contentBusy"
         @click="pageTab = 'content'"
       >
         内容
@@ -270,6 +300,7 @@ onUnmounted(() => { disposed = true; ++request; });
         role="tab"
         :aria-selected="pageTab === 'runtime'"
         aria-controls="game-runtime-panel"
+        :disabled="contentBusy"
         @click="pageTab = 'runtime'"
       >
         运行设置
@@ -340,7 +371,7 @@ onUnmounted(() => { disposed = true; ++request; });
           id="installed-tab"
           role="tab"
           :aria-selected="tab === 'installed'"
-          :disabled="contentInstalling"
+          :disabled="contentInstalling || busy"
           aria-controls="installed-content"
           @click="tab = 'installed'"
         >
@@ -350,11 +381,21 @@ onUnmounted(() => { disposed = true; ++request; });
           id="discover-tab"
           role="tab"
           :aria-selected="tab === 'discover'"
-          :disabled="contentInstalling"
+          :disabled="contentInstalling || busy"
           aria-controls="discover-content"
           @click="tab = 'discover'"
         >
           发现 Mod
+        </button>
+        <button
+          id="updates-tab"
+          role="tab"
+          :aria-selected="tab === 'updates'"
+          :disabled="contentInstalling || busy"
+          aria-controls="updates-content"
+          @click="tab = 'updates'"
+        >
+          更新
         </button>
       </div>
       <DiscoverMods
@@ -366,6 +407,16 @@ onUnmounted(() => { disposed = true; ++request; });
         :locked="locked || busy"
         @installing="installingMod = $event"
         @installed="installed"
+      />
+      <ModUpdates
+        v-show="tab === 'updates'"
+        id="updates-content"
+        role="tabpanel"
+        aria-labelledby="updates-tab"
+        :game="game"
+        :locked="locked || busy || loading"
+        @busy="updatingMods = $event"
+        @updated="refresh()"
       />
       <div
         v-show="tab === 'installed'"
@@ -409,10 +460,67 @@ onUnmounted(() => { disposed = true; ++request; });
           <button
             class="text-button"
             :disabled="busy || loading"
-            @click="refresh"
+            @click="refresh()"
           >
             {{ loading ? '读取中…' : '刷新' }}
           </button>
+        </div>
+        <div
+          v-if="mods.length"
+          class="mod-selection-toolbar installed-selection"
+        >
+          <label class="mod-selection-label"><input
+            type="checkbox"
+            aria-label="全选当前列表"
+            :checked="allVisibleSelected"
+            :indeterminate="filtered.some((mod) => selectedMods.includes(mod.file_name)) && !allVisibleSelected"
+            :disabled="locked || busy || loading || !filtered.length"
+            @change="selectVisible(($event.target as HTMLInputElement).checked)"
+          ><span>{{ selectedMods.length ? `已选择 ${selectedMods.length} 个` : '选择 Mod' }}</span></label>
+          <div
+            v-if="selectedMods.length"
+            class="mod-batch-actions"
+          >
+            <button
+              class="text-button"
+              :disabled="locked || busy || loading"
+              @click="batch('set_game_mod_enabled', true)"
+            >
+              启用所选
+            </button><button
+              class="text-button"
+              :disabled="locked || busy || loading"
+              @click="batch('set_game_mod_enabled', false)"
+            >
+              停用所选
+            </button><button
+              class="text-button danger-text"
+              :disabled="locked || busy || loading"
+              @click="batchDeleting = true; deleting = null"
+            >
+              移除所选
+            </button>
+          </div>
+        </div>
+        <div
+          v-if="batchDeleting"
+          class="mod-batch-confirm"
+        >
+          <p>移除选中的 {{ selectedMods.length }} 个 Mod？游戏和存档会保留。</p><div class="profile-form-actions">
+            <button
+              class="secondary-button danger-text"
+              :disabled="locked || busy || loading"
+              @click="batch('remove_game_mod')"
+            >
+              确认移除所选
+            </button><button
+              class="text-button"
+              :disabled="busy"
+              @click="batchDeleting = false"
+            >
+              取消
+            </button>
+          </div>
         </div>
         <p
           v-if="error"
@@ -438,6 +546,14 @@ onUnmounted(() => { disposed = true; ++request; });
             :key="mod.file_name"
             class="mod-row"
           >
+            <input
+              class="mod-selection-checkbox"
+              type="checkbox"
+              :aria-label="`选择 ${mod.name}`"
+              :checked="selectedMods.includes(mod.file_name)"
+              :disabled="locked || busy || loading"
+              @change="selectMod(mod.file_name, ($event.target as HTMLInputElement).checked)"
+            >
             <div
               class="mod-info"
               :class="{ 'mod-disabled': !mod.enabled }"

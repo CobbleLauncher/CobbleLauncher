@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 use super::*;
 
-struct Operation {
+pub(super) struct Operation {
     app: AppHandle,
     id: String,
 }
@@ -12,11 +12,16 @@ impl Drop for Operation {
             && let Some(game) = library.games.iter_mut().find(|game| game.id == self.id)
         {
             game.content_installing = false;
+            let _ = self.app.emit("game-install", &*game);
         }
     }
 }
 
-fn begin(app: &AppHandle, id: &str, installed: bool) -> Result<(Game, Operation), String> {
+pub(super) fn begin(
+    app: &AppHandle,
+    id: &str,
+    installed: bool,
+) -> Result<(Game, Operation), String> {
     let state = app.state::<GameLibrary>();
     let mut library = state.0.lock().map_err(|e| e.to_string())?;
     let game = library
@@ -198,6 +203,7 @@ pub async fn remove_game(app: AppHandle, id: String, delete_files: bool) -> Resu
         library.games.insert(index, removed);
         return Err(error);
     }
-    library.mod_plans.retain(|_, (game_id, _)| game_id != &id);
+    library.mod_plans.remove(&id);
+    library.update_plans.remove(&id);
     Ok(())
 }
