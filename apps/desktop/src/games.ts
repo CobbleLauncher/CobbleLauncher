@@ -8,6 +8,7 @@ export type JavaRuntimeInfo = { version: string; major: number; arch: string; ve
 export type JavaSelection = { mode: 'automatic' | 'custom'; executable: string | null; runtime: JavaRuntimeInfo | null };
 export type LauncherPreferences = { memory_mb: number; game_directory: string; custom_game_directory: boolean };
 export type RuntimeOverrides = { java: { mode: 'inherit' | 'automatic' | 'custom'; executable?: string }; memory_mb: number | null };
+export type GameAction = 'copy' | 'export' | 'remove';
 export type Game = {
   id: string;
   name: string;

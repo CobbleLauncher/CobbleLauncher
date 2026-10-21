@@ -10,10 +10,11 @@ import ImportPackPage from './ImportPackPage.vue';
 import SettingsPage from './SettingsPage.vue';
 import GameCard from './GameCard.vue';
 import GameDetailsPage from './GameDetailsPage.vue';
+import GameActionsPage from './GameActionsPage.vue';
 import ProfileSwitcher from './ProfileSwitcher.vue';
 import ProfilesPage from './ProfilesPage.vue';
 import AddProfilePage from './AddProfilePage.vue';
-import { effectiveProfile, type Game, type ProfileLibrary } from './games';
+import { effectiveProfile, type Game, type GameAction, type ProfileLibrary } from './games';
 const games = ref<Game[]>([]);
 const profileLibrary = ref<ProfileLibrary>({ profiles: [], active_id: null });
 const profileReady = ref(false);
@@ -116,13 +117,35 @@ async function retryGame(id: string) {
   catch (cause) { error.value = `无法重试安装：${String(cause)}`; }
   finally { retrying.value = retrying.value.filter((item) => item !== id); }
 }
-const view = ref<'library' | 'create' | 'import' | 'settings' | 'details' | 'profiles' | 'add-profile'>('library');
+const view = ref<'library' | 'create' | 'import' | 'settings' | 'details' | 'profiles' | 'add-profile' | 'game-action'>('library');
+const gameAction = ref<GameAction>('copy');
+const gameActionBusy = ref(false);
+const gameActionTitle = computed(() => ({ copy: '复制游戏', export: '导出整合包', remove: '移除游戏' })[gameAction.value]);
 const selectedGameId = ref('');
 const selectedGame = computed(() => games.value.find((game) => game.id === selectedGameId.value));
 function manageGame(id: string) {
   if (games.value.find((game) => game.id === id)?.status !== 'installed') return;
   selectedGameId.value = id;
   view.value = 'details';
+}
+function openGameAction(action: GameAction) {
+  const game = selectedGame.value;
+  if (!game || game.status !== 'installed' || game.content_installing || starting.value.includes(game.id) || game.launch_state === 'preparing' || game.launch_state === 'running') return;
+  gameAction.value = action;
+  view.value = 'game-action';
+}
+function removeFromLibrary(id: string) {
+  games.value = games.value.filter((game) => game.id !== id);
+  gameRevisions.delete(id);
+  selectedGameId.value = '';
+  if (pendingGameId.value === id) pendingGameId.value = null;
+  view.value = 'library';
+}
+function goBack() {
+  if (profileBusy.value || gameActionBusy.value) return;
+  if (view.value === 'game-action') view.value = 'details';
+  else if (view.value === 'profiles' || view.value === 'add-profile') leaveProfiles();
+  else view.value = 'library';
 }
 watch(view, async () => {
   await nextTick();
@@ -352,14 +375,14 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
         <div class="page-header">
           <button
             class="back-button"
-            :aria-label="view === 'profiles' || view === 'add-profile' ? '返回' : '返回游戏库'"
-            :disabled="profileBusy"
-            @click="view === 'profiles' || view === 'add-profile' ? leaveProfiles() : view = 'library'"
+            :aria-label="view === 'game-action' ? '返回游戏详情' : view === 'profiles' || view === 'add-profile' ? '返回' : '返回游戏库'"
+            :disabled="profileBusy || gameActionBusy"
+            @click="goBack"
           >
-            <svg viewBox="0 0 20 20"><path d="m11 4-6 6 6 6M5 10h11" /></svg>{{ view === 'profiles' || view === 'add-profile' ? '返回' : '游戏库' }}
+            <svg viewBox="0 0 20 20"><path d="m11 4-6 6 6 6M5 10h11" /></svg>{{ view === 'game-action' ? '游戏详情' : view === 'profiles' || view === 'add-profile' ? '返回' : '游戏库' }}
           </button>
           <h1 tabindex="-1">
-            {{ view === 'create' ? '创建游戏' : view === 'import' ? '导入整合包' : view === 'details' ? selectedGame?.name : view === 'profiles' ? '玩家档案' : view === 'add-profile' ? '添加玩家档案' : '设置' }}
+            {{ view === 'create' ? '创建游戏' : view === 'import' ? '导入整合包' : view === 'details' ? selectedGame?.name : view === 'game-action' ? gameActionTitle : view === 'profiles' ? '玩家档案' : view === 'add-profile' ? '添加玩家档案' : '设置' }}
           </h1>
         </div>
         <CreateGamePage
@@ -379,6 +402,17 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
           @play="startGame"
           @renamed="updateGame"
           @profile-changed="updateGame"
+          @action="openGameAction"
+        />
+        <GameActionsPage
+          v-else-if="view === 'game-action' && selectedGame"
+          :game="selectedGame"
+          :action="gameAction"
+          :starting="starting.includes(selectedGame.id)"
+          @busy="gameActionBusy = $event"
+          @copied="addCreatedGame"
+          @removed="removeFromLibrary"
+          @cancel="goBack"
         />
         <ProfilesPage
           v-else-if="view === 'profiles'"

@@ -104,36 +104,23 @@ impl VersionCatalog {
             .find(|version| version.id == id)
             .ok_or(CatalogError::UnknownVersion)?;
         let url = source.resolve(&summary.url).map_err(CatalogError::Source)?;
-        let response = broker
-            .get(&url, None, 8 * 1024 * 1024)
-            .await
-            .map_err(CatalogError::Network)?;
-        if response.metadata.status != 200 {
-            return Err(CatalogError::HttpStatus(response.metadata.status));
-        }
-        VersionMetadata::parse_verified(&response.body, id, &summary.sha1)
-            .map_err(CatalogError::Metadata)
+        let bytes = fetch_document(broker, &url, &summary.url, 8 * 1024 * 1024).await?;
+        VersionMetadata::parse_verified(&bytes, id, &summary.sha1).map_err(CatalogError::Metadata)
     }
     /// Explicit user operation; never called during application bootstrap.
     /// Catalog entries are display data, not verified installation plans.
     pub async fn fetch(broker: &Broker) -> Result<Self, CatalogError> {
         Self::fetch_from(broker, &DownloadSource::Official).await
     }
-    /// Uses the explicitly selected HTTPS provider for the catalog too, so a
-    /// mirror selection does not require connectivity to Mojang metadata hosts.
+    /// Try the selected provider first. A temporary mirror failure gets one
+    /// official metadata attempt without changing the selected download source.
     pub async fn fetch_from(
         broker: &Broker,
         source: &DownloadSource,
     ) -> Result<Self, CatalogError> {
         let url = source.resolve(MANIFEST_URL).map_err(CatalogError::Source)?;
-        let response = broker
-            .get(&url, None, 4 * 1024 * 1024)
-            .await
-            .map_err(CatalogError::Network)?;
-        if response.metadata.status != 200 {
-            return Err(CatalogError::HttpStatus(response.metadata.status));
-        }
-        Self::parse(&response.body)
+        let bytes = fetch_document(broker, &url, MANIFEST_URL, 4 * 1024 * 1024).await?;
+        Self::parse(&bytes)
     }
 
     fn parse(bytes: &[u8]) -> Result<Self, CatalogError> {
@@ -146,9 +133,56 @@ impl VersionCatalog {
     }
 }
 
+async fn get_document(broker: &Broker, url: &str, limit: u64) -> Result<Vec<u8>, CatalogError> {
+    let response = broker
+        .get(url, None, limit)
+        .await
+        .map_err(CatalogError::Network)?;
+    if response.metadata.status != 200 {
+        return Err(CatalogError::HttpStatus(response.metadata.status));
+    }
+    Ok(response.body)
+}
+
+fn temporary_failure(error: &CatalogError) -> bool {
+    matches!(
+        error,
+        CatalogError::Network(
+            NetError::Timeout(_) | NetError::Connect | NetError::Tls | NetError::Resolution
+        ) | CatalogError::HttpStatus(429 | 500..=599)
+    )
+}
+
+async fn fetch_document(
+    broker: &Broker,
+    selected: &str,
+    official: &str,
+    limit: u64,
+) -> Result<Vec<u8>, CatalogError> {
+    match get_document(broker, selected, limit).await {
+        Err(error) if selected != official && temporary_failure(&error) => {
+            get_document(broker, official, limit).await
+        }
+        result => result,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transient_mirror_failures_allow_one_official_attempt() {
+        assert!(temporary_failure(&CatalogError::Network(
+            NetError::Timeout(cobble_net::TimeoutPhase::Headers)
+        )));
+        assert!(temporary_failure(&CatalogError::HttpStatus(503)));
+        assert!(!temporary_failure(&CatalogError::HttpStatus(403)));
+        assert!(!temporary_failure(&CatalogError::Network(
+            NetError::ForbiddenDestination
+        )));
+        assert!(!temporary_failure(&CatalogError::InvalidResponse));
+    }
 
     #[tokio::test]
     async fn selected_source_errors_are_reported_before_catalog_or_version_network_requests() {

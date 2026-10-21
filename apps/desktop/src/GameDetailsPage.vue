@@ -2,13 +2,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import type { Game, LocalMod, PlayerProfile, ProfileLibrary } from './games';
+import { DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from 'reka-ui';
+import type { Game, GameAction, LocalMod, PlayerProfile, ProfileLibrary } from './games';
 import { gameLoaderLabel } from './games';
 import DiscoverMods from './DiscoverMods.vue';
 import GameRuntimeSettings from './GameRuntimeSettings.vue';
 
 const props = defineProps<{ game: Game; starting: boolean; profile: PlayerProfile | null; library: ProfileLibrary }>();
-const emit = defineEmits<{ play: [id: string]; renamed: [game: Game]; profileChanged: [game: Game] }>();
+const emit = defineEmits<{ play: [id: string]; renamed: [game: Game]; profileChanged: [game: Game]; action: [action: GameAction] }>();
 const pageTab = ref<'content' | 'runtime'>('content');
 const profileBindingBusy = ref(false);
 const profileBindingError = ref('');
@@ -155,6 +156,46 @@ onUnmounted(() => { disposed = true; ++request; });
       >
         打开日志
       </button>
+      <DropdownMenuRoot>
+        <DropdownMenuTrigger
+          class="text-button game-more-trigger"
+          aria-label="更多游戏操作"
+          :disabled="actionBusy || editingName"
+        >
+          更多 <span aria-hidden="true">⌄</span>
+        </DropdownMenuTrigger>
+        <DropdownMenuPortal>
+          <DropdownMenuContent
+            class="profile-menu game-actions-menu"
+            align="end"
+            :side-offset="6"
+            :collision-padding="12"
+          >
+            <DropdownMenuItem
+              class="profile-menu-item"
+              :disabled="locked || busy"
+              @select="$emit('action', 'copy')"
+            >
+              复制游戏
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              class="profile-menu-item"
+              :disabled="locked || busy"
+              @select="$emit('action', 'export')"
+            >
+              导出整合包
+            </DropdownMenuItem>
+            <DropdownMenuSeparator class="profile-menu-separator" />
+            <DropdownMenuItem
+              class="profile-menu-item danger-text"
+              :disabled="locked || busy"
+              @select="$emit('action', 'remove')"
+            >
+              移除游戏
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenuPortal>
+      </DropdownMenuRoot>
     </div>
     <form
       v-if="editingName"

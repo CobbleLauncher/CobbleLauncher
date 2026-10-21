@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+#[path = "management.rs"]
+pub mod management;
 use cobble_core::InstallProgress;
 use cobble_minecraft::{DownloadSettings, VersionCatalog, VersionKind};
 use serde::{Deserialize, Serialize};
@@ -307,9 +309,18 @@ pub async fn list_game_versions(source: DownloadSettings) -> Result<Vec<GameVers
     let source = source.download_source().map_err(|e| e.to_string())?;
     let broker =
         cobble_net::Broker::new(cobble_net::BrokerConfig::default()).map_err(|e| e.to_string())?;
-    let catalog = VersionCatalog::fetch_from(&broker, &source)
-        .await
-        .map_err(|e| e.to_string())?;
+    let catalog =
+        VersionCatalog::fetch_from(&broker, &source)
+            .await
+            .map_err(|error| match error {
+                cobble_minecraft::CatalogError::Network(cobble_net::NetError::Timeout(_)) => {
+                    "版本列表请求超时，请重试或切换下载源".into()
+                }
+                cobble_minecraft::CatalogError::Network(_) => {
+                    "无法连接版本服务，请重试或切换下载源".into()
+                }
+                other => other.to_string(),
+            })?;
     Ok(catalog
         .versions
         .into_iter()
