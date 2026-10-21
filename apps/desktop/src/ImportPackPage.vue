@@ -5,6 +5,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { RadioGroupItem, RadioGroupRoot } from 'reka-ui';
 import { defaultDownloadSettings, readDownloadSettings, validateDownloadSettings } from './download-settings';
 import type { Game, PackPreview } from './games';
+import { loaderLabel } from './games';
 
 const emit = defineEmits<{ created: [game: Game] }>();
 const preview = ref<PackPreview | null>(null);
@@ -108,10 +109,16 @@ onUnmounted(() => { disposed = true; });
           {{ preview.summary }}
         </p>
         <div class="compatibility-tags">
-          <span>Minecraft {{ preview.minecraft_version }}</span><span>{{ preview.loader_version ? `Fabric ${preview.loader_version}` : '原版' }}</span>
+          <span>Minecraft {{ preview.minecraft_version }}</span><span>{{ preview.loader_version ? `${loaderLabel(preview.loader_kind ?? 'fabric')} ${preview.loader_version}` : '原版' }}</span>
         </div>
         <p class="setting-hint">
           {{ preview.required_files }} 个必需文件 · {{ preview.overrides }} 个配置文件
+        </p>
+        <p
+          v-if="preview.loader_kind === 'forge' || preview.loader_kind === 'neoforge'"
+          class="setting-hint"
+        >
+          安装时会运行 {{ loaderLabel(preview.loader_kind) }} 官方安装器。
         </p>
       </section>
       <div
@@ -187,7 +194,7 @@ onUnmounted(() => { disposed = true; });
           >
         </template>
         <p class="setting-hint">
-          用于 Minecraft 和 Fabric；整合包文件按包内来源下载。
+          Minecraft 文件使用所选下载源，整合包文件使用包内来源。
         </p>
       </div>
       <div class="form-field">

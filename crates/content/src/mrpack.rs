@@ -24,6 +24,7 @@ pub struct Mrpack {
     pub version_id: String,
     pub summary: Option<String>,
     pub minecraft_version: String,
+    pub loader_kind: Option<String>,
     pub loader_version: Option<String>,
     pub files: Vec<MrpackFile>,
     pub overrides: Vec<PackOverride>,
@@ -177,7 +178,10 @@ pub fn read_mrpack_file(source: File) -> Result<Mrpack, BoxError> {
         return Err(invalid("Invalid MRPACK name, version ID or file count").into());
     }
     for (dependency, version) in &index.dependencies {
-        if !matches!(dependency.as_str(), "minecraft" | "fabric-loader") {
+        if !matches!(
+            dependency.as_str(),
+            "minecraft" | "fabric-loader" | "forge" | "neoforge"
+        ) {
             return Err(invalid(&format!("Unsupported MRPACK dependency: {dependency}")).into());
         }
         if version.is_empty()
@@ -193,7 +197,31 @@ pub fn read_mrpack_file(source: File) -> Result<Mrpack, BoxError> {
         .get("minecraft")
         .ok_or_else(|| invalid("MRPACK requires a minecraft dependency"))?
         .clone();
-    let loader_version = index.dependencies.get("fabric-loader").cloned();
+    let mut loader_kind = None;
+    let mut loader_version = None;
+    for (dependency, kind) in [
+        ("fabric-loader", "fabric"),
+        ("forge", "forge"),
+        ("neoforge", "neoforge"),
+    ] {
+        if let Some(version) = index.dependencies.get(dependency) {
+            if loader_kind.is_some() {
+                return Err(invalid(
+                    "Conflicting MRPACK loader dependencies: declare only one loader",
+                )
+                .into());
+            }
+            loader_kind = Some(kind.to_owned());
+            loader_version = Some(version.clone());
+        }
+    }
+    if matches!(loader_kind.as_deref(), Some("forge" | "neoforge")) && minecraft_version != "1.21.1"
+    {
+        return Err(invalid(
+            "MRPACK Forge and NeoForge imports currently support Minecraft 1.21.1 only",
+        )
+        .into());
+    }
     let mut files = Vec::new();
     for file in index.files {
         let path = destination(&file.path)?;
@@ -235,6 +263,7 @@ pub fn read_mrpack_file(source: File) -> Result<Mrpack, BoxError> {
         version_id: index.version_id,
         summary: index.summary,
         minecraft_version,
+        loader_kind,
         loader_version,
         files,
         overrides,
@@ -414,6 +443,7 @@ mod tests {
         .unwrap();
         assert_eq!(pack.minecraft_version, "1.21.1");
         assert_eq!(pack.loader_version.as_deref(), Some("0.16.14"));
+        assert_eq!(pack.loader_kind.as_deref(), Some("fabric"));
         assert_eq!(pack.files.len(), 2);
         assert!(!pack.files[0].optional);
         assert!(pack.files[1].optional);
@@ -476,7 +506,7 @@ mod tests {
 
     #[test]
     fn validates_dependencies_hashes_environment_and_urls() {
-        for dependency in ["forge", "neoforge", "quilt-loader", "future-loader"] {
+        for dependency in ["quilt-loader", "future-loader"] {
             let mut index = index();
             index["dependencies"][dependency] = json!("1");
             assert!(
@@ -506,6 +536,58 @@ mod tests {
         assert!(parse_bytes(&bytes(&bad, &[])).is_err());
         bad["formatVersion"] = json!(2);
         assert!(parse_bytes(&bytes(&bad, &[])).is_err());
+    }
+
+    #[test]
+    fn vanilla_and_supported_loaders_preserve_exact_kind_and_version() {
+        let mut vanilla = index();
+        vanilla["dependencies"] = json!({"minecraft":"1.21.1"});
+        let parsed = parse_bytes(&bytes(&vanilla, &[])).unwrap();
+        assert!(parsed.loader_kind.is_none());
+        assert!(parsed.loader_version.is_none());
+        for (dependency, kind, version) in [
+            ("fabric-loader", "fabric", "0.16.14"),
+            ("forge", "forge", "52.1.14"),
+            ("neoforge", "neoforge", "21.1.264"),
+        ] {
+            let mut fixture = vanilla.clone();
+            fixture["dependencies"][dependency] = json!(version);
+            let parsed = parse_bytes(&bytes(&fixture, &[])).unwrap();
+            assert_eq!(parsed.loader_kind.as_deref(), Some(kind));
+            assert_eq!(parsed.loader_version.as_deref(), Some(version));
+            fixture["dependencies"]["minecraft"] = json!("1.20.1");
+            let result = parse_bytes(&bytes(&fixture, &[]));
+            if kind == "fabric" {
+                assert!(result.is_ok());
+            } else {
+                assert!(
+                    result
+                        .unwrap_err()
+                        .to_string()
+                        .contains("Minecraft 1.21.1 only")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_every_pair_of_conflicting_loaders() {
+        for (first, second) in [
+            ("fabric-loader", "forge"),
+            ("fabric-loader", "neoforge"),
+            ("forge", "neoforge"),
+        ] {
+            let mut fixture = index();
+            fixture["dependencies"] = json!({"minecraft":"1.21.1"});
+            fixture["dependencies"][first] = json!("1");
+            fixture["dependencies"][second] = json!("2");
+            assert!(
+                parse_bytes(&bytes(&fixture, &[]))
+                    .unwrap_err()
+                    .to_string()
+                    .contains("Conflicting MRPACK loader dependencies")
+            );
+        }
     }
 
     #[test]

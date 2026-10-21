@@ -12,7 +12,10 @@ const phase = computed(() => {
   const labels: Record<string, string> = { metadata: '获取游戏信息', files: '下载游戏文件', assets: '下载游戏资源', fabric: '安装 Fabric', 'forge-installer': '安装 Forge', 'neoforge-installer': '安装 NeoForge', 'pack-download': '下载整合包文件', 'pack-overrides': '安装整合包配置', 'pack-install': '安装整合包文件', complete: '安装完成' };
   return labels[phase] ?? '正在安装';
 });
-const installingLoader = computed(() => props.game.progress?.phase === 'forge-installer' || props.game.progress?.phase === 'neoforge-installer');
+const installingLoader = computed(() => {
+  const phase = props.game.progress?.phase.replace(/^pack-base-/, '');
+  return phase === 'forge-installer' || phase === 'neoforge-installer';
+});
 const percent = computed(() => {
   const progress = props.game.progress;
   return progress && progress.total > 0 ? Math.min(100, progress.completed / progress.total * 100) : 0;

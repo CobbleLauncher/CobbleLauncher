@@ -11,8 +11,16 @@ pub fn info(mut args: impl Iterator<Item = String>) -> ExitCode {
         Ok(pack) => {
             println!("{} · {}", pack.name, pack.version_id);
             println!("Minecraft {}", pack.minecraft_version);
-            if let Some(loader) = pack.loader_version {
-                println!("Fabric {loader}");
+            if let (Some(kind), Some(loader)) =
+                (pack.loader_kind.as_deref(), pack.loader_version.as_deref())
+            {
+                let label = match kind {
+                    "fabric" => "Fabric",
+                    "forge" => "Forge",
+                    "neoforge" => "NeoForge",
+                    _ => kind,
+                };
+                println!("{label} {loader}");
             }
             if let Some(summary) = pack.summary {
                 println!("{summary}");

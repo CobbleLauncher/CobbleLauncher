@@ -31,6 +31,7 @@ pub struct MrpackInstallOutcome {
     pub name: String,
     pub version_id: String,
     pub minecraft_version: String,
+    pub loader_kind: Option<String>,
     pub loader_version: Option<String>,
 }
 
@@ -84,17 +85,37 @@ pub async fn install_mrpack(
         event.phase = format!("pack-base-{}", event.phase);
         base_progress(event);
     });
-    if let Some(loader) = &pack.loader_version {
-        crate::install_fabric(
-            &pack.minecraft_version,
-            loader,
-            target,
-            source,
-            base_progress,
-        )
-        .await?;
-    } else {
-        crate::install_game(&pack.minecraft_version, target, source, base_progress).await?;
+    match (pack.loader_kind.as_deref(), pack.loader_version.as_deref()) {
+        (Some("fabric"), Some(loader)) => {
+            crate::install_fabric(
+                &pack.minecraft_version,
+                loader,
+                target,
+                source,
+                base_progress,
+            )
+            .await?;
+        }
+        (Some(kind @ ("forge" | "neoforge")), Some(loader)) => {
+            let kind = if kind == "forge" {
+                crate::ForgeKind::Forge
+            } else {
+                crate::ForgeKind::NeoForge
+            };
+            crate::install_forge(
+                &pack.minecraft_version,
+                loader,
+                kind,
+                target,
+                source,
+                base_progress,
+            )
+            .await?;
+        }
+        (None, None) => {
+            crate::install_game(&pack.minecraft_version, target, source, base_progress).await?;
+        }
+        _ => return Err("unsupported or incomplete pack loader selection".into()),
     }
     let cache = dirs::cache_dir()
         .ok_or("could not locate user cache")?
@@ -143,6 +164,7 @@ pub async fn install_mrpack(
         name: pack.name,
         version_id: pack.version_id,
         minecraft_version: pack.minecraft_version,
+        loader_kind: pack.loader_kind,
         loader_version: pack.loader_version,
     })
 }
@@ -430,6 +452,7 @@ mod tests {
             version_id: "one".into(),
             summary: None,
             minecraft_version: "1.21.1".into(),
+            loader_kind: None,
             loader_version: None,
             files: vec![],
             overrides: vec![],

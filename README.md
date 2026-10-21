@@ -14,7 +14,7 @@ CobbleLauncher is an open-source launcher for Minecraft: Java Edition. It aims t
 - Save an offline player name and launch installed games.
 - Import local Mods, view their details, and enable, disable, or remove them.
 - Search Modrinth for compatible Mods and install their required dependencies together.
-- Import Vanilla or Fabric `.mrpack` files, with optional client content and pack configurations.
+- Import `.mrpack` files for supported loaders, with optional client content and pack configurations.
 - Rename games and open their folders or logs from the game details page.
 
 Forge and NeoForge currently target Minecraft 1.21.1. Their official installers handle library downloads and patches. Mod and modpack updates are not available yet.

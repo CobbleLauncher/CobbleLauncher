@@ -70,6 +70,7 @@ pub struct PackPreview {
     summary: Option<String>,
     minecraft_version: String,
     loader_version: Option<String>,
+    loader_kind: Option<String>,
     required_files: usize,
     optional_files: Vec<PackOptionalFile>,
     overrides: usize,
@@ -130,6 +131,7 @@ pub async fn preview_mrpack(
             summary: pack.summary.clone(),
             minecraft_version: pack.minecraft_version.clone(),
             loader_version: pack.loader_version.clone(),
+            loader_kind: pack.loader_kind.clone(),
             required_files: pack.files.iter().filter(|f| !f.optional).count(),
             optional_files: pack
                 .files
@@ -205,11 +207,7 @@ pub fn create_mrpack_game(
         name: name.trim().into(),
         version: selection.pack.minecraft_version.clone(),
         loader_version: selection.pack.loader_version.clone(),
-        loader_kind: selection
-            .pack
-            .loader_version
-            .as_ref()
-            .map(|_| "fabric".into()),
+        loader_kind: selection.pack.loader_kind.clone(),
         status: "installing".into(),
         error: None,
         progress: None,

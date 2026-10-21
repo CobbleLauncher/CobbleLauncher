@@ -15,13 +15,13 @@ export type Game = {
   directory: string;
   status: 'installing' | 'installed' | 'failed';
   error: string | null;
-  progress: { phase: 'metadata' | 'files' | 'assets' | 'fabric' | 'forge-installer' | 'neoforge-installer' | 'pack-base-metadata' | 'pack-base-files' | 'pack-base-assets' | 'pack-base-fabric' | 'pack-base-complete' | 'pack-download' | 'pack-overrides' | 'pack-install' | 'complete'; completed: number; total: number; reused: number } | null;
+  progress: { phase: 'metadata' | 'files' | 'assets' | 'fabric' | 'forge-installer' | 'neoforge-installer' | 'pack-base-metadata' | 'pack-base-files' | 'pack-base-assets' | 'pack-base-fabric' | 'pack-base-forge-installer' | 'pack-base-neoforge-installer' | 'pack-base-complete' | 'pack-download' | 'pack-overrides' | 'pack-install' | 'complete'; completed: number; total: number; reused: number } | null;
   content_installing?: boolean;
   launch_state?: 'idle' | 'preparing' | 'running';
   launch_error?: string | null;
   log_path?: string | null;
 };
-export type PackPreview = { preview_id: string; name: string; version_id: string; summary: string | null; minecraft_version: string; loader_version: string | null; required_files: number; optional_files: { path: string; size: number }[]; overrides: number };
+export type PackPreview = { preview_id: string; name: string; version_id: string; summary: string | null; minecraft_version: string; loader_kind?: LoaderKind | null; loader_version: string | null; required_files: number; optional_files: { path: string; size: number }[]; overrides: number };
 export type OfflineProfile = { name: string; uuid: string };
 export function gameLoaderLabel(game: Game): string {
   if (!game.loader_version) return '原版';

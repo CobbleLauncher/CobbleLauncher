@@ -8,7 +8,8 @@ const game: Game = { id: 'synthetic-pack', name: pack.name, pack_name: pack.name
 type Call = { command: string; args: Record<string, unknown> };
 type TestWindow = Window & { __calls: Call[]; __pick: 'pack' | 'cancel' | 'replacement' | 'unsupported'; __createFails: boolean; __directoryCancel: boolean; __gameEvent: (game: Game) => void };
 
-async function mockNative(page: Page, stored: Game[] = []) {
+async function mockNative(page: Page, stored: Game[] = [], packSelection: PackPreview = pack) {
+  const selectedGame = { ...game, loader_kind: packSelection.loader_kind, loader_version: packSelection.loader_version };
   await page.addInitScript(({ pack, game, stored }) => {
     const target = window as unknown as TestWindow & { isTauri: boolean; __TAURI_INTERNALS__: unknown; __TAURI_EVENT_PLUGIN_INTERNALS__: unknown };
     const callbacks = new Map<number, (event: unknown) => void>();
@@ -32,7 +33,7 @@ async function mockNative(page: Page, stored: Game[] = []) {
         if (command === 'pick_game_directory') return target.__directoryCancel ? null : 'D:\\My Games';
         if (command === 'preview_mrpack') {
           if (target.__pick === 'cancel') return null;
-          if (target.__pick === 'unsupported') throw new Error('暂不支持 Forge 整合包，请选择原版或 Fabric 整合包');
+          if (target.__pick === 'unsupported') throw new Error('暂不支持 Quilt 整合包');
           return target.__pick === 'replacement' ? { ...pack, preview_id: 'replacement-id', name: '另一个世界' } : pack;
         }
         if (command === 'create_mrpack_game') {
@@ -45,7 +46,7 @@ async function mockNative(page: Page, stored: Game[] = []) {
         return null;
       },
     };
-  }, { pack, game, stored });
+  }, { pack: packSelection, game: selectedGame, stored });
 }
 async function openImport(page: Page) {
   await page.goto('/');
@@ -115,7 +116,7 @@ test('replacement clears optionals; readable unsupported and creation errors rem
   await expect(page.getByRole('checkbox').first()).not.toBeChecked();
   await page.evaluate(() => { (window as unknown as TestWindow).__pick = 'unsupported'; });
   await page.getByRole('button', { name: '更换整合包', exact: false }).click();
-  await expect(page.getByRole('alert')).toContainText('暂不支持 Forge');
+  await expect(page.getByRole('alert')).toContainText('暂不支持 Quilt');
   await expect(page.getByLabel('游戏名称')).toHaveValue('另一个世界');
   await page.evaluate(() => { (window as unknown as TestWindow).__createFails = true; });
   await page.getByRole('button', { name: '导入并安装' }).click();
@@ -139,3 +140,21 @@ test('browser import requires the desktop app and does not invent a preview', as
   await expect(page.getByRole('alert')).toHaveText('请在桌面应用中导入整合包');
   await expect(page.getByRole('button', { name: '导入并安装' })).toHaveCount(0);
 });
+
+for (const [kind, label, version] of [['forge', 'Forge', '52.0.28'], ['neoforge', 'NeoForge', '21.1.100']] as const) {
+  test(`${label} pack preview and creation preserve the native-selected loader`, async ({ page }) => {
+    await mockNative(page, [], { ...pack, loader_kind: kind, loader_version: version });
+    await openImport(page);
+    await expect(page.getByText(`${label} ${version}`, { exact: true })).toBeVisible();
+    await expect(page.getByText(`安装时会运行 ${label} 官方安装器。`, { exact: true })).toBeVisible();
+    await expect(page.getByText('Fabric', { exact: false })).toHaveCount(0);
+    await expect(page.getByText('Minecraft 文件使用所选下载源，整合包文件使用包内来源。')).toBeVisible();
+    await page.getByRole('button', { name: '导入并安装' }).click();
+    await expect(page.getByRole('article')).toContainText(`${label} ${version}`);
+    const args = await page.evaluate(() => (window as unknown as TestWindow).__calls.find((call) => call.command === 'create_mrpack_game')?.args);
+    expect(args).toEqual({ previewId: pack.preview_id, name: pack.name, source: { source: 'bmclapi', mirror: '' }, useDefaultDirectory: true, optionalFiles: [] });
+    await page.evaluate((game) => (window as unknown as TestWindow).__gameEvent(game), { ...game, loader_kind: kind, loader_version: version, progress: { phase: kind === 'forge' ? 'pack-base-forge-installer' : 'pack-base-neoforge-installer', completed: 0, total: 1, reused: 0 } } satisfies Game);
+    await expect(page.getByRole('status')).toHaveText(`安装 ${label}`);
+    await expect(page.getByRole('progressbar')).toHaveCount(0);
+  });
+}
