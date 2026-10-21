@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod games;
 mod java;
+mod offline;
 
 #[tauri::command]
 fn get_app_info() -> cobble_domain::AppInfo {
@@ -34,7 +35,11 @@ fn main() {
             games::pick_game_directory,
             games::create_game,
             games::retry_game,
-            games::prepare_game_launch
+            games::prepare_game_launch,
+            games::start_game,
+            offline::get_offline_profile,
+            offline::save_offline_profile,
+            offline::remove_offline_profile
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Cobble Launcher");

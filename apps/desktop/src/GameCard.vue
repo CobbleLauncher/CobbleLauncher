@@ -2,8 +2,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { Game } from './games';
-const props = defineProps<{ game: Game; retrying: boolean }>();
-defineEmits<{ retry: [id: string] }>();
+const props = defineProps<{ game: Game; retrying: boolean; hasProfile: boolean; starting: boolean }>();
+defineEmits<{ retry: [id: string]; play: [id: string] }>();
 const phase = computed(() => ({ metadata: '获取游戏信息', files: '下载游戏文件', assets: '下载游戏资源', complete: '安装完成' })[props.game.progress?.phase ?? 'metadata']);
 const percent = computed(() => {
   const progress = props.game.progress;
@@ -84,6 +84,20 @@ const percent = computed(() => {
       >
         {{ game.directory }}
       </p>
+      <p
+        v-if="game.launch_error"
+        class="game-error"
+        role="alert"
+      >
+        启动失败：{{ game.launch_error }}
+      </p>
+      <p
+        v-if="game.launch_state === 'preparing' || game.launch_state === 'running'"
+        class="launch-status"
+        role="status"
+      >
+        {{ game.launch_state === 'running' ? '游戏运行中' : '正在准备启动…' }}
+      </p>
     </div>
     <button
       v-if="game.status === 'failed'"
@@ -92,6 +106,14 @@ const percent = computed(() => {
       @click="$emit('retry', game.id)"
     >
       {{ retrying ? '重试中…' : '重试安装' }}
+    </button>
+    <button
+      v-if="game.status === 'installed'"
+      class="primary-button play-button"
+      :disabled="starting || game.launch_state === 'preparing' || game.launch_state === 'running'"
+      @click="$emit('play', game.id)"
+    >
+      {{ game.launch_state === 'running' ? '运行中' : game.launch_state === 'preparing' || starting ? '启动中…' : hasProfile ? '开始游戏' : '设置离线档案' }}
     </button>
   </article>
 </template>

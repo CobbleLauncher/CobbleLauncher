@@ -6,13 +6,14 @@ use cobble_net::{Broker, BrokerConfig};
 use std::io::{self, Write};
 use std::process::ExitCode;
 mod install;
+mod play;
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
     match args.next().as_deref() {
         None | Some("--help" | "-h") => {
             println!(
-                "Cobble Launcher\n\nUsage:\n  cobble versions          List the latest 20 releases\n  cobble versions --all    List all versions, including snapshots\n  cobble info <version>    Show Java requirements and download size\n  cobble install <version> --dir <folder> [--client-only] [--source official|bmclapi | --mirror <https-base>]\n  cobble java <major>      Find a matching installed Java runtime\n  cobble launch-info <version> --dir <folder>  Prepare installed Vanilla without launching\n  cobble --version\n\nInstall downloads game files. Sign-in and launching follow separately."
+                "Cobble Launcher\n\nUsage:\n  cobble versions          List the latest 20 releases\n  cobble versions --all    List all versions, including snapshots\n  cobble info <version>    Show Java requirements and download size\n  cobble install <version> --dir <folder> [--client-only] [--source official|bmclapi | --mirror <https-base>]\n  cobble java <major>      Find a matching installed Java runtime\n  cobble launch-info <version> --dir <folder>  Prepare installed Vanilla without launching\n  cobble play <version> --dir <folder> [--name <offline-name>]  Launch with an explicit offline profile\n  cobble --version\n\nOffline profiles do not authenticate a Microsoft account."
             );
             ExitCode::SUCCESS
         }
@@ -65,6 +66,7 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Some("play") => play::run(args),
         Some("launch-info") => {
             let version = args.next();
             let option = args.next();
@@ -231,7 +233,7 @@ fn launch_info(
             plan.native_files,
             plan.natives_directory.display()
         );
-        println!("Launch preparation complete. Sign-in and game execution are not implemented.");
+        println!("Launch preparation complete. Use play for an explicit offline-profile launch.");
         Ok(())
     })
 }

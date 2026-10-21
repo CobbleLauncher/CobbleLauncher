@@ -2,7 +2,7 @@
 
 **A Minecraft launcher that stays out of your way.**
 
-CobbleLauncher is an open-source launcher for Minecraft: Java Edition. It aims to make installing and starting the game simpler, with the settings you need close at hand. The project is in early development and has no stable release yet. Sign-in and game launching are not ready.
+CobbleLauncher is an open-source launcher for Minecraft: Java Edition. It aims to make installing and starting the game simpler, with the settings you need close at hand. The project is in early development and has no stable release yet. Microsoft sign-in is not available yet; local play uses an offline profile.
 
 ## What you can do today
 
@@ -11,6 +11,7 @@ CobbleLauncher is an open-source launcher for Minecraft: Java Edition. It aims t
 - Follow download progress and retry interrupted installations.
 - Choose the official download source, BMCLAPI, or a custom BMCLAPI-compatible source.
 - Choose Java automatically or select an installed runtime yourself.
+- Save an offline player name and launch installed Vanilla games.
 
 Fabric, Forge, NeoForge, and modpack support are planned.
 
@@ -32,9 +33,10 @@ List available versions or install Vanilla 1.21.1 into a new folder:
 ```sh
 cargo run -p cobble-cli --locked -- versions
 cargo run -p cobble-cli --locked -- install 1.21.1 --dir ./game
+cargo run -p cobble-cli --locked -- play 1.21.1 --dir ./game --name Player
 ```
 
-To use BMCLAPI, add `--source bmclapi`. Java installation, sign-in, and game launching are not implemented yet.
+To use BMCLAPI, add `--source bmclapi`. Install a compatible Java runtime first. Offline profiles cannot authenticate to servers that require a Microsoft account.
 
 ## License
 

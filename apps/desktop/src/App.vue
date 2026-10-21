@@ -8,15 +8,38 @@ import { applyTheme, readTheme } from './theme';
 import CreateGamePage from './CreateGamePage.vue';
 import SettingsPage from './SettingsPage.vue';
 import GameCard from './GameCard.vue';
-import type { Game } from './games';
+import type { Game, OfflineProfile } from './games';
 const games = ref<Game[]>([]);
+const offlineProfile = ref<OfflineProfile | null>(null);
+const starting = ref<string[]>([]);
+const gameRevisions = new Map<string, number>();
+async function loadProfile() {
+  if (!native) return;
+  try { offlineProfile.value = await invoke<OfflineProfile | null>('get_offline_profile'); }
+  catch { error.value = '无法读取离线档案，请在设置中重试'; }
+}
 const retrying = ref<string[]>([]);
 let unlisten: UnlistenFn | undefined;
 let disposed = false;
 function updateGame(game: Game) {
+  gameRevisions.set(game.id, (gameRevisions.get(game.id) ?? 0) + 1);
   const index = games.value.findIndex((item) => item.id === game.id);
   if (index < 0) games.value.unshift(game);
   else games.value[index] = game;
+}
+async function startGame(id: string) {
+  if (!offlineProfile.value) { view.value = 'settings'; return; }
+  const current = games.value.find((game) => game.id === id);
+  if (!current || starting.value.includes(id) || current.launch_state === 'preparing' || current.launch_state === 'running') return;
+  starting.value.push(id);
+  const revision = gameRevisions.get(id) ?? 0;
+  try {
+    if (!native) throw new Error('请在桌面应用中启动游戏');
+    const game = await invoke<Game>('start_game', { id });
+    if ((gameRevisions.get(id) ?? 0) === revision) updateGame(game);
+  } catch (cause) {
+    if ((gameRevisions.get(id) ?? 0) === revision) updateGame({ ...current, launch_state: 'idle', launch_error: String(cause) });
+  } finally { starting.value = starting.value.filter((item) => item !== id); }
 }
 function addCreatedGame(game: Game) {
   view.value = 'library';
@@ -60,7 +83,7 @@ async function windowAction(action: 'minimize' | 'toggleMaximize' | 'close') {
   try { error.value = ''; await getCurrentWindow()[action](); await syncWindow(); }
   catch { error.value = '窗口操作失败，请重试'; }
 }
-onMounted(() => { applyTheme(theme); void syncWindow(); void loadGames(); window.addEventListener('resize', syncWindow); });
+onMounted(() => { applyTheme(theme); void syncWindow(); void loadGames(); void loadProfile(); window.addEventListener('resize', syncWindow); });
 onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('resize', syncWindow); });
 </script>
 <template>
@@ -119,22 +142,33 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
               游戏库<span class="count">{{ games.length }}</span>
             </h1>
           </div>
-          <button
-            class="settings-button"
-            aria-label="打开设置"
-            title="设置"
-            @click="view = 'settings'"
-          >
-            <svg viewBox="0 0 24 24"><path d="M4 7h16M4 17h16" /><circle
-              cx="9"
-              cy="7"
-              r="3"
-            /><circle
-              cx="15"
-              cy="17"
-              r="3"
-            /></svg>
-          </button>
+          <div class="library-actions">
+            <button
+              class="account-button"
+              @click="view = 'settings'"
+            >
+              {{ offlineProfile ? offlineProfile.name : '创建离线档案' }}<span
+                v-if="offlineProfile"
+                class="offline-badge"
+              >离线</span>
+            </button>
+            <button
+              class="settings-button"
+              aria-label="打开设置"
+              title="设置"
+              @click="view = 'settings'"
+            >
+              <svg viewBox="0 0 24 24"><path d="M4 7h16M4 17h16" /><circle
+                cx="9"
+                cy="7"
+                r="3"
+              /><circle
+                cx="15"
+                cy="17"
+                r="3"
+              /></svg>
+            </button>
+          </div>
         </div>
         <section
           v-if="!games.length"
@@ -242,7 +276,10 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
             :key="game.id"
             :game="game"
             :retrying="retrying.includes(game.id)"
+            :has-profile="!!offlineProfile"
+            :starting="starting.includes(game.id)"
             @retry="retryGame"
+            @play="startGame"
           />
           <button
             class="add-game-button"
@@ -271,6 +308,7 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
         />
         <SettingsPage
           v-else
+          @profile-saved="offlineProfile = $event"
           @saved="view = 'library'"
         />
       </template>

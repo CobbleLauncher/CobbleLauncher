@@ -12,13 +12,14 @@ cobble-auth.workspace = true
 cobble-minecraft.workspace = true
 cobble-net.workspace = true
 cobble-store.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["process"] }
 cap-std.workspace = true
 cap-fs-ext.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha1.workspace = true
 dirs = "=7.0.0"
+dunce = "=1.0.5"
 zip = { workspace = true, features = ["deflate-flate2-zlib-rs"] }
 
 [lints]

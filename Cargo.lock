@@ -426,11 +426,20 @@ dependencies = [
 [[package]]
 name = "cobble-auth"
 version = "0.1.0"
+dependencies = [
+ "dirs",
+ "md5",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
+]
 
 [[package]]
 name = "cobble-cli"
 version = "0.1.0"
 dependencies = [
+ "cobble-auth",
  "cobble-core",
  "cobble-minecraft",
  "cobble-net",
@@ -453,6 +462,7 @@ dependencies = [
  "cobble-net",
  "cobble-store",
  "dirs",
+ "dunce",
  "serde",
  "serde_json",
  "sha1",
@@ -464,6 +474,7 @@ dependencies = [
 name = "cobble-desktop"
 version = "0.1.0"
 dependencies = [
+ "cobble-auth",
  "cobble-core",
  "cobble-domain",
  "cobble-minecraft",
@@ -2210,6 +2221,12 @@ name = "maybe-owned"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
+
+[[package]]
+name = "md5"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ebb8d8732c6a6df3d8f032a82911cfc747e00efb95cc46e8d0acd5b5b88570c"
 
 [[package]]
 name = "memchr"

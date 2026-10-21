@@ -8,8 +8,10 @@ use cobble_domain::AppInfo;
 mod cache;
 mod install;
 mod launch;
+mod runner;
 pub use install::{InstallOutcome, InstallProgress, install_game, install_resources};
 pub use launch::{LaunchPreparation, prepare_launch};
+pub use runner::{RunningGame, start_offline_game};
 
 /// Local, side-effect-free information shared by desktop and CLI adapters.
 pub fn app_info() -> AppInfo {

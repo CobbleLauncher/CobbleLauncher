@@ -15,6 +15,10 @@ fn main() {
             "create_game",
             "retry_game",
             "prepare_game_launch",
+            "start_game",
+            "get_offline_profile",
+            "save_offline_profile",
+            "remove_offline_profile",
         ]),
     ))
     .expect("failed to prepare desktop application");

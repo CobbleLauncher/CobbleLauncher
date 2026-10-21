@@ -20,6 +20,16 @@ pub struct Game {
     error: Option<String>,
     #[serde(skip_deserializing, default)]
     progress: Option<InstallProgress>,
+    #[serde(skip_deserializing, default = "idle")]
+    launch_state: String,
+    #[serde(default)]
+    launch_error: Option<String>,
+    #[serde(default)]
+    log_path: Option<PathBuf>,
+}
+
+fn idle() -> String {
+    "idle".into()
 }
 
 #[derive(Default)]
@@ -186,6 +196,9 @@ pub fn create_game(
         status: "installing".into(),
         error: None,
         progress: None,
+        launch_state: idle(),
+        launch_error: None,
+        log_path: None,
     };
     library.games.push(game.clone());
     if let Err(error) = save(&library.games) {
@@ -324,4 +337,71 @@ pub async fn prepare_game_launch(
         main_class: launch.main_class,
         classpath_entries: launch.classpath_entries,
     })
+}
+
+#[tauri::command]
+pub fn start_game(
+    app: AppHandle,
+    library: State<'_, GameLibrary>,
+    id: String,
+) -> Result<Game, String> {
+    let profile = cobble_auth::read_offline_profile()
+        .map_err(|e| e.to_string())?
+        .ok_or("请先创建离线档案")?;
+    let mut library = library.0.lock().map_err(|e| e.to_string())?;
+    let game = library
+        .games
+        .iter_mut()
+        .find(|g| g.id == id)
+        .ok_or("找不到这个游戏")?;
+    if game.status != "installed" {
+        return Err("请先完成游戏安装".into());
+    }
+    if game.launch_state != "idle" {
+        return Err("这个游戏已经在启动或运行".into());
+    }
+    game.launch_state = "preparing".into();
+    game.launch_error = None;
+    let snapshot = game.clone();
+    drop(library);
+    let launch = snapshot.clone();
+    tauri::async_runtime::spawn(async move {
+        match cobble_core::start_offline_game(&launch.version, &launch.directory, &profile).await {
+            Ok(mut running) => {
+                update_game(
+                    &app,
+                    &launch.id,
+                    |g| {
+                        g.launch_state = "running".into();
+                        g.log_path = Some(running.log_path);
+                    },
+                    false,
+                );
+                let result = running.child.wait().await;
+                update_game(
+                    &app,
+                    &launch.id,
+                    |g| {
+                        g.launch_state = idle();
+                        g.launch_error = match result {
+                            Ok(status) if status.success() => None,
+                            Ok(status) => Some(format!("游戏异常退出（{status}），请查看游戏日志")),
+                            Err(error) => Some(error.to_string()),
+                        };
+                    },
+                    true,
+                );
+            }
+            Err(error) => update_game(
+                &app,
+                &launch.id,
+                |g| {
+                    g.launch_state = idle();
+                    g.launch_error = Some(error.to_string());
+                },
+                true,
+            ),
+        }
+    });
+    Ok(snapshot)
 }

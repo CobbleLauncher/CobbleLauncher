@@ -5,10 +5,10 @@ import type { Game } from '../src/games';
 
 const initialGame: Game = { id: 'synthetic-game', name: '我的世界', version: '1.21.1', directory: 'C:\\Games\\synthetic-game', status: 'installing', error: null, progress: { phase: 'metadata', completed: 0, total: 0, reused: 0 } };
 type Call = { command: string; args: Record<string, unknown> };
-type TestWindow = Window & { __calls: Call[]; __gameEvent: (game: Game) => void; __javaPick: 'valid' | 'cancel' | 'invalid'; __javaReadFails: boolean };
+type TestWindow = Window & { __calls: Call[]; __gameEvent: (game: Game) => void; __javaPick: 'valid' | 'cancel' | 'invalid'; __javaReadFails: boolean; __startMode: 'prepare' | 'race' | 'error' };
 
-async function mockNative(page: Page, persisted: Game[] = []) {
-  await page.addInitScript(({ initial, stored }) => {
+async function mockNative(page: Page, persisted: Game[] = [], savedProfile: { name: string; uuid: string } | null = null) {
+  await page.addInitScript(({ initial, stored, savedProfile }) => {
     const target = window as unknown as TestWindow & {
       isTauri: boolean;
       __TAURI_INTERNALS__: unknown;
@@ -20,6 +20,8 @@ async function mockNative(page: Page, persisted: Game[] = []) {
     target.__calls = [];
     target.__javaPick = 'valid';
     target.__javaReadFails = false;
+    target.__startMode = 'prepare';
+    let offlineProfile: { name: string; uuid: string } | null = savedProfile;
     let javaSelection: unknown = { mode: 'automatic', executable: null, runtime: null };
     target.__gameEvent = (game) => callbacks.get(handler)?.({ event: 'game-install', id: 1, payload: game });
     target.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
@@ -30,6 +32,15 @@ async function mockNative(page: Page, persisted: Game[] = []) {
         target.__calls.push({ command, args });
         if (command === 'plugin:event|listen') { handler = args.handler as number; return 1; }
         if (command === 'list_games') return stored;
+        if (command === 'get_offline_profile') return offlineProfile;
+        if (command === 'save_offline_profile') { offlineProfile = { name: args.name as string, uuid: 'synthetic-offline-uuid' }; return offlineProfile; }
+        if (command === 'remove_offline_profile') { offlineProfile = null; return null; }
+        if (command === 'start_game') {
+          if (target.__startMode === 'error') throw new Error('Java 无法启动');
+          const game: Game = { ...initial, status: 'installed', launch_state: 'preparing' };
+          if (target.__startMode === 'race') target.__gameEvent({ ...game, launch_state: 'running' });
+          return game;
+        }
         if (command === 'get_java_settings') {
           if (target.__javaReadFails) throw new Error('已保存 Java 不存在');
           return javaSelection;
@@ -54,7 +65,7 @@ async function mockNative(page: Page, persisted: Game[] = []) {
         return null;
       },
     };
-  }, { initial: initialGame, stored: persisted });
+  }, { initial: initialGame, stored: persisted, savedProfile });
 }
 
 test('browser creation explains desktop requirement without inventing versions or progress', async ({ page }) => {
@@ -108,14 +119,82 @@ test('create, real event presentation, failure and retry through mocked native b
   await expect(page.getByRole('progressbar')).toBeVisible();
   await page.evaluate((game) => (window as unknown as TestWindow).__gameEvent(game), { ...initialGame, status: 'installed', progress: { phase: 'complete', completed: 80, total: 80, reused: 2 } } satisfies Game);
   await expect(page.getByText('✓ 已安装')).toBeVisible();
-  await expect(page.getByRole('button', { name: '开始游戏' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '设置离线档案' })).toBeVisible();
+});
+
+test('offline profile is explicit, validates names, persists across pages, and can be removed', async ({ page }, testInfo) => {
+  await mockNative(page, [{ ...initialGame, status: 'installed' }]);
+  await page.goto('/');
+  await page.getByRole('button', { name: '设置离线档案' }).click();
+  await expect(page.getByRole('heading', { name: '设置', exact: true })).toBeVisible();
+  await expect(page.getByLabel('游戏昵称')).toHaveValue('Player');
+  await page.getByLabel('游戏昵称').fill('你好');
+  await page.getByRole('button', { name: '保存档案', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('昵称须为');
+  await page.getByLabel('游戏昵称').fill('Local_Player');
+  await page.getByRole('button', { name: '保存档案', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('档案已保存');
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  const titlebar = await page.locator('.titlebar').boundingBox();
+  const heading = await page.getByRole('heading', { name: '设置', exact: true }).boundingBox();
+  expect(titlebar?.y).toBeLessThanOrEqual(1);
+  expect(heading!.y).toBeGreaterThan(titlebar!.y + titlebar!.height);
+  await page.screenshot({ path: testInfo.outputPath('offline-profile-settings-viewport.png') });
+  await page.screenshot({ path: testInfo.outputPath('offline-profile-settings.png'), fullPage: true });
+  await page.getByRole('button', { name: '返回游戏库' }).click();
+  await expect(page.getByRole('button', { name: /Local_Player\s*离线/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: '开始游戏', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '打开设置' }).click();
+  await expect(page.getByLabel('游戏昵称')).toHaveValue('Local_Player');
+  await page.getByRole('button', { name: '移除档案' }).click();
+  await page.getByRole('button', { name: '返回游戏库' }).click();
+  await expect(page.getByRole('button', { name: '创建离线档案' })).toBeVisible();
+  const call = await page.evaluate(() => (window as unknown as TestWindow).__calls.find((item) => item.command === 'save_offline_profile'));
+  expect(call?.args).toEqual({ name: 'Local_Player' });
+});
+
+test('launch follows host preparation, running, exit, errors and a newer event winning the invoke race', async ({ page }, testInfo) => {
+  await mockNative(page, [{ ...initialGame, status: 'installed' }]);
+  await page.goto('/');
+  await page.getByRole('button', { name: '创建离线档案' }).click();
+  await page.getByRole('button', { name: '保存档案', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('档案已保存');
+  await page.getByRole('button', { name: '返回游戏库' }).click();
+  await page.getByRole('button', { name: '开始游戏', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('正在准备启动…');
+  await expect(page.getByRole('button', { name: '启动中…', exact: true })).toBeDisabled();
+  await page.evaluate((game) => (window as unknown as TestWindow).__gameEvent(game), { ...initialGame, status: 'installed', launch_state: 'running', log_path: 'synthetic.log' } satisfies Game);
+  await expect(page.getByRole('button', { name: '运行中', exact: true })).toBeDisabled();
+  await page.screenshot({ path: testInfo.outputPath('offline-game-running.png') });
+  await page.evaluate((game) => (window as unknown as TestWindow).__gameEvent(game), { ...initialGame, status: 'installed', launch_state: 'idle' } satisfies Game);
+  await expect(page.getByRole('button', { name: '开始游戏', exact: true })).toBeEnabled();
+  await page.evaluate(() => { (window as unknown as TestWindow).__startMode = 'error'; });
+  await page.getByRole('button', { name: '开始游戏', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('启动失败：Error: Java 无法启动');
+  await expect(page.getByRole('button', { name: '开始游戏', exact: true })).toBeEnabled();
+  await page.evaluate(() => { (window as unknown as TestWindow).__startMode = 'race'; });
+  await page.getByRole('button', { name: '开始游戏', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('游戏运行中');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as TestWindow).__calls.filter((item) => item.command === 'start_game').map((item) => item.args))).toEqual(Array(3).fill({ id: initialGame.id }));
+});
+
+test('browser preview cannot save a pretend offline profile', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: '创建离线档案' }).click();
+  await page.getByRole('button', { name: '保存档案', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveText('请在桌面应用中保存离线档案');
+  await expect(page.getByText('档案已保存', { exact: true })).toHaveCount(0);
 });
 
 test('existing local games are shown without requesting versions', async ({ page }) => {
-  await mockNative(page, [{ ...initialGame, status: 'installed' }]);
+  await mockNative(page, [{ ...initialGame, status: 'installed' }], { name: 'Saved_Player', uuid: 'synthetic-saved-uuid' });
   await page.goto('/');
   await expect(page.getByRole('article', { name: '我的世界' })).toBeVisible();
   await expect(page.getByText('✓ 已安装')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Saved_Player\s*离线/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: '开始游戏', exact: true })).toBeEnabled();
   expect(await page.evaluate(() => (window as unknown as TestWindow).__calls.some((call) => call.command === 'list_game_versions'))).toBe(false);
 });
 

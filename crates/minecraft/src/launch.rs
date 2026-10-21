@@ -66,6 +66,8 @@ pub fn substitute(
             "auth_player_name"
                 | "auth_uuid"
                 | "auth_access_token"
+                | "auth_session"
+                | "user_properties"
                 | "clientid"
                 | "auth_xuid"
                 | "user_type"
@@ -125,6 +127,10 @@ mod tests {
             ]
         );
         assert!(substitute("${unknown}", &vars).is_err());
+        assert_eq!(
+            substitute("${auth_session}/${user_properties}", &vars).unwrap(),
+            "${auth_session}/${user_properties}"
+        );
         assert!(native_artifact_matches(
             "lwjgl-natives-windows.jar",
             &platform

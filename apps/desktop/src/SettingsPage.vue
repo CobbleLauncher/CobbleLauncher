@@ -5,9 +5,41 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { RadioGroupRoot, RadioGroupItem } from 'reka-ui';
 import { applyTheme, readTheme, type Theme } from './theme';
 import { defaultDownloadSettings, readDownloadSettings, saveDownloadSettings, validateDownloadSettings } from './download-settings';
+import type { OfflineProfile } from './games';
 const theme = ref<Theme>(readTheme());
 const options = [{ value: 'system', label: '跟随系统' }, { value: 'light', label: '浅色' }, { value: 'dark', label: '深色' }];
-const emit = defineEmits<{ saved: [] }>();
+const emit = defineEmits<{ saved: []; profileSaved: [profile: OfflineProfile | null] }>();
+const profile = ref<OfflineProfile | null>(null);
+const profileName = ref('Player');
+const profileBusy = ref(false);
+const profileReady = ref(false);
+const profileError = ref('');
+const profileSaved = ref(false);
+async function loadProfile() {
+  if (!native) { profileReady.value = true; return; }
+  try {
+    profile.value = await invoke<OfflineProfile | null>('get_offline_profile');
+    profileName.value = profile.value?.name ?? 'Player';
+    profileReady.value = true;
+  } catch { profileError.value = '无法读取离线档案，请返回后重试'; }
+}
+async function saveProfile(remove = false) {
+  if (!native) { profileError.value = '请在桌面应用中保存离线档案'; return; }
+  if (profileBusy.value || !profileReady.value) return;
+  profileSaved.value = false;
+  profileError.value = '';
+  if (!remove && !/^[A-Za-z0-9_]{3,16}$/.test(profileName.value)) {
+    profileError.value = '昵称须为 3–16 位英文字母、数字或下划线'; return;
+  }
+  profileBusy.value = true;
+  try {
+    if (remove) { await invoke('remove_offline_profile'); profile.value = null; profileName.value = 'Player'; }
+    else profile.value = await invoke<OfflineProfile>('save_offline_profile', { name: profileName.value });
+    emit('profileSaved', profile.value);
+    profileSaved.value = true;
+  } catch (cause) { profileError.value = `档案保存失败：${String(cause)}`; }
+  finally { profileBusy.value = false; }
+}
 const downloadSettings = ref(defaultDownloadSettings());
 const settingsError = ref('');
 const settingsReady = ref(false);
@@ -67,10 +99,74 @@ async function automaticJava() {
   catch { javaError.value = '无法切换为自动选择，请重试'; }
   finally { javaBusy.value = false; }
 }
-onMounted(() => { void loadSettings(); void loadJava(); });
+onMounted(() => { void loadSettings(); void loadJava(); void loadProfile(); });
 </script>
 <template>
   <div class="settings-page page-content">
+    <section
+      class="profile-section"
+      aria-labelledby="profile-heading"
+    >
+      <h2
+        id="profile-heading"
+        class="setting-label"
+      >
+        离线档案 <span class="offline-badge">离线</span>
+      </h2>
+      <p class="setting-hint">
+        用于本地游戏
+      </p>
+      <div class="mirror-field profile-field">
+        <label for="profile-name">游戏昵称</label>
+        <input
+          id="profile-name"
+          v-model="profileName"
+          type="text"
+          maxlength="16"
+          autocomplete="off"
+          spellcheck="false"
+          :disabled="profileBusy || !profileReady"
+          :aria-invalid="!!profileError"
+          aria-describedby="profile-help"
+          @input="profileSaved = false; profileError = ''"
+        >
+        <p
+          id="profile-help"
+          class="setting-hint"
+        >
+          3–16 位英文字母、数字或下划线
+        </p>
+      </div>
+      <div class="java-actions">
+        <button
+          class="secondary-button"
+          :disabled="profileBusy || !profileReady"
+          @click="saveProfile()"
+        >
+          {{ profileBusy ? '保存中…' : '保存档案' }}
+        </button>
+        <button
+          v-if="profile"
+          class="text-button"
+          :disabled="profileBusy"
+          @click="saveProfile(true)"
+        >
+          移除档案
+        </button>
+        <span
+          v-if="profileSaved"
+          class="setting-hint"
+          role="status"
+        >{{ profile ? '档案已保存' : '档案已移除' }}</span>
+      </div>
+      <p
+        v-if="profileError"
+        class="settings-error"
+        role="alert"
+      >
+        {{ profileError }}
+      </p>
+    </section>
     <h2 class="setting-label">
       外观
     </h2><RadioGroupRoot

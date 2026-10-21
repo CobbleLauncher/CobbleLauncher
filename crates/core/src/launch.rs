@@ -17,7 +17,7 @@ use std::{
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
 /// Contains no account secrets. Authentication placeholders must be bound by a
-/// future authenticated process runner; this is not an executable launch command.
+/// process runner; this is not an executable launch command.
 #[derive(Debug, Serialize)]
 pub struct LaunchPreparation {
     pub required_java: u32,
@@ -48,7 +48,7 @@ fn prepare(version: &str, directory: &Path) -> Result<LaunchPreparation, Error> 
     if version.contains('/') {
         return Err("invalid version identifier".into());
     }
-    let directory = fs::canonicalize(directory)?;
+    let directory = dunce::canonicalize(directory)?;
     let state: InstallState =
         serde_json::from_reader(File::open(directory.join(".cobble-install.json"))?)?;
     if state.version != version || !state.complete || state.client_only {

@@ -13,6 +13,7 @@ tauri-build = { version = "=2.7.3", features = [] }
 [dependencies]
 tauri = { version = "=2.12.4", features = [] }
 cobble-core.workspace = true
+cobble-auth.workspace = true
 cobble-domain.workspace = true
 cobble-minecraft.workspace = true
 serde.workspace = true
