@@ -13,6 +13,35 @@ use std::{
 const URL: &str = "https://one.fixture.invalid/file";
 const BODY: &[u8] = b"abcdef";
 
+#[test]
+fn modpack_redirects_are_limited_to_documented_anonymous_download_hosts() {
+    for url in [
+        "https://cdn.modrinth.com/data/test/versions/one/mod.jar",
+        "https://github.com/example/mod/releases/download/one/mod.jar",
+        "https://raw.githubusercontent.com/example/mod/main/mod.jar",
+        "https://gitlab.com/example/mod/-/releases/one/downloads/mod.jar",
+    ] {
+        let plain = DownloadRequest::new(
+            url,
+            expected(),
+            DownloadAuthority::same_origin("mrpack", "install", "mrpack-v1", None).unwrap(),
+            None,
+        )
+        .unwrap();
+        let granted = plain.clone().with_modpack_redirects().unwrap();
+        assert_ne!(plain.key(), granted.key());
+        assert!(granted.with_modpack_redirects().is_err());
+    }
+    let request = DownloadRequest::new(
+        URL,
+        expected(),
+        DownloadAuthority::same_origin("mrpack", "install", "mrpack-v1", None).unwrap(),
+        None,
+    )
+    .unwrap();
+    assert!(request.with_modpack_redirects().is_err());
+}
+
 const MIRROR_SHA1: &str = "1f8ac10f23c5b5bc1167bda84b833e5c057a77d2";
 const MIRROR_ORIGINAL: &str = "https://piston-data.mojang.com/v1/objects/fixture/client.jar";
 fn mirror_request() -> DownloadRequest {

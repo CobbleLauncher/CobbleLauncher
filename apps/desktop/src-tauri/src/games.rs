@@ -31,10 +31,199 @@ pub struct Game {
     log_path: Option<PathBuf>,
     #[serde(skip_deserializing, default)]
     content_installing: bool,
+    #[serde(default)]
+    pack_name: Option<String>,
+    #[serde(default)]
+    pack_version: Option<String>,
+    #[serde(default)]
+    pack_source_id: Option<String>,
+    #[serde(default)]
+    pack_optional_files: Vec<String>,
 }
 
 fn idle() -> String {
     "idle".into()
+}
+
+struct PackSelection {
+    id: String,
+    pack: cobble_content::Mrpack,
+}
+
+fn pack_archive_path(id: &str) -> Result<PathBuf, String> {
+    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("无效的整合包文件记录".into());
+    }
+    Ok(dirs::config_dir()
+        .ok_or("无法找到配置目录")?
+        .join("CobbleLauncher/pack-sources")
+        .join(format!("{id}.mrpack")))
+}
+
+#[derive(Serialize)]
+pub struct PackPreview {
+    preview_id: String,
+    name: String,
+    version_id: String,
+    summary: Option<String>,
+    minecraft_version: String,
+    loader_version: Option<String>,
+    required_files: usize,
+    optional_files: Vec<PackOptionalFile>,
+    overrides: usize,
+}
+#[derive(Serialize)]
+pub struct PackOptionalFile {
+    path: String,
+    size: u64,
+}
+
+#[tauri::command]
+pub async fn preview_mrpack(
+    window: WebviewWindow,
+    app: AppHandle,
+) -> Result<Option<PackPreview>, String> {
+    let Some(file) = rfd::AsyncFileDialog::new()
+        .set_title("选择整合包")
+        .add_filter("Modrinth 整合包", &["mrpack"])
+        .set_parent(&window)
+        .pick_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    let source = file.path().to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        let id = format!(
+            "{:x}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|e| e.to_string())?
+                .as_nanos()
+        );
+        let archive = pack_archive_path(&id)?;
+        fs::create_dir_all(archive.parent().expect("archive parent")).map_err(|e| e.to_string())?;
+        let result = (|| {
+            let mut input = fs::File::open(&source).map_err(|e| e.to_string())?;
+            let mut output = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&archive)
+                .map_err(|e| e.to_string())?;
+            std::io::copy(&mut input, &mut output).map_err(|e| e.to_string())?;
+            drop(output);
+            cobble_content::read_mrpack(&archive).map_err(|e| e.to_string())
+        })();
+        let pack = match result {
+            Ok(pack) => pack,
+            Err(error) => {
+                let _ = fs::remove_file(&archive);
+                return Err(error);
+            }
+        };
+        let preview = PackPreview {
+            preview_id: id.clone(),
+            name: pack.name.clone(),
+            version_id: pack.version_id.clone(),
+            summary: pack.summary.clone(),
+            minecraft_version: pack.minecraft_version.clone(),
+            loader_version: pack.loader_version.clone(),
+            required_files: pack.files.iter().filter(|f| !f.optional).count(),
+            optional_files: pack
+                .files
+                .iter()
+                .filter(|f| f.optional)
+                .map(|f| PackOptionalFile {
+                    path: f.path.clone(),
+                    size: f.file_size,
+                })
+                .collect(),
+            overrides: pack.overrides.len(),
+        };
+        app.state::<GameLibrary>()
+            .0
+            .lock()
+            .map_err(|e| e.to_string())?
+            .picked_pack = Some(PackSelection { id, pack });
+        Ok(Some(preview))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn create_mrpack_game(
+    app: AppHandle,
+    library: State<'_, GameLibrary>,
+    name: String,
+    preview_id: String,
+    source: DownloadSettings,
+    use_default_directory: bool,
+    optional_files: Vec<String>,
+) -> Result<Game, String> {
+    if name.trim().is_empty() {
+        return Err("请填写游戏名称".into());
+    }
+    let resolved_source = source.download_source().map_err(|e| e.to_string())?;
+    let mut library = library.0.lock().map_err(|e| e.to_string())?;
+    if let Some(error) = &library.load_error {
+        return Err(error.clone());
+    }
+    if library.games.iter().any(|g| g.status == "installing") {
+        return Err("已有游戏正在安装，请稍候".into());
+    }
+    let selection = library.picked_pack.as_ref().ok_or("请先选择整合包")?;
+    if selection.id != preview_id {
+        return Err("整合包已变更，请重新查看预览".into());
+    }
+    if optional_files.iter().any(|path| {
+        !selection
+            .pack
+            .files
+            .iter()
+            .any(|file| file.optional && &file.path == path)
+    }) {
+        return Err("请选择整合包中提供的可选内容".into());
+    }
+    let base = if use_default_directory {
+        default_directory()?
+    } else {
+        library.picked_directory.clone().ok_or("请先选择保存位置")?
+    };
+    let id = format!(
+        "{:x}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_nanos()
+    );
+    let game = Game {
+        directory: base.join(&id),
+        id,
+        name: name.trim().into(),
+        version: selection.pack.minecraft_version.clone(),
+        loader_version: selection.pack.loader_version.clone(),
+        status: "installing".into(),
+        error: None,
+        progress: None,
+        launch_state: idle(),
+        launch_error: None,
+        log_path: None,
+        content_installing: false,
+        pack_name: Some(selection.pack.name.clone()),
+        pack_version: Some(selection.pack.version_id.clone()),
+        pack_source_id: Some(selection.id.clone()),
+        pack_optional_files: optional_files,
+    };
+    cobble_minecraft::save_download_settings(&source).map_err(|e| e.to_string())?;
+    library.games.push(game.clone());
+    if let Err(error) = save(&library.games) {
+        library.games.pop();
+        return Err(error);
+    }
+    drop(library);
+    start_install(app, game.clone(), resolved_source);
+    Ok(game)
 }
 
 #[derive(Default)]
@@ -43,6 +232,7 @@ struct Library {
     picked_directory: Option<PathBuf>,
     load_error: Option<String>,
     mod_plans: HashMap<String, (String, cobble_content::ModrinthPlan)>,
+    picked_pack: Option<PackSelection>,
 }
 #[derive(Default)]
 pub struct GameLibrary(Mutex<Library>);
@@ -208,6 +398,10 @@ pub fn create_game(
         launch_error: None,
         log_path: None,
         content_installing: false,
+        pack_name: None,
+        pack_version: None,
+        pack_source_id: None,
+        pack_optional_files: Vec::new(),
     };
     library.games.push(game.clone());
     if let Err(error) = save(&library.games) {
@@ -289,20 +483,39 @@ fn start_install(app: AppHandle, game: Game, source: cobble_minecraft::DownloadS
                 );
             }
         });
-        let result = match &game.loader_version {
-            Some(loader) => {
-                cobble_core::install_fabric(
-                    &game.version,
-                    loader,
+        let result = if let Some(source_id) = &game.pack_source_id {
+            match pack_archive_path(source_id) {
+                Ok(archive) => cobble_core::install_mrpack(
+                    &archive,
                     &game.directory,
                     source,
+                    &game.pack_optional_files,
                     progress,
                 )
                 .await
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
+                Err(error) => Err(error),
             }
-            None => {
-                cobble_core::install_game(&game.version, &game.directory, source, progress).await
+        } else {
+            match &game.loader_version {
+                Some(loader) => {
+                    cobble_core::install_fabric(
+                        &game.version,
+                        loader,
+                        &game.directory,
+                        source,
+                        progress,
+                    )
+                    .await
+                }
+                None => {
+                    cobble_core::install_game(&game.version, &game.directory, source, progress)
+                        .await
+                }
             }
+            .map(|_| ())
+            .map_err(|e| e.to_string())
         };
         update_game(
             &app,
@@ -442,6 +655,13 @@ pub async fn list_fabric_versions(
         .map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+pub struct GameMod {
+    #[serde(flatten)]
+    item: cobble_content::LocalMod,
+    pack_owned: bool,
+}
+
 fn with_game_mods(
     app: &AppHandle,
     id: &str,
@@ -449,7 +669,7 @@ fn with_game_mods(
     operation: impl FnOnce(
         &std::path::Path,
     ) -> Result<Vec<cobble_content::LocalMod>, cobble_content::BoxError>,
-) -> Result<Vec<cobble_content::LocalMod>, String> {
+) -> Result<Vec<GameMod>, String> {
     let state = app.state::<GameLibrary>();
     let library = state.0.lock().map_err(|e| e.to_string())?;
     let game = library
@@ -463,14 +683,34 @@ fn with_game_mods(
     if writable && (game.launch_state != "idle" || game.content_installing) {
         return Err("请先关闭游戏，再修改 Mod".into());
     }
-    operation(&game.directory).map_err(|e| e.to_string())
+    let items = operation(&game.directory).map_err(|e| e.to_string())?;
+    let mut owned = std::collections::HashSet::new();
+    if let Some(source_id) = &game.pack_source_id
+        && let Ok(path) = pack_archive_path(source_id)
+        && let Ok(pack) = cobble_content::read_mrpack(&path)
+    {
+        for file in pack.files {
+            if !file.optional || game.pack_optional_files.contains(&file.path) {
+                owned.insert(file.path);
+            }
+        }
+        owned.extend(pack.overrides.into_iter().map(|entry| entry.path));
+    }
+    Ok(items
+        .into_iter()
+        .map(|item| {
+            let file = item
+                .file_name
+                .strip_suffix(".disabled")
+                .unwrap_or(&item.file_name);
+            let pack_owned = owned.contains(&format!("mods/{file}"));
+            GameMod { item, pack_owned }
+        })
+        .collect())
 }
 
 #[tauri::command]
-pub async fn list_game_mods(
-    app: AppHandle,
-    id: String,
-) -> Result<Vec<cobble_content::LocalMod>, String> {
+pub async fn list_game_mods(app: AppHandle, id: String) -> Result<Vec<GameMod>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         with_game_mods(&app, &id, false, cobble_content::list_mods)
     })
@@ -483,7 +723,7 @@ pub async fn import_game_mods(
     window: WebviewWindow,
     app: AppHandle,
     id: String,
-) -> Result<Option<Vec<cobble_content::LocalMod>>, String> {
+) -> Result<Option<Vec<GameMod>>, String> {
     let Some(files) = rfd::AsyncFileDialog::new()
         .set_title("导入 Mod")
         .add_filter("Minecraft Mod", &["jar"])
@@ -510,7 +750,7 @@ pub async fn set_game_mod_enabled(
     id: String,
     file_name: String,
     enabled: bool,
-) -> Result<Vec<cobble_content::LocalMod>, String> {
+) -> Result<Vec<GameMod>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         with_game_mods(&app, &id, true, |directory| {
             cobble_content::set_mod_enabled(directory, &file_name, enabled)
@@ -525,7 +765,7 @@ pub async fn remove_game_mod(
     app: AppHandle,
     id: String,
     file_name: String,
-) -> Result<Vec<cobble_content::LocalMod>, String> {
+) -> Result<Vec<GameMod>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         with_game_mods(&app, &id, true, |directory| {
             cobble_content::remove_mod(directory, &file_name)
@@ -661,4 +901,67 @@ pub async fn install_game_mod_plan(
         .map_err(|e| e.to_string());
     update_game(&app, &id, |g| g.content_installing = false, false);
     result
+}
+
+#[tauri::command]
+pub fn rename_game(
+    app: AppHandle,
+    library: State<'_, GameLibrary>,
+    id: String,
+    name: String,
+) -> Result<Game, String> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > 80 {
+        return Err("游戏名称应为 1–80 个字符".into());
+    }
+    let mut library = library.0.lock().map_err(|e| e.to_string())?;
+    if let Some(error) = &library.load_error {
+        return Err(error.clone());
+    }
+    let mut games = library.games.clone();
+    let game = games
+        .iter_mut()
+        .find(|g| g.id == id)
+        .ok_or("找不到这个游戏")?;
+    game.name = name.into();
+    let snapshot = game.clone();
+    save(&games)?;
+    library.games = games;
+    drop(library);
+    let _ = app.emit("game-install", &snapshot);
+    Ok(snapshot)
+}
+
+fn game_directory(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
+    let state = app.state::<GameLibrary>();
+    let library = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(library
+        .games
+        .iter()
+        .find(|g| g.id == id)
+        .ok_or("找不到这个游戏")?
+        .directory
+        .clone())
+}
+
+#[tauri::command]
+pub async fn open_game_directory(app: AppHandle, id: String) -> Result<(), String> {
+    let directory = game_directory(&app, &id)?;
+    if !directory.is_dir() {
+        return Err("游戏目录尚未创建，请先完成安装".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || open::that(directory).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn open_game_log(app: AppHandle, id: String) -> Result<(), String> {
+    let path = game_directory(&app, &id)?.join(".cobble-logs/launcher.log");
+    if !path.is_file() {
+        return Err("还没有游戏运行日志".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || open::that(path).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }

@@ -49,6 +49,7 @@ fn prepare(version: &str, directory: &Path) -> Result<LaunchPreparation, Error> 
         return Err("invalid version identifier".into());
     }
     let directory = dunce::canonicalize(directory)?;
+    crate::mrpack::ensure_pack_complete(&directory)?;
     let state: InstallState =
         serde_json::from_reader(File::open(directory.join(".cobble-install.json"))?)?;
     if state.version != version || !state.complete || state.client_only {

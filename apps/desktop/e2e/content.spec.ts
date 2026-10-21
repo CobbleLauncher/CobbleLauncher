@@ -4,19 +4,20 @@ import { test, expect, type Page } from '@playwright/test';
 import type { Game, LocalMod } from '../src/games';
 
 type Call = { command: string; args: Record<string, unknown> };
-type MockWindow = Window & { __calls: Call[]; __fabricMode: 'normal' | 'error' | 'race'; __cancelImport: boolean; __emitGame: (game: Game) => void };
+type MockWindow = Window & { __calls: Call[]; __fabricMode: 'normal' | 'error' | 'race'; __cancelImport: boolean; __actionFails: boolean; __emitGame: (game: Game) => void };
 const game: Game = { id: 'local-game', name: '林间小屋', version: '1.21.1', loader_version: '0.16.14', directory: 'synthetic', status: 'installed', error: null, progress: null };
 const mod: LocalMod = { file_name: 'synthetic.jar', name: '林间地图', version: '1.2.3', authors: ['Cobble'], loader: 'fabric', enabled: true, description: '原创测试模组' };
-async function mock(page: Page, stored: Game[] = []) {
-  await page.addInitScript(({ stored, game, mod }) => {
+async function mock(page: Page, stored: Game[] = [], initialMods: LocalMod[] = []) {
+  await page.addInitScript(({ stored, game, mod, initialMods }) => {
     const target = window as unknown as MockWindow & { isTauri: boolean; __TAURI_INTERNALS__: unknown; __TAURI_EVENT_PLUGIN_INTERNALS__: unknown };
     target.isTauri = true;
     target.__calls = [];
     target.__fabricMode = 'normal';
     target.__cancelImport = false;
+    target.__actionFails = false;
     const callbacks = new Map<number, (event: unknown) => void>();
     let listener = 0;
-    let mods: LocalMod[] = [];
+    let mods: LocalMod[] = initialMods;
     target.__emitGame = (value) => callbacks.get(listener)?.({ event: 'game-install', id: 1, payload: value });
     target.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
     target.__TAURI_INTERNALS__ = {
@@ -40,6 +41,14 @@ async function mock(page: Page, stored: Game[] = []) {
         }
         if (command === 'create_game') return { ...game, name: args.name, version: args.version, loader_version: args.loaderVersion };
         if (command === 'list_game_mods') return mods;
+        if (command === 'rename_game') {
+          if (target.__actionFails) throw new Error('游戏记录暂时不可用');
+          return { ...(stored[0] ?? game), name: args.name };
+        }
+        if (command === 'open_game_directory' || command === 'open_game_log') {
+          if (target.__actionFails) throw new Error('文件已不存在');
+          return null;
+        }
         if (command === 'import_game_mods') { if (target.__cancelImport) return null; mods = [mod]; return mods; }
         if (command === 'set_game_mod_enabled') { mods = mods.map((item) => ({ ...item, enabled: args.enabled as boolean, file_name: args.enabled ? 'synthetic.jar' : 'synthetic.jar.disabled' })); return mods; }
         if (command === 'remove_game_mod') { mods = []; return mods; }
@@ -48,7 +57,7 @@ async function mock(page: Page, stored: Game[] = []) {
         return null;
       },
     };
-  }, { stored, game, mod });
+  }, { stored, game, mod, initialMods });
 }
 
 test('Fabric chooses stable loader and submits selected version and source', async ({ page }) => {
@@ -152,4 +161,61 @@ test('local content mutations lock during start and running; Vanilla hint and in
   await expect(page.getByRole('button', { name: '导入 Mod' })).toBeDisabled();
   await page.evaluate((value) => (window as unknown as MockWindow).__emitGame({ ...value, launch_state: 'idle' }), game);
   await expect(page.getByRole('button', { name: '导入 Mod' })).toBeEnabled();
+});
+
+test('game details rename inline and open only native-owned locations', async ({ page }, testInfo) => {
+  await mock(page, [game]);
+  await page.goto('/');
+  await page.getByRole('button', { name: '管理内容' }).click();
+  await expect(page.getByRole('button', { name: '打开日志', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: '更改名称' }).click();
+  await expect(page.getByLabel('游戏名称')).toBeFocused();
+  await page.getByLabel('游戏名称').fill('取消的名字');
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page.getByRole('heading', { name: game.name, exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '更改名称' }).click();
+  await page.getByLabel('游戏名称').fill('  ');
+  await page.getByRole('button', { name: '保存名称' }).click();
+  await expect(page.getByRole('alert')).toContainText('1–80');
+  await page.getByLabel('游戏名称').fill('  新的林间小屋  ');
+  await page.evaluate(() => { (window as unknown as MockWindow).__actionFails = true; });
+  await page.getByRole('button', { name: '保存名称' }).click();
+  await expect(page.getByRole('alert')).toContainText('游戏记录暂时不可用');
+  await expect(page.getByLabel('游戏名称')).toHaveValue('  新的林间小屋  ');
+  await page.evaluate(() => { (window as unknown as MockWindow).__actionFails = false; });
+  await page.getByRole('button', { name: '保存名称' }).click();
+  await expect(page.getByRole('heading', { name: '新的林间小屋', exact: true })).toBeVisible();
+  await expect(page.getByRole('status')).toHaveText('名称已保存');
+  await page.getByRole('button', { name: '打开游戏文件夹', exact: true }).click();
+  await page.evaluate((game) => (window as unknown as MockWindow).__emitGame(game), { ...game, name: '新的林间小屋', log_path: 'native-owned-log' } satisfies Game);
+  await page.getByRole('button', { name: '打开日志', exact: true }).click();
+  const calls = await page.evaluate(() => (window as unknown as MockWindow).__calls);
+  expect(calls.filter((call) => call.command === 'rename_game').at(-1)?.args).toEqual({ id: game.id, name: '新的林间小屋' });
+  expect(calls.find((call) => call.command === 'open_game_directory')?.args).toEqual({ id: game.id });
+  expect(calls.find((call) => call.command === 'open_game_log')?.args).toEqual({ id: game.id });
+  await page.evaluate(() => { (window as unknown as MockWindow).__actionFails = true; });
+  await page.getByRole('button', { name: '打开游戏文件夹', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('文件已不存在');
+  await page.getByRole('button', { name: '更改名称' }).click();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath('details-rename-light.png'), fullPage: true });
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await page.getByRole('button', { name: '返回游戏库' }).click();
+  await expect(page.getByRole('article', { name: '新的林间小屋' })).toBeVisible();
+});
+
+test('pack Mods distinguish included and user-added content without restricting controls', async ({ page }) => {
+  await mock(page, [{ ...game, pack_name: '林间整合包', pack_version: '1.0' }], [
+    { ...mod, pack_owned: true },
+    { ...mod, file_name: 'extra.jar', name: '自行选择的地图', pack_owned: false },
+  ]);
+  await page.goto('/');
+  await page.getByRole('button', { name: '管理内容' }).click();
+  const included = page.getByRole('listitem').filter({ hasText: 'synthetic.jar' });
+  const added = page.getByRole('listitem').filter({ hasText: 'extra.jar' });
+  await expect(included.getByText('整合包自带', { exact: true })).toBeVisible();
+  await expect(added.getByText('自行添加', { exact: true })).toBeVisible();
+  await expect(included.getByRole('switch')).toBeEnabled();
+  await expect(included.getByRole('button', { name: '删除 林间地图', exact: true })).toBeEnabled();
+  await expect(added.getByRole('switch')).toBeEnabled();
 });

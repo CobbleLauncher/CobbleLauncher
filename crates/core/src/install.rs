@@ -162,7 +162,11 @@ fn register(path: &Path) -> io::Result<Dir> {
     Dir::open_ambient_dir(path, cap_std::ambient_authority())
 }
 
-fn prepare_target(target: &Path, version: &str, client_only: bool) -> Result<Dir, Error> {
+pub(crate) fn prepare_target(
+    target: &Path,
+    version: &str,
+    client_only: bool,
+) -> Result<Dir, Error> {
     std::fs::create_dir_all(target)?;
     let root = register(target)?;
     if root.entries()?.next().is_some() {
@@ -330,9 +334,29 @@ async fn download_file(
         if url != file.url {
             request = request.with_mirror_redirects(&file.url)?;
         }
-        let result = downloader
+        let result = match downloader
             .download(request, TransferCancellation::default())
-            .await?;
+            .await
+        {
+            Ok(result) => result,
+            Err(_) if url != file.url => {
+                let official = DownloadRequest::new(
+                    &file.url,
+                    expected,
+                    DownloadAuthority::same_origin(
+                        &DownloadSource::Official.id(),
+                        "minecraft-install",
+                        "vanilla-v1",
+                        None,
+                    )?,
+                    None,
+                )?;
+                downloader
+                    .download(official, TransferCancellation::default())
+                    .await?
+            }
+            Err(error) => return Err(error.into()),
+        };
         result.artifact.clone()
     };
     tokio::task::spawn_blocking(move || {

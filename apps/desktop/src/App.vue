@@ -6,6 +6,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { applyTheme, readTheme } from './theme';
 import CreateGamePage from './CreateGamePage.vue';
+import ImportPackPage from './ImportPackPage.vue';
 import SettingsPage from './SettingsPage.vue';
 import GameCard from './GameCard.vue';
 import GameDetailsPage from './GameDetailsPage.vue';
@@ -66,7 +67,7 @@ async function retryGame(id: string) {
   catch (cause) { error.value = `无法重试安装：${String(cause)}`; }
   finally { retrying.value = retrying.value.filter((item) => item !== id); }
 }
-const view = ref<'library' | 'create' | 'settings' | 'details'>('library');
+const view = ref<'library' | 'create' | 'import' | 'settings' | 'details'>('library');
 const selectedGameId = ref('');
 const selectedGame = computed(() => games.value.find((game) => game.id === selectedGameId.value));
 function manageGame(id: string) {
@@ -263,16 +264,11 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
               <span aria-hidden="true">＋</span>创建游戏
             </button><button
               class="secondary-button"
-              disabled
-              title="暂不可用"
-              aria-describedby="feature-availability"
+              @click="view = 'import'"
             >
               <svg viewBox="0 0 20 20"><path d="M10 3v9m-4-4 4 4 4-4M4 13v4h12v-4" /></svg>导入整合包
             </button>
-          </div><span
-            id="feature-availability"
-            class="sr-only"
-          >导入整合包暂不可用</span>
+          </div>
         </section>
         <section
           v-else
@@ -296,6 +292,12 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
           >
             <span aria-hidden="true">＋</span> 创建游戏
           </button>
+          <button
+            class="add-game-button"
+            @click="view = 'import'"
+          >
+            <span aria-hidden="true">↓</span> 导入整合包
+          </button>
         </section>
       </template>
       <template v-else>
@@ -308,11 +310,15 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
             <svg viewBox="0 0 20 20"><path d="m11 4-6 6 6 6M5 10h11" /></svg>游戏库
           </button>
           <h1 tabindex="-1">
-            {{ view === 'create' ? '创建游戏' : view === 'details' ? selectedGame?.name : '设置' }}
+            {{ view === 'create' ? '创建游戏' : view === 'import' ? '导入整合包' : view === 'details' ? selectedGame?.name : '设置' }}
           </h1>
         </div>
         <CreateGamePage
           v-if="view === 'create'"
+          @created="addCreatedGame"
+        />
+        <ImportPackPage
+          v-else-if="view === 'import'"
           @created="addCreatedGame"
         />
         <GameDetailsPage
@@ -321,6 +327,7 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
           :starting="starting.includes(selectedGame.id)"
           :has-profile="!!offlineProfile"
           @play="startGame"
+          @renamed="updateGame"
         />
         <SettingsPage
           v-else-if="view === 'settings'"

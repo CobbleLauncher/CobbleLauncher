@@ -4,7 +4,13 @@ import { computed } from 'vue';
 import type { Game } from './games';
 const props = defineProps<{ game: Game; retrying: boolean; hasProfile: boolean; starting: boolean }>();
 defineEmits<{ retry: [id: string]; play: [id: string]; manage: [id: string] }>();
-const phase = computed(() => ({ metadata: '获取游戏信息', files: '下载游戏文件', assets: '下载游戏资源', fabric: '安装 Fabric', complete: '安装完成' })[props.game.progress?.phase ?? 'metadata']);
+const phase = computed(() => {
+  const current = props.game.progress?.phase ?? 'metadata';
+  if (current === 'pack-base-complete') return '准备整合包文件';
+  const phase = current.replace(/^pack-base-/, '');
+  const labels: Record<string, string> = { metadata: '获取游戏信息', files: '下载游戏文件', assets: '下载游戏资源', fabric: '安装 Fabric', 'pack-download': '下载整合包文件', 'pack-overrides': '安装整合包配置', 'pack-install': '安装整合包文件', complete: '安装完成' };
+  return labels[phase] ?? '正在安装';
+});
 const percent = computed(() => {
   const progress = props.game.progress;
   return progress && progress.total > 0 ? Math.min(100, progress.completed / progress.total * 100) : 0;
@@ -52,6 +58,12 @@ const percent = computed(() => {
       </div>
       <p class="game-version">
         Minecraft {{ game.version }} <span>· {{ game.loader_version ? `Fabric ${game.loader_version}` : '原版' }}</span>
+      </p>
+      <p
+        v-if="game.pack_name"
+        class="pack-origin"
+      >
+        整合包 · {{ game.pack_name }}<span v-if="game.pack_version"> · {{ game.pack_version }}</span>
       </p>
       <template v-if="game.status === 'installing'">
         <div

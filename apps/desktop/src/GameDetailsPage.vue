@@ -1,12 +1,49 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { Game, LocalMod } from './games';
 import DiscoverMods from './DiscoverMods.vue';
 
 const props = defineProps<{ game: Game; starting: boolean; hasProfile: boolean }>();
-defineEmits<{ play: [id: string] }>();
+const emit = defineEmits<{ play: [id: string]; renamed: [game: Game] }>();
+const editingName = ref(false);
+const editedName = ref('');
+const nameInput = ref<HTMLInputElement | null>(null);
+const actionBusy = ref(false);
+const actionError = ref('');
+const actionStatus = ref('');
+let disposed = false;
+async function editName() {
+  editedName.value = props.game.name;
+  actionError.value = '';
+  actionStatus.value = '';
+  editingName.value = true;
+  await nextTick();
+  nameInput.value?.focus();
+  nameInput.value?.select();
+}
+async function saveName() {
+  if (actionBusy.value) return;
+  actionError.value = '';
+  const name = editedName.value.trim();
+  if (!name || name.length > 80) { actionError.value = '游戏名称需为 1–80 个字符'; return; }
+  actionBusy.value = true;
+  try {
+    const game = await invoke<Game>('rename_game', { id: props.game.id, name });
+    if (!disposed) { emit('renamed', game); editingName.value = false; actionStatus.value = '名称已保存'; }
+  } catch (cause) { if (!disposed) actionError.value = `无法更改名称：${String(cause)}`; }
+  finally { actionBusy.value = false; }
+}
+async function openLocation(command: 'open_game_directory' | 'open_game_log') {
+  if (actionBusy.value) return;
+  actionError.value = '';
+  actionStatus.value = '';
+  actionBusy.value = true;
+  try { await invoke(command, { id: props.game.id }); }
+  catch (cause) { if (!disposed) actionError.value = `无法打开${command === 'open_game_log' ? '日志' : '文件夹'}：${String(cause)}`; }
+  finally { actionBusy.value = false; }
+}
 const mods = ref<LocalMod[]>([]);
 const tab = ref<'installed' | 'discover'>('installed');
 const installingMod = ref(false);
@@ -51,7 +88,7 @@ function remove(mod: LocalMod) {
 }
 watch(locked, (value) => { if (value) deleting.value = null; });
 watch(() => props.game.id, () => { mods.value = []; busy.value = false; query.value = ''; void refresh(); }, { immediate: true });
-onUnmounted(() => { ++request; });
+onUnmounted(() => { disposed = true; ++request; });
 </script>
 
 <template>
@@ -60,6 +97,12 @@ onUnmounted(() => { ++request; });
       <div>
         <p class="game-version">
           Minecraft {{ game.version }} · {{ game.loader_version ? `Fabric ${game.loader_version}` : '原版' }}
+        </p>
+        <p
+          v-if="game.pack_name"
+          class="pack-origin"
+        >
+          整合包 · {{ game.pack_name }}<span v-if="game.pack_version"> · {{ game.pack_version }}</span>
         </p>
       </div>
       <button
@@ -70,6 +113,76 @@ onUnmounted(() => { ++request; });
         {{ contentInstalling ? '安装 Mod 中' : game.launch_state === 'running' ? '运行中' : locked ? '启动中…' : hasProfile ? '开始游戏' : '设置离线档案' }}
       </button>
     </div>
+    <div class="game-management-actions">
+      <button
+        class="text-button"
+        :disabled="actionBusy || editingName"
+        @click="editName"
+      >
+        更改名称
+      </button>
+      <button
+        class="text-button"
+        :disabled="actionBusy"
+        @click="openLocation('open_game_directory')"
+      >
+        打开游戏文件夹
+      </button>
+      <button
+        class="text-button"
+        :disabled="actionBusy || !game.log_path"
+        @click="openLocation('open_game_log')"
+      >
+        打开日志
+      </button>
+    </div>
+    <form
+      v-if="editingName"
+      class="rename-form"
+      @submit.prevent="saveName"
+      @keydown.esc="!actionBusy && (editingName = false)"
+    >
+      <label for="edited-game-name">游戏名称</label>
+      <div class="rename-controls">
+        <input
+          id="edited-game-name"
+          ref="nameInput"
+          v-model="editedName"
+          maxlength="80"
+          autocomplete="off"
+          :disabled="actionBusy"
+        >
+        <button
+          class="secondary-button"
+          type="submit"
+          :disabled="actionBusy"
+        >
+          {{ actionBusy ? '保存中…' : '保存名称' }}
+        </button>
+        <button
+          class="text-button"
+          type="button"
+          :disabled="actionBusy"
+          @click="editingName = false"
+        >
+          取消
+        </button>
+      </div>
+    </form>
+    <p
+      v-if="actionError"
+      class="settings-error"
+      role="alert"
+    >
+      {{ actionError }}
+    </p>
+    <p
+      v-if="actionStatus"
+      class="setting-hint"
+      role="status"
+    >
+      {{ actionStatus }}
+    </p>
     <p
       v-if="game.launch_error"
       class="game-error"
@@ -197,6 +310,10 @@ onUnmounted(() => { ++request; });
                   v-if="!mod.enabled"
                   class="mod-state"
                 >已禁用</span>
+                <span
+                  v-if="mod.pack_owned || game.pack_name"
+                  class="mod-state"
+                >{{ mod.pack_owned ? '整合包自带' : '自行添加' }}</span>
               </h3>
               <p class="mod-meta">
                 {{ mod.version || '版本未知' }} · {{ mod.loader || '加载器未知' }}<span v-if="mod.authors.length"> · {{ mod.authors.join('、') }}</span>

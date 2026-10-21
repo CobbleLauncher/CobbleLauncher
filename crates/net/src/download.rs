@@ -116,6 +116,29 @@ impl DownloadRequest {
         self.mirror_redirects = true;
         Ok(self)
     }
+    /// Follow anonymous HTTPS redirects for an explicitly selected modpack's
+    /// documented download hosts. Existing per-hop network checks still apply.
+    pub fn with_modpack_redirects(mut self) -> Result<Self, DownloadError> {
+        if self.credential.is_some()
+            || self.partition.is_some()
+            || self.mirror_redirects
+            || !matches!(
+                self.endpoint.url.host_str(),
+                Some(
+                    "cdn.modrinth.com" | "github.com" | "raw.githubusercontent.com" | "gitlab.com"
+                )
+            )
+        {
+            return Err(DownloadError::InvalidRequest);
+        }
+        let mut hash = Sha256::new();
+        hash.update(b"CobbleLauncher selected modpack redirects v1\0");
+        hash.update(self.identity.request_key);
+        self.identity.request_key = hash.finalize().into();
+        self.mirror_redirects = true;
+        Ok(self)
+    }
+
     pub(crate) fn key(&self) -> [u8; 32] {
         self.identity.request_key
     }

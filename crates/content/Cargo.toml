@@ -13,6 +13,9 @@ zip = { workspace = true, features = ["deflate-flate2-zlib-rs"] }
 toml = "=1.1.8"
 cobble-net.workspace = true
 url.workspace = true
+cobble-store.workspace = true
+unicode-normalization.workspace = true
+caseless.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
