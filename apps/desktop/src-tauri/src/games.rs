@@ -21,6 +21,10 @@ pub struct Game {
     #[serde(default)]
     loader_kind: Option<String>,
     directory: PathBuf,
+    #[serde(default)]
+    profile_id: Option<String>,
+    #[serde(default)]
+    download_source: Option<DownloadSettings>,
     status: String,
     error: Option<String>,
     #[serde(skip_deserializing, default)]
@@ -208,6 +212,8 @@ pub fn create_mrpack_game(
         version: selection.pack.minecraft_version.clone(),
         loader_version: selection.pack.loader_version.clone(),
         loader_kind: selection.pack.loader_kind.clone(),
+        profile_id: None,
+        download_source: Some(source.clone()),
         status: "installing".into(),
         error: None,
         progress: None,
@@ -220,7 +226,6 @@ pub fn create_mrpack_game(
         pack_source_id: Some(selection.id.clone()),
         pack_optional_files: optional_files,
     };
-    cobble_minecraft::save_download_settings(&source).map_err(|e| e.to_string())?;
     library.games.push(game.clone());
     if let Err(error) = save(&library.games) {
         library.games.pop();
@@ -381,7 +386,6 @@ pub fn create_game(
         None
     };
     let resolved_source = source.download_source().map_err(|e| e.to_string())?;
-    cobble_minecraft::save_download_settings(&source).map_err(|e| e.to_string())?;
     let mut library = library.0.lock().map_err(|e| e.to_string())?;
     if let Some(error) = &library.load_error {
         return Err(error.clone());
@@ -408,6 +412,8 @@ pub fn create_game(
         version,
         loader_version,
         loader_kind,
+        profile_id: None,
+        download_source: Some(source.clone()),
         status: "installing".into(),
         error: None,
         progress: None,
@@ -435,10 +441,6 @@ pub fn retry_game(
     library: State<'_, GameLibrary>,
     id: String,
 ) -> Result<Game, String> {
-    let source = cobble_minecraft::read_download_settings()
-        .map_err(|e| e.to_string())?
-        .download_source()
-        .map_err(|e| e.to_string())?;
     let mut library = library.0.lock().map_err(|e| e.to_string())?;
     if library.games.iter().any(|g| g.status == "installing") {
         return Err("已有游戏正在安装，请稍候".into());
@@ -451,13 +453,19 @@ pub fn retry_game(
     if game.status != "failed" {
         return Err("这个游戏无需重试".into());
     }
+    let source = match &game.download_source {
+        Some(source) => source.clone(),
+        None => cobble_minecraft::read_download_settings().map_err(|e| e.to_string())?,
+    };
+    let resolved_source = source.download_source().map_err(|e| e.to_string())?;
+    game.download_source = Some(source);
     game.status = "installing".into();
     game.error = None;
     game.progress = None;
     let game = game.clone();
     save(&library.games)?;
     drop(library);
-    start_install(app, game.clone(), source);
+    start_install(app, game.clone(), resolved_source);
     Ok(game)
 }
 fn update_game(app: &AppHandle, id: &str, change: impl FnOnce(&mut Game), persist: bool) {
@@ -622,9 +630,6 @@ pub fn start_game(
     library: State<'_, GameLibrary>,
     id: String,
 ) -> Result<Game, String> {
-    let profile = cobble_auth::read_offline_profile()
-        .map_err(|e| e.to_string())?
-        .ok_or("请先创建离线档案")?;
     let mut library = library.0.lock().map_err(|e| e.to_string())?;
     let game = library
         .games
@@ -640,6 +645,10 @@ pub fn start_game(
     if game.content_installing {
         return Err("Mod 正在安装，请稍候".into());
     }
+    // Capture the effective identity before spawning; later selection changes
+    // only affect future launches.
+    let profile = cobble_auth::resolve_player_profile(game.profile_id.as_deref())
+        .map_err(|e| e.to_string())?;
     game.launch_state = "preparing".into();
     game.launch_error = None;
     let snapshot = game.clone();
@@ -1026,4 +1035,34 @@ pub async fn list_loader_versions(
     cobble_core::list_forge_versions(&version, kind)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_game_profile(
+    library: State<'_, GameLibrary>,
+    id: String,
+    profile_id: Option<String>,
+) -> Result<Game, String> {
+    if let Some(profile_id) = profile_id.as_deref() {
+        cobble_auth::resolve_player_profile(Some(profile_id)).map_err(|e| e.to_string())?;
+    }
+    let mut library = library.0.lock().map_err(|e| e.to_string())?;
+    let game = library
+        .games
+        .iter_mut()
+        .find(|g| g.id == id)
+        .ok_or("找不到这个游戏")?;
+    let previous = game.profile_id.clone();
+    game.profile_id = profile_id;
+    let snapshot = game.clone();
+    if let Err(error) = save(&library.games) {
+        library
+            .games
+            .iter_mut()
+            .find(|g| g.id == id)
+            .unwrap()
+            .profile_id = previous;
+        return Err(error);
+    }
+    Ok(snapshot)
 }

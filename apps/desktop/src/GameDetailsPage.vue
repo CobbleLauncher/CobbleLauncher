@@ -2,12 +2,24 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import type { Game, LocalMod } from './games';
+import type { Game, LocalMod, PlayerProfile, ProfileLibrary } from './games';
 import { gameLoaderLabel } from './games';
 import DiscoverMods from './DiscoverMods.vue';
 
-const props = defineProps<{ game: Game; starting: boolean; hasProfile: boolean }>();
-const emit = defineEmits<{ play: [id: string]; renamed: [game: Game] }>();
+const props = defineProps<{ game: Game; starting: boolean; profile: PlayerProfile | null; library: ProfileLibrary }>();
+const emit = defineEmits<{ play: [id: string]; renamed: [game: Game]; profileChanged: [game: Game] }>();
+const pageTab = ref<'content' | 'runtime'>('content');
+const profileBindingBusy = ref(false);
+const profileBindingError = ref('');
+async function bindProfile(event: Event) {
+  if (profileBindingBusy.value) return;
+  const profileId = (event.target as HTMLSelectElement).value || null;
+  profileBindingBusy.value = true;
+  profileBindingError.value = '';
+  try { emit('profileChanged', await invoke<Game>('set_game_profile', { id: props.game.id, profileId })); }
+  catch { (event.target as HTMLSelectElement).value = props.game.profile_id || ''; profileBindingError.value = '未能保存游戏档案，请重试'; }
+  finally { profileBindingBusy.value = false; }
+}
 const editingName = ref(false);
 const editedName = ref('');
 const nameInput = ref<HTMLInputElement | null>(null);
@@ -99,6 +111,12 @@ onUnmounted(() => { disposed = true; ++request; });
         <p class="game-version">
           Minecraft {{ game.version }} · {{ gameLoaderLabel(game) }}
         </p>
+        <button
+          class="text-button launch-identity"
+          @click="pageTab = 'runtime'"
+        >
+          {{ profile ? `使用 ${profile.name} · 离线` : '请选择玩家档案' }} <span aria-hidden="true">⌄</span>
+        </button>
         <p
           v-if="game.pack_name"
           class="pack-origin"
@@ -108,10 +126,10 @@ onUnmounted(() => { disposed = true; ++request; });
       </div>
       <button
         class="primary-button play-button"
-        :disabled="locked || busy"
+        :disabled="locked || busy || profileBindingBusy"
         @click="$emit('play', game.id)"
       >
-        {{ contentInstalling ? '安装 Mod 中' : game.launch_state === 'running' ? '运行中' : locked ? '启动中…' : hasProfile ? '开始游戏' : '设置离线档案' }}
+        {{ contentInstalling ? '安装 Mod 中' : game.launch_state === 'running' ? '运行中' : locked ? '启动中…' : profile ? `以 ${profile.name} 开始` : '选择玩家档案' }}
       </button>
     </div>
     <div class="game-management-actions">
@@ -191,9 +209,81 @@ onUnmounted(() => { disposed = true; ++request; });
     >
       启动失败：{{ game.launch_error }}
     </p>
+    <div
+      class="content-tabs game-page-tabs"
+      role="tablist"
+      aria-label="游戏管理"
+    >
+      <button
+        id="game-content-tab"
+        role="tab"
+        :aria-selected="pageTab === 'content'"
+        aria-controls="game-content-panel"
+        @click="pageTab = 'content'"
+      >
+        内容
+      </button>
+      <button
+        id="game-runtime-tab"
+        role="tab"
+        :aria-selected="pageTab === 'runtime'"
+        aria-controls="game-runtime-panel"
+        @click="pageTab = 'runtime'"
+      >
+        运行设置
+      </button>
+    </div>
     <section
+      v-if="pageTab === 'runtime'"
+      id="game-runtime-panel"
+      role="tabpanel"
+      aria-labelledby="game-runtime-tab"
+      class="runtime-settings"
+    >
+      <h2>玩家档案</h2><p class="setting-hint">
+        默认跟随顶部选择，也可以为这个游戏固定身份。
+      </p>
+      <div class="form-field">
+        <label for="game-player-profile">使用的档案</label><select
+          id="game-player-profile"
+          :value="game.profile_id || ''"
+          :disabled="profileBindingBusy"
+          @change="bindProfile"
+        >
+          <option value="">
+            跟随当前档案
+          </option><option
+            v-if="game.profile_id && !library.profiles.some((item) => item.id === game.profile_id)"
+            :value="game.profile_id"
+            disabled
+          >
+            档案已移除，请重新选择
+          </option><option
+            v-for="item in library.profiles"
+            :key="item.id"
+            :value="item.id"
+          >
+            固定 {{ item.name }}
+          </option>
+        </select>
+      </div>
+      <p class="setting-hint">
+        {{ profile ? `实际使用 ${profile.name} · 离线` : '请选择玩家档案' }}
+      </p>
+      <p
+        v-if="profileBindingError"
+        role="alert"
+        class="settings-error"
+      >
+        {{ profileBindingError }}
+      </p>
+    </section>
+    <section
+      v-show="pageTab === 'content'"
+      id="game-content-panel"
+      role="tabpanel"
+      aria-labelledby="game-content-tab"
       class="content-section"
-      aria-labelledby="content-heading"
     >
       <div
         class="content-tabs"

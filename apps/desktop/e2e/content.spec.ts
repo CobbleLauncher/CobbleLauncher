@@ -27,7 +27,7 @@ async function mock(page: Page, stored: Game[] = [], initialMods: LocalMod[] = [
         target.__calls.push({ command, args });
         if (command === 'plugin:event|listen') { listener = args.handler as number; return 1; }
         if (command === 'list_games') return stored;
-        if (command === 'get_offline_profile') return { name: 'Cobble', uuid: 'synthetic' };
+        if (command === 'list_player_profiles') return { profiles: [{ id: 'test-player', kind: 'offline', name: 'Cobble', uuid: 'synthetic', note: null }], active_id: 'test-player' };
         if (command === 'get_download_settings') return { source: 'bmclapi', mirror: '' };
         if (command === 'default_game_directory') return 'synthetic default';
         if (command === 'list_game_versions') return [{ id: '1.21.1', kind: 'release' }, { id: '1.20.6', kind: 'release' }];
@@ -157,7 +157,7 @@ test('local content mutations lock during start and running; Vanilla hint and in
   await page.getByRole('button', { name: '管理内容' }).click();
   await expect(page.getByText('原版不会加载 Mod。需要使用 Fabric 等模组加载器。')).toBeVisible();
   await page.getByRole('button', { name: '导入 Mod' }).click();
-  await page.getByRole('button', { name: '开始游戏' }).click();
+  await page.getByRole('button', { name: '以 Cobble 开始' }).click();
   await expect(page.getByRole('button', { name: '导入 Mod' })).toBeDisabled();
   await expect(page.getByRole('switch')).toBeDisabled();
   await expect(page.getByRole('button', { name: `删除 ${mod.name}` })).toBeDisabled();

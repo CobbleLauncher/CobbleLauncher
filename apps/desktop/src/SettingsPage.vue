@@ -1,46 +1,34 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { RadioGroupRoot, RadioGroupItem } from 'reka-ui';
 import { applyTheme, readTheme, type Theme } from './theme';
 import { defaultDownloadSettings, readDownloadSettings, saveDownloadSettings, validateDownloadSettings } from './download-settings';
-import type { OfflineProfile } from './games';
 const theme = ref<Theme>(readTheme());
 const options = [{ value: 'system', label: '跟随系统' }, { value: 'light', label: '浅色' }, { value: 'dark', label: '深色' }];
-const emit = defineEmits<{ saved: []; profileSaved: [profile: OfflineProfile | null] }>();
-const profile = ref<OfflineProfile | null>(null);
-const profileName = ref('Player');
-const profileBusy = ref(false);
-const profileReady = ref(false);
-const profileError = ref('');
-const profileSaved = ref(false);
-async function loadProfile() {
-  if (!native) { profileReady.value = true; return; }
-  try {
-    profile.value = await invoke<OfflineProfile | null>('get_offline_profile');
-    profileName.value = profile.value?.name ?? 'Player';
-    profileReady.value = true;
-  } catch { profileError.value = '无法读取离线档案，请返回后重试'; }
-}
-async function saveProfile(remove = false) {
-  if (!native) { profileError.value = '请在桌面应用中保存离线档案'; return; }
-  if (profileBusy.value || !profileReady.value) return;
-  profileSaved.value = false;
-  profileError.value = '';
-  if (!remove && !/^[A-Za-z0-9_]{3,16}$/.test(profileName.value)) {
-    profileError.value = '昵称须为 3–16 位英文字母、数字或下划线'; return;
-  }
-  profileBusy.value = true;
-  try {
-    if (remove) { await invoke('remove_offline_profile'); profile.value = null; profileName.value = 'Player'; }
-    else profile.value = await invoke<OfflineProfile>('save_offline_profile', { name: profileName.value });
-    emit('profileSaved', profile.value);
-    profileSaved.value = true;
-  } catch (cause) { profileError.value = `档案保存失败：${String(cause)}`; }
-  finally { profileBusy.value = false; }
+const emit = defineEmits<{ saved: [] }>();
+const categories = ['外观', '下载', '默认运行设置', '关于'] as const;
+const activeCategory = ref<(typeof categories)[number]>('外观');
+function selectCategory(category: (typeof categories)[number]) { activeCategory.value = category; }
+function moveCategory(event: KeyboardEvent) {
+  const index = categories.indexOf(activeCategory.value);
+  let next: number;
+  if (event.key === 'ArrowRight') next = (index + 1) % categories.length;
+  else if (event.key === 'ArrowLeft') next = (index - 1 + categories.length) % categories.length;
+  else if (event.key === 'Home') next = 0;
+  else if (event.key === 'End') next = categories.length - 1;
+  else return;
+  event.preventDefault();
+  activeCategory.value = categories[next] ?? categories[0];
+  document.getElementById(`settings-tab-${next}`)?.focus();
 }
 const downloadSettings = ref(defaultDownloadSettings());
+const loadedDownloadSettings = ref<ReturnType<typeof defaultDownloadSettings> | null>(null);
+const hasDownloadChanges = computed(() => loadedDownloadSettings.value !== null && (
+  downloadSettings.value.source !== loadedDownloadSettings.value.source ||
+  downloadSettings.value.mirror !== loadedDownloadSettings.value.mirror
+));
 const settingsError = ref('');
 const settingsReady = ref(false);
 const savingSettings = ref(false);
@@ -48,7 +36,11 @@ const sourceOptions = [{ value: 'official', label: '官方' }, { value: 'bmclapi
 async function loadSettings() {
   settingsError.value = '';
   settingsReady.value = false;
-  try { downloadSettings.value = await readDownloadSettings(); settingsReady.value = true; }
+  try {
+    downloadSettings.value = await readDownloadSettings();
+    loadedDownloadSettings.value = { ...downloadSettings.value };
+    settingsReady.value = true;
+  }
   catch { settingsError.value = '无法读取下载源设置，请返回后重试'; }
 }
 function changeSource(value: unknown) {
@@ -62,7 +54,11 @@ async function finishSettings() {
   settingsError.value = validateDownloadSettings(downloadSettings.value) ?? '';
   if (settingsError.value) return;
   savingSettings.value = true;
-  try { await saveDownloadSettings(downloadSettings.value); emit('saved'); }
+  try {
+    await saveDownloadSettings(downloadSettings.value);
+    loadedDownloadSettings.value = { ...downloadSettings.value };
+    emit('saved');
+  }
   catch { settingsError.value = '下载源设置保存失败，请重试'; }
   finally { savingSettings.value = false; }
 }
@@ -99,97 +95,68 @@ async function automaticJava() {
   catch { javaError.value = '无法切换为自动选择，请重试'; }
   finally { javaBusy.value = false; }
 }
-onMounted(() => { void loadSettings(); void loadJava(); void loadProfile(); });
+onMounted(() => { void loadSettings(); void loadJava(); });
 </script>
 <template>
   <div class="settings-page page-content">
-    <section
-      class="profile-section"
-      aria-labelledby="profile-heading"
+    <div
+      class="settings-tabs"
+      role="tablist"
+      aria-label="设置分类"
+      @keydown="moveCategory"
     >
-      <h2
-        id="profile-heading"
-        class="setting-label"
+      <button
+        v-for="(category, index) in categories"
+        :id="`settings-tab-${index}`"
+        :key="category"
+        class="settings-tab"
+        type="button"
+        role="tab"
+        :aria-selected="activeCategory === category"
+        :aria-controls="`settings-panel-${index}`"
+        :tabindex="activeCategory === category ? 0 : -1"
+        @click="selectCategory(category)"
       >
-        离线档案 <span class="offline-badge">离线</span>
+        {{ category }}
+      </button>
+    </div>
+    <section
+      v-show="activeCategory === '外观'"
+      id="settings-panel-0"
+      class="settings-panel"
+      role="tabpanel"
+      aria-labelledby="settings-tab-0"
+      tabindex="0"
+    >
+      <h2 class="setting-label">
+        外观
       </h2>
-      <p class="setting-hint">
-        用于本地游戏
-      </p>
-      <div class="mirror-field profile-field">
-        <label for="profile-name">游戏昵称</label>
-        <input
-          id="profile-name"
-          v-model="profileName"
-          type="text"
-          maxlength="16"
-          autocomplete="off"
-          spellcheck="false"
-          :disabled="profileBusy || !profileReady"
-          :aria-invalid="!!profileError"
-          aria-describedby="profile-help"
-          @input="profileSaved = false; profileError = ''"
-        >
-        <p
-          id="profile-help"
-          class="setting-hint"
-        >
-          3–16 位英文字母、数字或下划线
-        </p>
-      </div>
-      <div class="java-actions">
-        <button
-          class="secondary-button"
-          :disabled="profileBusy || !profileReady"
-          @click="saveProfile()"
-        >
-          {{ profileBusy ? '保存中…' : '保存档案' }}
-        </button>
-        <button
-          v-if="profile"
-          class="text-button"
-          :disabled="profileBusy"
-          @click="saveProfile(true)"
-        >
-          移除档案
-        </button>
-        <span
-          v-if="profileSaved"
-          class="setting-hint"
-          role="status"
-        >{{ profile ? '档案已保存' : '档案已移除' }}</span>
-      </div>
-      <p
-        v-if="profileError"
-        class="settings-error"
-        role="alert"
+      <RadioGroupRoot
+        class="theme-options"
+        :model-value="theme"
+        aria-label="外观"
+        @update:model-value="changeTheme"
       >
-        {{ profileError }}
-      </p>
+        <RadioGroupItem
+          v-for="option in options"
+          :key="option.value"
+          :value="option.value"
+          class="theme-option"
+        >
+          <span
+            class="theme-preview"
+            :class="option.value"
+          ><i /><i /><i /></span>{{ option.label }}
+        </RadioGroupItem>
+      </RadioGroupRoot>
     </section>
-    <h2 class="setting-label">
-      外观
-    </h2><RadioGroupRoot
-      class="theme-options"
-      :model-value="theme"
-      aria-label="外观"
-      @update:model-value="changeTheme"
-    >
-      <RadioGroupItem
-        v-for="option in options"
-        :key="option.value"
-        :value="option.value"
-        class="theme-option"
-      >
-        <span
-          class="theme-preview"
-          :class="option.value"
-        ><i /><i /><i /></span>{{ option.label }}
-      </RadioGroupItem>
-    </RadioGroupRoot>
     <section
-      class="settings-section"
-      aria-labelledby="download-label"
+      v-show="activeCategory === '下载'"
+      id="settings-panel-1"
+      class="settings-panel settings-section"
+      role="tabpanel"
+      aria-labelledby="settings-tab-1"
+      tabindex="0"
     >
       <h2
         id="download-label"
@@ -253,8 +220,12 @@ onMounted(() => { void loadSettings(); void loadJava(); void loadProfile(); });
     </section>
 
     <section
-      class="settings-section"
-      aria-labelledby="java-heading"
+      v-show="activeCategory === '默认运行设置'"
+      id="settings-panel-2"
+      class="settings-panel settings-section"
+      role="tabpanel"
+      aria-labelledby="settings-tab-2"
+      tabindex="0"
     >
       <h2
         id="java-heading"
@@ -313,14 +284,46 @@ onMounted(() => { void loadSettings(); void loadJava(); void loadProfile(); });
         {{ javaError }}
       </p>
     </section>
-    <div class="about">
-      <span>Cobble Launcher</span><span>0.1.0</span>
-    </div><button
+    <section
+      v-show="activeCategory === '关于'"
+      id="settings-panel-3"
+      class="settings-panel about"
+      role="tabpanel"
+      aria-labelledby="settings-tab-3"
+      tabindex="0"
+    >
+      <h2 class="setting-label">
+        关于
+      </h2>
+      <p>Cobble Launcher <span>0.1.0</span></p>
+      <a
+        href="https://github.com/CobbleLauncher/CobbleLauncher"
+        target="_blank"
+        rel="noreferrer"
+      >项目主页</a>
+      <p class="setting-hint">
+        MIT 许可证
+      </p>
+    </section>
+    <button
+      v-if="activeCategory === '下载'"
       class="done-button"
-      :disabled="!settingsReady || savingSettings"
+      :disabled="!settingsReady || savingSettings || !hasDownloadChanges"
       @click="finishSettings"
     >
       {{ savingSettings ? '保存中…' : '保存并返回' }}
     </button>
   </div>
 </template>
+
+<style scoped>
+.settings-tabs{display:flex;gap:6px;overflow-x:auto;overscroll-behavior-inline:contain;border-bottom:1px solid var(--line);margin:0 0 22px;scrollbar-width:thin}
+.settings-tab{flex:0 0 auto;padding:10px 13px;margin-bottom:-1px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--muted);font:inherit;font-size:12px;white-space:nowrap}
+.settings-tab[aria-selected=true]{border-bottom-color:var(--accent);color:var(--ink);font-weight:600}
+.settings-tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:5px}
+.settings-panel{min-width:0}
+.about{display:flex;flex-direction:column;gap:10px;font-size:13px}
+.about p{margin:0}
+.about span,.about .setting-hint{color:var(--muted)}
+.about a{color:var(--ink);text-underline-offset:3px}
+</style>

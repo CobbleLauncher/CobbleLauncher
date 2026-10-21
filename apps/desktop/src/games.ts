@@ -12,6 +12,7 @@ export type Game = {
   loader_kind?: LoaderKind | null;
   pack_name?: string | null;
   pack_version?: string | null;
+  profile_id?: string | null;
   directory: string;
   status: 'installing' | 'installed' | 'failed';
   error: string | null;
@@ -23,6 +24,11 @@ export type Game = {
 };
 export type PackPreview = { preview_id: string; name: string; version_id: string; summary: string | null; minecraft_version: string; loader_kind?: LoaderKind | null; loader_version: string | null; required_files: number; optional_files: { path: string; size: number }[]; overrides: number };
 export type OfflineProfile = { name: string; uuid: string };
+export type PlayerProfile = OfflineProfile & { id: string; kind: 'offline'; note: string | null };
+export type ProfileLibrary = { profiles: PlayerProfile[]; active_id: string | null };
+export function effectiveProfile(game: Game, library: ProfileLibrary): PlayerProfile | null {
+  return library.profiles.find((profile) => profile.id === (game.profile_id ?? library.active_id)) ?? null;
+}
 export function gameLoaderLabel(game: Game): string {
   if (!game.loader_version) return '原版';
   return `${loaderLabel(game.loader_kind ?? 'fabric')} ${game.loader_version}`;

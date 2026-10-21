@@ -1,9 +1,9 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { Game } from './games';
+import type { Game, PlayerProfile } from './games';
 import { gameLoaderLabel } from './games';
-const props = defineProps<{ game: Game; retrying: boolean; hasProfile: boolean; starting: boolean }>();
+const props = defineProps<{ game: Game; retrying: boolean; profile: PlayerProfile | null; starting: boolean }>();
 defineEmits<{ retry: [id: string]; play: [id: string]; manage: [id: string] }>();
 const phase = computed(() => {
   const current = props.game.progress?.phase ?? 'metadata';
@@ -69,6 +69,12 @@ const percent = computed(() => {
         class="pack-origin"
       >
         整合包 · {{ game.pack_name }}<span v-if="game.pack_version"> · {{ game.pack_version }}</span>
+      </p>
+      <p
+        v-if="game.profile_id"
+        class="game-profile"
+      >
+        {{ profile ? `使用 ${profile.name} · 离线` : '请选择玩家档案' }}
       </p>
       <template v-if="game.status === 'installing'">
         <div
@@ -142,7 +148,7 @@ const percent = computed(() => {
       :disabled="game.content_installing || starting || game.launch_state === 'preparing' || game.launch_state === 'running'"
       @click="$emit('play', game.id)"
     >
-      {{ game.content_installing ? '安装 Mod 中' : game.launch_state === 'running' ? '运行中' : game.launch_state === 'preparing' || starting ? '启动中…' : hasProfile ? '开始游戏' : '设置离线档案' }}
+      {{ game.content_installing ? '安装 Mod 中' : game.launch_state === 'running' ? '运行中' : game.launch_state === 'preparing' || starting ? '启动中…' : profile ? '开始游戏' : '选择玩家档案' }}
     </button>
   </article>
 </template>

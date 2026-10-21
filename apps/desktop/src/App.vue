@@ -10,16 +10,60 @@ import ImportPackPage from './ImportPackPage.vue';
 import SettingsPage from './SettingsPage.vue';
 import GameCard from './GameCard.vue';
 import GameDetailsPage from './GameDetailsPage.vue';
-import type { Game, OfflineProfile } from './games';
+import ProfileSwitcher from './ProfileSwitcher.vue';
+import ProfilesPage from './ProfilesPage.vue';
+import AddProfilePage from './AddProfilePage.vue';
+import { effectiveProfile, type Game, type ProfileLibrary } from './games';
 const games = ref<Game[]>([]);
-const offlineProfile = ref<OfflineProfile | null>(null);
+const profileLibrary = ref<ProfileLibrary>({ profiles: [], active_id: null });
+const profileReady = ref(false);
+const profileBusy = ref(false);
+const profileError = ref('');
+const pendingGameId = ref<string | null>(null);
+const profileOrigin = ref<'library' | 'details'>('library');
+const addOrigin = ref<'library' | 'details' | 'profiles'>('library');
 const starting = ref<string[]>([]);
 const gameRevisions = new Map<string, number>();
 async function loadProfile() {
-  if (!native) return;
-  try { offlineProfile.value = await invoke<OfflineProfile | null>('get_offline_profile'); }
-  catch { error.value = '无法读取离线档案，请在设置中重试'; }
+  if (!native) { profileReady.value = true; return; }
+  profileError.value = '';
+  try { profileLibrary.value = await invoke<ProfileLibrary>('list_player_profiles'); profileReady.value = true; }
+  catch { profileError.value = '无法读取玩家档案，请重试'; }
 }
+function openProfiles() {
+  profileOrigin.value = view.value === 'details' ? 'details' : 'library';
+  profileError.value = '';
+  view.value = 'profiles';
+}
+function openAddProfile() {
+  addOrigin.value = view.value === 'profiles' ? 'profiles' : view.value === 'details' ? 'details' : 'library';
+  profileError.value = '';
+  view.value = 'add-profile';
+}
+function leaveProfiles() {
+  if (profileBusy.value) return;
+  profileError.value = '';
+  if (pendingGameId.value) { selectedGameId.value = pendingGameId.value; pendingGameId.value = null; view.value = 'details'; }
+  else view.value = view.value === 'add-profile' ? addOrigin.value : profileOrigin.value;
+}
+async function changeProfile(command: string, args: Record<string, unknown>, returnToGame = false) {
+  if (profileBusy.value || !profileReady.value) return;
+  profileError.value = '';
+  if (!native) { profileError.value = '请在桌面应用中保存玩家档案'; return; }
+  profileBusy.value = true;
+  try {
+    profileLibrary.value = await invoke<ProfileLibrary>(command, args);
+    if (returnToGame && pendingGameId.value) {
+      const game = games.value.find((game) => game.id === pendingGameId.value);
+      if (game?.profile_id) updateGame(await invoke<Game>('set_game_profile', { id: game.id, profileId: profileLibrary.value.active_id }));
+      selectedGameId.value = pendingGameId.value;
+      pendingGameId.value = null;
+      view.value = 'details';
+    } else if (returnToGame && view.value === 'add-profile') view.value = addOrigin.value;
+  } catch { profileError.value = '未能保存档案，请重试'; }
+  finally { profileBusy.value = false; }
+}
+function selectProfile(id: string) { void changeProfile('select_player_profile', { id }, true); }
 const retrying = ref<string[]>([]);
 let unlisten: UnlistenFn | undefined;
 let disposed = false;
@@ -30,9 +74,14 @@ function updateGame(game: Game) {
   else games.value[index] = game;
 }
 async function startGame(id: string) {
-  if (!offlineProfile.value) { view.value = 'settings'; return; }
   const current = games.value.find((game) => game.id === id);
   if (!current || current.content_installing || starting.value.includes(id) || current.launch_state === 'preparing' || current.launch_state === 'running') return;
+  if (!profileReady.value || !effectiveProfile(current, profileLibrary.value)) {
+    pendingGameId.value = id; selectedGameId.value = id; profileOrigin.value = 'details';
+    if (profileLibrary.value.profiles.length || !profileReady.value) view.value = 'profiles';
+    else { addOrigin.value = 'details'; view.value = 'add-profile'; }
+    return;
+  }
   starting.value.push(id);
   const revision = gameRevisions.get(id) ?? 0;
   try {
@@ -67,7 +116,7 @@ async function retryGame(id: string) {
   catch (cause) { error.value = `无法重试安装：${String(cause)}`; }
   finally { retrying.value = retrying.value.filter((item) => item !== id); }
 }
-const view = ref<'library' | 'create' | 'import' | 'settings' | 'details'>('library');
+const view = ref<'library' | 'create' | 'import' | 'settings' | 'details' | 'profiles' | 'add-profile'>('library');
 const selectedGameId = ref('');
 const selectedGame = computed(() => games.value.find((game) => game.id === selectedGameId.value));
 function manageGame(id: string) {
@@ -152,15 +201,14 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
             </h1>
           </div>
           <div class="library-actions">
-            <button
-              class="account-button"
-              @click="view = 'settings'"
-            >
-              {{ offlineProfile ? offlineProfile.name : '创建离线档案' }}<span
-                v-if="offlineProfile"
-                class="offline-badge"
-              >离线</span>
-            </button>
+            <ProfileSwitcher
+              :library="profileLibrary"
+              :busy="profileBusy"
+              :ready="profileReady"
+              @select="selectProfile"
+              @add="openAddProfile"
+              @manage="openProfiles"
+            />
             <button
               class="settings-button"
               aria-label="打开设置"
@@ -280,7 +328,7 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
             :key="game.id"
             :game="game"
             :retrying="retrying.includes(game.id)"
-            :has-profile="!!offlineProfile"
+            :profile="effectiveProfile(game, profileLibrary)"
             :starting="starting.includes(game.id)"
             @retry="retryGame"
             @play="startGame"
@@ -304,13 +352,14 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
         <div class="page-header">
           <button
             class="back-button"
-            aria-label="返回游戏库"
-            @click="view = 'library'"
+            :aria-label="view === 'profiles' || view === 'add-profile' ? '返回' : '返回游戏库'"
+            :disabled="profileBusy"
+            @click="view === 'profiles' || view === 'add-profile' ? leaveProfiles() : view = 'library'"
           >
-            <svg viewBox="0 0 20 20"><path d="m11 4-6 6 6 6M5 10h11" /></svg>游戏库
+            <svg viewBox="0 0 20 20"><path d="m11 4-6 6 6 6M5 10h11" /></svg>{{ view === 'profiles' || view === 'add-profile' ? '返回' : '游戏库' }}
           </button>
           <h1 tabindex="-1">
-            {{ view === 'create' ? '创建游戏' : view === 'import' ? '导入整合包' : view === 'details' ? selectedGame?.name : '设置' }}
+            {{ view === 'create' ? '创建游戏' : view === 'import' ? '导入整合包' : view === 'details' ? selectedGame?.name : view === 'profiles' ? '玩家档案' : view === 'add-profile' ? '添加玩家档案' : '设置' }}
           </h1>
         </div>
         <CreateGamePage
@@ -325,16 +374,53 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
           v-else-if="view === 'details' && selectedGame"
           :game="selectedGame"
           :starting="starting.includes(selectedGame.id)"
-          :has-profile="!!offlineProfile"
+          :profile="effectiveProfile(selectedGame, profileLibrary)"
+          :library="profileLibrary"
           @play="startGame"
           @renamed="updateGame"
+          @profile-changed="updateGame"
+        />
+        <ProfilesPage
+          v-else-if="view === 'profiles'"
+          :library="profileLibrary"
+          :busy="profileBusy"
+          :error="profileError"
+          :ready="profileReady"
+          :choosing="!!pendingGameId"
+          @add="openAddProfile"
+          @select="selectProfile"
+          @remove="(id) => changeProfile('remove_player_profile', { id })"
+          @note="(id, note) => changeProfile('update_profile_note', { id, note })"
+          @retry="loadProfile"
+        />
+        <AddProfilePage
+          v-else-if="view === 'add-profile'"
+          :library="profileLibrary"
+          :busy="profileBusy"
+          :error="profileError"
+          :ready="profileReady"
+          @add="(name, note) => changeProfile('add_offline_profile', { name, note }, true)"
+          @select="selectProfile"
+          @cancel="leaveProfiles"
         />
         <SettingsPage
           v-else-if="view === 'settings'"
-          @profile-saved="offlineProfile = $event"
           @saved="view = 'library'"
         />
       </template>
+      <p
+        v-if="profileError && view === 'library'"
+        role="alert"
+        class="window-error"
+      >
+        {{ profileError }}<button
+          v-if="!profileReady"
+          class="text-button"
+          @click="loadProfile"
+        >
+          重试
+        </button>
+      </p>
       <p
         v-if="error"
         role="alert"

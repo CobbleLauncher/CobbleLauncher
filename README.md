@@ -11,7 +11,7 @@ CobbleLauncher is an open-source launcher for Minecraft: Java Edition. It aims t
 - Follow download progress and retry interrupted installations.
 - Choose the official download source, BMCLAPI, or a custom BMCLAPI-compatible source.
 - Choose Java automatically or select an installed runtime yourself.
-- Save an offline player name and launch installed games.
+- Keep multiple offline player profiles, switch between them, or pin one to a game before launching.
 - Import local Mods, view their details, and enable, disable, or remove them.
 - Search Modrinth for compatible Mods and install their required dependencies together.
 - Import `.mrpack` files for supported loaders, with optional client content and pack configurations.

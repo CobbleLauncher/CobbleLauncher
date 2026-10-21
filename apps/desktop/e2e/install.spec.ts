@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Browser UI integration with a synthetic Tauri boundary; this does not install Minecraft.
 import { test, expect, type Page } from '@playwright/test';
-import type { Game } from '../src/games';
+import type { Game, ProfileLibrary } from '../src/games';
 
 const initialGame: Game = { id: 'synthetic-game', name: '我的世界', version: '1.21.1', directory: 'C:\\Games\\synthetic-game', status: 'installing', error: null, progress: { phase: 'metadata', completed: 0, total: 0, reused: 0 } };
 type Call = { command: string; args: Record<string, unknown> };
@@ -21,7 +21,7 @@ async function mockNative(page: Page, persisted: Game[] = [], savedProfile: { na
     target.__javaPick = 'valid';
     target.__javaReadFails = false;
     target.__startMode = 'prepare';
-    let offlineProfile: { name: string; uuid: string } | null = savedProfile;
+    let library: ProfileLibrary = { profiles: savedProfile ? [{ ...savedProfile, id: 'saved-player', kind: 'offline', note: null }] : [], active_id: savedProfile ? 'saved-player' : null };
     let javaSelection: unknown = { mode: 'automatic', executable: null, runtime: null };
     target.__gameEvent = (game) => callbacks.get(handler)?.({ event: 'game-install', id: 1, payload: game });
     target.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
@@ -32,9 +32,11 @@ async function mockNative(page: Page, persisted: Game[] = [], savedProfile: { na
         target.__calls.push({ command, args });
         if (command === 'plugin:event|listen') { handler = args.handler as number; return 1; }
         if (command === 'list_games') return stored;
-        if (command === 'get_offline_profile') return offlineProfile;
-        if (command === 'save_offline_profile') { offlineProfile = { name: args.name as string, uuid: 'synthetic-offline-uuid' }; return offlineProfile; }
-        if (command === 'remove_offline_profile') { offlineProfile = null; return null; }
+        if (command === 'list_player_profiles') return library;
+        if (command === 'add_offline_profile') { const profile = { id: 'test-profile', name: args.name as string, uuid: 'synthetic-offline-uuid', kind: 'offline' as const, note: args.note as string | null }; library = { profiles: [...library.profiles, profile], active_id: profile.id }; return library; }
+        if (command === 'select_player_profile') { library = { ...library, active_id: args.id as string }; return library; }
+        if (command === 'remove_player_profile') { library = { profiles: library.profiles.filter((profile) => profile.id !== args.id), active_id: library.active_id === args.id ? null : library.active_id }; return library; }
+        if (command === 'list_game_mods') return [];
         if (command === 'start_game') {
           if (target.__startMode === 'error') throw new Error('Java 无法启动');
           const game: Game = { ...initial, status: 'installed', launch_state: 'preparing' };
@@ -119,48 +121,34 @@ test('create, real event presentation, failure and retry through mocked native b
   await expect(page.getByRole('progressbar')).toBeVisible();
   await page.evaluate((game) => (window as unknown as TestWindow).__gameEvent(game), { ...initialGame, status: 'installed', progress: { phase: 'complete', completed: 80, total: 80, reused: 2 } } satisfies Game);
   await expect(page.getByText('✓ 已安装')).toBeVisible();
-  await expect(page.getByRole('button', { name: '设置离线档案' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '选择玩家档案' })).toBeVisible();
 });
 
-test('offline profile is explicit, validates names, persists across pages, and can be removed', async ({ page }, testInfo) => {
+test('offline profile uses an independent page and returns to the selected game', async ({ page }, testInfo) => {
   await mockNative(page, [{ ...initialGame, status: 'installed' }]);
   await page.goto('/');
-  await page.getByRole('button', { name: '设置离线档案' }).click();
-  await expect(page.getByRole('heading', { name: '设置', exact: true })).toBeVisible();
-  await expect(page.getByLabel('游戏昵称')).toHaveValue('Player');
+  await page.getByRole('button', { name: '选择玩家档案', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '添加玩家档案', exact: true })).toBeVisible();
   await page.getByLabel('游戏昵称').fill('你好');
-  await page.getByRole('button', { name: '保存档案', exact: true }).click();
+  await page.getByRole('button', { name: '添加并使用', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('昵称须为');
   await page.getByLabel('游戏昵称').fill('Local_Player');
-  await page.getByRole('button', { name: '保存档案', exact: true }).click();
-  await expect(page.getByRole('status')).toHaveText('档案已保存');
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
-  const titlebar = await page.locator('.titlebar').boundingBox();
-  const heading = await page.getByRole('heading', { name: '设置', exact: true }).boundingBox();
-  expect(titlebar?.y).toBeLessThanOrEqual(1);
-  expect(heading!.y).toBeGreaterThan(titlebar!.y + titlebar!.height);
-  await page.screenshot({ path: testInfo.outputPath('offline-profile-settings-viewport.png') });
-  await page.screenshot({ path: testInfo.outputPath('offline-profile-settings.png'), fullPage: true });
-  await page.getByRole('button', { name: '返回游戏库' }).click();
-  await expect(page.getByRole('button', { name: /Local_Player\s*离线/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: '开始游戏', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: '打开设置' }).click();
-  await expect(page.getByLabel('游戏昵称')).toHaveValue('Local_Player');
-  await page.getByRole('button', { name: '移除档案' }).click();
-  await page.getByRole('button', { name: '返回游戏库' }).click();
-  await expect(page.getByRole('button', { name: '创建离线档案' })).toBeVisible();
-  const call = await page.evaluate(() => (window as unknown as TestWindow).__calls.find((item) => item.command === 'save_offline_profile'));
-  expect(call?.args).toEqual({ name: 'Local_Player' });
+  await page.screenshot({ path: testInfo.outputPath('offline-profile-page.png'), fullPage: true });
+  await page.getByRole('button', { name: '添加并使用', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '我的世界', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '以 Local_Player 开始', exact: true })).toBeEnabled();
+  const call = await page.evaluate(() => (window as unknown as TestWindow).__calls.find((item) => item.command === 'add_offline_profile'));
+  expect(call?.args).toEqual({ name: 'Local_Player', note: null });
+  expect(await page.evaluate(() => (window as unknown as TestWindow).__calls.some((item) => item.command === 'start_game'))).toBe(false);
 });
 
 test('launch follows host preparation, running, exit, errors and a newer event winning the invoke race', async ({ page }, testInfo) => {
   await mockNative(page, [{ ...initialGame, status: 'installed' }]);
   await page.goto('/');
-  await page.getByRole('button', { name: '创建离线档案' }).click();
-  await page.getByRole('button', { name: '保存档案', exact: true }).click();
-  await expect(page.getByRole('status')).toHaveText('档案已保存');
-  await page.getByRole('button', { name: '返回游戏库' }).click();
+  await page.getByRole('button', { name: '切换玩家档案' }).click();
+  await page.getByRole('menuitem', { name: '添加档案', exact: true }).click();
+  await page.getByLabel('游戏昵称').fill('Player');
+  await page.getByRole('button', { name: '添加并使用', exact: true }).click();
   await page.getByRole('button', { name: '开始游戏', exact: true }).click();
   await expect(page.getByRole('status')).toHaveText('正在准备启动…');
   await expect(page.getByRole('button', { name: '启动中…', exact: true })).toBeDisabled();
@@ -182,10 +170,11 @@ test('launch follows host preparation, running, exit, errors and a newer event w
 
 test('browser preview cannot save a pretend offline profile', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: '创建离线档案' }).click();
-  await page.getByRole('button', { name: '保存档案', exact: true }).click();
-  await expect(page.getByRole('alert')).toHaveText('请在桌面应用中保存离线档案');
-  await expect(page.getByText('档案已保存', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '切换玩家档案' }).click();
+  await page.getByRole('menuitem', { name: '添加档案', exact: true }).click();
+  await page.getByLabel('游戏昵称').fill('Player');
+  await page.getByRole('button', { name: '添加并使用', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveText('请在桌面应用中保存玩家档案');
 });
 
 test('existing local games are shown without requesting versions', async ({ page }) => {
@@ -193,7 +182,7 @@ test('existing local games are shown without requesting versions', async ({ page
   await page.goto('/');
   await expect(page.getByRole('article', { name: '我的世界' })).toBeVisible();
   await expect(page.getByText('✓ 已安装')).toBeVisible();
-  await expect(page.getByRole('button', { name: /Saved_Player\s*离线/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: '切换玩家档案' })).toBeVisible();
   await expect(page.getByRole('button', { name: '开始游戏', exact: true })).toBeEnabled();
   expect(await page.evaluate(() => (window as unknown as TestWindow).__calls.some((call) => call.command === 'list_game_versions'))).toBe(false);
 });
@@ -203,20 +192,24 @@ test('Java selection probes through native picker, survives navigation, and supp
   await page.goto('/');
   expect(await page.evaluate(() => (window as unknown as TestWindow).__calls.some((call) => call.command === 'get_java_settings'))).toBe(false);
   await page.getByRole('button', { name: '打开设置' }).click();
+  await page.getByRole('tab', { name: '默认运行设置', exact: true }).click();
   await expect(page.getByText('按游戏版本选择', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '选择 Java', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Java 21', exact: true })).toBeVisible();
   await expect(page.getByText('Microsoft · 21.0.7 · amd64', { exact: true })).toBeVisible();
   await expect(page.locator('.java-path')).toHaveText('C:\\Java\\bin\\java.exe');
-  await page.getByRole('button', { name: '保存并返回' }).scrollIntoViewIfNeeded();
+  await page.getByRole('button', { name: '选择 Java', exact: true }).scrollIntoViewIfNeeded();
   await expect(page.getByRole('button', { name: '关闭窗口', exact: true })).toBeInViewport();
   await expect(page.getByRole('button', { name: '最小化', exact: true })).toBeInViewport();
   for (const theme of ['浅色', '深色']) {
+    await page.getByRole('tab', { name: '外观', exact: true }).click();
     await page.getByRole('radio', { name: theme, exact: true }).click();
+    await page.getByRole('tab', { name: '默认运行设置', exact: true }).click();
     await page.screenshot({ path: testInfo.outputPath(theme === '浅色' ? 'settings-java-light.png' : 'settings-java-dark.png'), fullPage: true, animations: 'disabled' });
   }
   await page.getByRole('button', { name: '返回游戏库' }).click();
   await page.getByRole('button', { name: '打开设置' }).click();
+  await page.getByRole('tab', { name: '默认运行设置', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Java 21', exact: true })).toBeVisible();
   await page.evaluate(() => { (window as unknown as TestWindow).__javaPick = 'cancel'; });
   await page.getByRole('button', { name: '选择 Java', exact: true }).click();
@@ -235,6 +228,7 @@ test('unavailable saved Java can be recovered with automatic selection', async (
   await page.goto('/');
   await page.evaluate(() => { (window as unknown as TestWindow).__javaReadFails = true; });
   await page.getByRole('button', { name: '打开设置' }).click();
+  await page.getByRole('tab', { name: '默认运行设置', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('重新选择或恢复自动选择');
   await expect(page.getByRole('button', { name: '选择 Java', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: '自动选择', exact: true }).click();

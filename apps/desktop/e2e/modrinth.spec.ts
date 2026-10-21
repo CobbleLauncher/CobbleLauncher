@@ -24,7 +24,7 @@ async function setup(page: Page, vanilla = false, loaderKind?: Game['loader_kind
         if (target.__fail === command) throw new Error(command === 'preview_game_mod_install' ? 'Fabric API 与已安装的 Map API 版本冲突' : 'synthetic unavailable');
         if (command === 'plugin:event|listen') { listener = args.handler as number; return 1; }
         if (command === 'list_games') return [{ ...game, loader_version: vanilla ? null : game.loader_version }];
-        if (command === 'get_offline_profile') return { name: 'Player', uuid: 'synthetic' };
+        if (command === 'list_player_profiles') return { profiles: [{ id: 'test-player', kind: 'offline', name: 'Player', uuid: 'synthetic', note: null }], active_id: 'test-player' };
         if (command === 'plugin:window|is_maximized') return false;
         if (command === 'list_game_mods') return installed ? [{ file_name: 'map.jar', name: 'Forest Map', version: '2.0', authors: ['Forest'], loader: 'fabric', enabled: true, description: 'Map' }] : [];
         if (command === 'search_game_mods') {
@@ -136,7 +136,7 @@ test('failed installation shows its cause and can retry the same plan', async ({
   await page.evaluate(() => { (window as unknown as Mock).__fail = 'install_game_mod_plan'; });
   await page.getByRole('button', { name: '安装 2 个 Mod' }).click();
   await expect(page.getByRole('alert')).toContainText('安装未完成：Error: synthetic unavailable');
-  await expect(page.getByRole('button', { name: '开始游戏' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '以 Player 开始' })).toBeEnabled();
   await page.evaluate(() => { (window as unknown as Mock).__fail = ''; });
   await page.getByRole('button', { name: '重试安装' }).click();
   await expect(page.getByRole('button', { name: '正在安装…' })).toBeDisabled();

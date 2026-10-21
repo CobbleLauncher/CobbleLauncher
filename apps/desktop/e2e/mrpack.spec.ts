@@ -28,6 +28,7 @@ async function mockNative(page: Page, stored: Game[] = [], packSelection: PackPr
         target.__calls.push({ command, args });
         if (command === 'plugin:event|listen') { handler = args.handler as number; return 1; }
         if (command === 'list_games') return stored;
+        if (command === 'list_player_profiles') return { profiles: [], active_id: null };
         if (command === 'get_download_settings') return { source: 'bmclapi', mirror: '' };
         if (command === 'default_game_directory') return 'C:\\Cobble\\games';
         if (command === 'pick_game_directory') return target.__directoryCancel ? null : 'D:\\My Games';
