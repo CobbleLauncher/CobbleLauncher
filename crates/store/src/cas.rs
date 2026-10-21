@@ -563,7 +563,7 @@ fn hex(bytes: &[u8]) -> String {
     result
 }
 
-fn sync_dir(dir: &Dir) -> io::Result<()> {
+pub(crate) fn sync_dir(dir: &Dir) -> io::Result<()> {
     #[cfg(unix)]
     dir.try_clone()?.into_std_file().sync_all()?;
     #[cfg(not(unix))]
@@ -571,7 +571,7 @@ fn sync_dir(dir: &Dir) -> io::Result<()> {
     Ok(())
 }
 
-fn durability() -> PublicationDurability {
+pub(crate) fn durability() -> PublicationDurability {
     #[cfg(unix)]
     {
         PublicationDurability::FileAndDirectoriesSynced

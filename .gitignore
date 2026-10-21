@@ -15,6 +15,11 @@ __pycache__/
 .pnpm-store/
 *.local
 *.private.json
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.part
 *.p12
 *.pfx
 *.key

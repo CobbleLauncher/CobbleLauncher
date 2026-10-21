@@ -17,3 +17,8 @@ pub use cas::{
     ArtifactExpectation, CasError, ContentStore, ExpectedDigests, IngestResult, IntegrityBasis,
     PublicationDurability, VerifiedArtifact,
 };
+
+mod staging;
+pub use staging::{
+    DownloadCheckpoint, DownloadStage, DownloadStaging, StageError, StageIdentity, StageRecovery,
+};
