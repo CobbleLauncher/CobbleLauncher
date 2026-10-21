@@ -8,6 +8,8 @@ publish.workspace = true
 
 [dependencies]
 cobble-core.workspace = true
+cobble-content.workspace = true
+serde_json.workspace = true
 cobble-auth.workspace = true
 cobble-minecraft.workspace = true
 cobble-net.workspace = true

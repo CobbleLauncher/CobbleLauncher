@@ -3,6 +3,7 @@ use cobble_core::InstallProgress;
 use cobble_minecraft::{DownloadSettings, VersionCatalog, VersionKind};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     fs,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -28,6 +29,8 @@ pub struct Game {
     launch_error: Option<String>,
     #[serde(default)]
     log_path: Option<PathBuf>,
+    #[serde(skip_deserializing, default)]
+    content_installing: bool,
 }
 
 fn idle() -> String {
@@ -39,6 +42,7 @@ struct Library {
     games: Vec<Game>,
     picked_directory: Option<PathBuf>,
     load_error: Option<String>,
+    mod_plans: HashMap<String, (String, cobble_content::ModrinthPlan)>,
 }
 #[derive(Default)]
 pub struct GameLibrary(Mutex<Library>);
@@ -203,6 +207,7 @@ pub fn create_game(
         launch_state: idle(),
         launch_error: None,
         log_path: None,
+        content_installing: false,
     };
     library.games.push(game.clone());
     if let Err(error) = save(&library.games) {
@@ -377,6 +382,9 @@ pub fn start_game(
     if game.launch_state != "idle" {
         return Err("这个游戏已经在启动或运行".into());
     }
+    if game.content_installing {
+        return Err("Mod 正在安装，请稍候".into());
+    }
     game.launch_state = "preparing".into();
     game.launch_error = None;
     let snapshot = game.clone();
@@ -452,7 +460,7 @@ fn with_game_mods(
     if game.status != "installed" {
         return Err("请先完成游戏安装".into());
     }
-    if writable && game.launch_state != "idle" {
+    if writable && (game.launch_state != "idle" || game.content_installing) {
         return Err("请先关闭游戏，再修改 Mod".into());
     }
     operation(&game.directory).map_err(|e| e.to_string())
@@ -525,4 +533,132 @@ pub async fn remove_game_mod(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+fn modrinth_target(app: &AppHandle, id: &str) -> Result<String, String> {
+    let state = app.state::<GameLibrary>();
+    let library = state.0.lock().map_err(|e| e.to_string())?;
+    let game = library
+        .games
+        .iter()
+        .find(|g| g.id == id)
+        .ok_or("找不到这个游戏")?;
+    if game.status != "installed" {
+        return Err("请先完成游戏安装".into());
+    }
+    if game.loader_version.is_none() {
+        return Err("请先创建 Fabric 游戏，再安装 Mod".into());
+    }
+    Ok(game.version.clone())
+}
+
+#[tauri::command]
+pub async fn search_game_mods(
+    app: AppHandle,
+    id: String,
+    query: String,
+    offset: u32,
+) -> Result<cobble_content::SearchResults, String> {
+    let version = modrinth_target(&app, &id)?;
+    cobble_content::search_modrinth(&query, &version, "fabric", offset)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+pub struct ModInstallPreview {
+    plan_id: String,
+    project_id: String,
+    version_id: String,
+    mods: Vec<ModInstallItem>,
+}
+#[derive(Serialize)]
+pub struct ModInstallItem {
+    project_id: String,
+    version_id: String,
+    name: String,
+    version_number: String,
+    required_by: Option<String>,
+}
+
+#[tauri::command]
+pub async fn preview_game_mod_install(
+    app: AppHandle,
+    id: String,
+    project_id: String,
+) -> Result<ModInstallPreview, String> {
+    let version = modrinth_target(&app, &id)?;
+    let plan = cobble_content::resolve_modrinth(&project_id, &version, "fabric")
+        .await
+        .map_err(|e| e.to_string())?;
+    let plan_id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos()
+        .to_string();
+    let preview = ModInstallPreview {
+        plan_id: plan_id.clone(),
+        project_id: plan.project_id.clone(),
+        version_id: plan.version_id.clone(),
+        mods: plan
+            .mods
+            .iter()
+            .map(|m| ModInstallItem {
+                project_id: m.project_id.clone(),
+                version_id: m.version_id.clone(),
+                name: m.name.clone(),
+                version_number: m.version_number.clone(),
+                required_by: m.required_by.clone(),
+            })
+            .collect(),
+    };
+    app.state::<GameLibrary>()
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .mod_plans
+        .insert(id, (plan_id, plan));
+    Ok(preview)
+}
+
+#[tauri::command]
+pub async fn install_game_mod_plan(
+    app: AppHandle,
+    id: String,
+    plan_id: String,
+) -> Result<cobble_core::ModrinthInstallOutcome, String> {
+    let (plan, directory) = {
+        let state = app.state::<GameLibrary>();
+        let mut library = state.0.lock().map_err(|e| e.to_string())?;
+        let game = library
+            .games
+            .iter()
+            .find(|g| g.id == id)
+            .ok_or("找不到这个游戏")?;
+        if game.status != "installed" || game.loader_version.is_none() {
+            return Err("请先完成 Fabric 安装".into());
+        }
+        if game.launch_state != "idle" || game.content_installing {
+            return Err("请先关闭游戏或等待安装完成".into());
+        }
+        let directory = game.directory.clone();
+        let stored = library.mod_plans.get(&id).ok_or("请先选择要安装的 Mod")?;
+        if stored.0 != plan_id {
+            return Err("安装方案已变更，请重新选择 Mod".into());
+        }
+        let plan = stored.1.clone();
+        library
+            .games
+            .iter_mut()
+            .find(|g| g.id == id)
+            .expect("checked game")
+            .content_installing = true;
+        (plan, directory)
+    };
+    update_game(&app, &id, |_| {}, false);
+    let result = cobble_core::install_modrinth_plan(&plan, &directory, Arc::new(|_| {}))
+        .await
+        .map_err(|e| e.to_string());
+    update_game(&app, &id, |g| g.content_installing = false, false);
+    result
 }

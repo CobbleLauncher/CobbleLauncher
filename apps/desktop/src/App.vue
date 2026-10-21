@@ -31,7 +31,7 @@ function updateGame(game: Game) {
 async function startGame(id: string) {
   if (!offlineProfile.value) { view.value = 'settings'; return; }
   const current = games.value.find((game) => game.id === id);
-  if (!current || starting.value.includes(id) || current.launch_state === 'preparing' || current.launch_state === 'running') return;
+  if (!current || current.content_installing || starting.value.includes(id) || current.launch_state === 'preparing' || current.launch_state === 'running') return;
   starting.value.push(id);
   const revision = gameRevisions.get(id) ?? 0;
   try {

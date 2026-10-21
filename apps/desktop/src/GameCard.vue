@@ -117,10 +117,10 @@ const percent = computed(() => {
     <button
       v-if="game.status === 'installed'"
       class="primary-button play-button"
-      :disabled="starting || game.launch_state === 'preparing' || game.launch_state === 'running'"
+      :disabled="game.content_installing || starting || game.launch_state === 'preparing' || game.launch_state === 'running'"
       @click="$emit('play', game.id)"
     >
-      {{ game.launch_state === 'running' ? '运行中' : game.launch_state === 'preparing' || starting ? '启动中…' : hasProfile ? '开始游戏' : '设置离线档案' }}
+      {{ game.content_installing ? '安装 Mod 中' : game.launch_state === 'running' ? '运行中' : game.launch_state === 'preparing' || starting ? '启动中…' : hasProfile ? '开始游戏' : '设置离线档案' }}
     </button>
   </article>
 </template>

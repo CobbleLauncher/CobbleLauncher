@@ -11,8 +11,12 @@ export type Game = {
   status: 'installing' | 'installed' | 'failed';
   error: string | null;
   progress: { phase: 'metadata' | 'files' | 'assets' | 'fabric' | 'complete'; completed: number; total: number; reused: number } | null;
+  content_installing?: boolean;
   launch_state?: 'idle' | 'preparing' | 'running';
   launch_error?: string | null;
   log_path?: string | null;
 };
 export type OfflineProfile = { name: string; uuid: string };
+export type ModSearchHit = { project_id: string; slug: string; title: string; description: string; author: string; downloads: number };
+export type ModSearchPage = { hits: ModSearchHit[]; offset: number; total_hits: number };
+export type ModInstallPreview = { plan_id: string; project_id: string; version_id: string; mods: { project_id: string; version_id: string; name: string; version_number: string; required_by: string | null }[] };

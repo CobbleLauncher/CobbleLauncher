@@ -440,9 +440,11 @@ name = "cobble-cli"
 version = "0.1.0"
 dependencies = [
  "cobble-auth",
+ "cobble-content",
  "cobble-core",
  "cobble-minecraft",
  "cobble-net",
+ "serde_json",
  "tokio",
 ]
 
@@ -450,9 +452,12 @@ dependencies = [
 name = "cobble-content"
 version = "0.1.0"
 dependencies = [
+ "cobble-net",
  "serde",
  "serde_json",
+ "tokio",
  "toml 1.1.8+spec-1.1.0",
+ "url",
  "zip",
 ]
 
@@ -463,6 +468,7 @@ dependencies = [
  "cap-fs-ext",
  "cap-std",
  "cobble-auth",
+ "cobble-content",
  "cobble-domain",
  "cobble-minecraft",
  "cobble-net",
@@ -472,6 +478,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "sha2",
  "tokio",
  "zip",
 ]

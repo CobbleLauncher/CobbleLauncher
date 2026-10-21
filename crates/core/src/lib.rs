@@ -9,10 +9,12 @@ mod cache;
 mod fabric;
 mod install;
 mod launch;
+mod modrinth;
 mod runner;
 pub use fabric::{FabricVersion, install_fabric, list_fabric_versions, list_fabric_versions_from};
 pub use install::{InstallOutcome, InstallProgress, install_game, install_resources};
 pub use launch::{LaunchPreparation, prepare_launch};
+pub use modrinth::{ModrinthInstallOutcome, install_modrinth_plan};
 pub use runner::{RunningGame, start_offline_game};
 
 /// Local, side-effect-free information shared by desktop and CLI adapters.

@@ -6,6 +6,7 @@ use cobble_net::{Broker, BrokerConfig};
 use std::io::{self, Write};
 use std::process::ExitCode;
 mod install;
+mod mods;
 mod play;
 
 fn main() -> ExitCode {
@@ -13,7 +14,7 @@ fn main() -> ExitCode {
     match args.next().as_deref() {
         None | Some("--help" | "-h") => {
             println!(
-                "Cobble Launcher\n\nUsage:\n  cobble versions          List the latest 20 releases\n  cobble versions --all    List all versions, including snapshots\n  cobble fabric-versions <version>  List compatible Fabric loaders\n  cobble info <version>    Show Java requirements and download size\n  cobble install <version> --dir <folder> [--client-only | --fabric <loader-version>] [--source official|bmclapi | --mirror <https-base>]\n  cobble java <major>      Find a matching installed Java runtime\n  cobble launch-info <version> --dir <folder>  Prepare an installed game without launching\n  cobble play <version> --dir <folder> [--name <offline-name>]  Launch with an explicit offline profile\n  cobble --version\n\nOffline profiles do not authenticate a Microsoft account."
+                "Cobble Launcher\n\nUsage:\n  cobble versions          List the latest 20 releases\n  cobble versions --all    List all versions, including snapshots\n  cobble fabric-versions <version>  List compatible Fabric loaders\n  cobble info <version>    Show Java requirements and download size\n  cobble install <version> --dir <folder> [--client-only | --fabric <loader-version>] [--source official|bmclapi | --mirror <https-base>]\n  cobble mods-search <minecraft> <query>  Search compatible Fabric mods\n  cobble mod-install <minecraft> <project-id> --dir <folder>  Install mods into a stopped Fabric instance\n  cobble java <major>      Find a matching installed Java runtime\n  cobble launch-info <version> --dir <folder>  Prepare an installed game without launching\n  cobble play <version> --dir <folder> [--name <offline-name>]  Launch with an explicit offline profile\n  cobble --version\n\nOffline profiles do not authenticate a Microsoft account."
             );
             ExitCode::SUCCESS
         }
@@ -98,6 +99,8 @@ fn main() -> ExitCode {
             }
         }
         Some("play") => play::run(args),
+        Some("mods-search") => mods::search(args),
+        Some("mod-install") => mods::install(args),
         Some("launch-info") => {
             let version = args.next();
             let option = args.next();

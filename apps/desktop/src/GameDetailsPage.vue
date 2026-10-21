@@ -3,17 +3,22 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { Game, LocalMod } from './games';
+import DiscoverMods from './DiscoverMods.vue';
 
 const props = defineProps<{ game: Game; starting: boolean; hasProfile: boolean }>();
 defineEmits<{ play: [id: string] }>();
 const mods = ref<LocalMod[]>([]);
+const tab = ref<'installed' | 'discover'>('installed');
+const installingMod = ref(false);
+const contentInstalling = computed(() => installingMod.value || !!props.game.content_installing);
+async function installed() { await refresh(); tab.value = 'installed'; }
 const query = ref('');
 const loading = ref(false);
 const busy = ref(false);
 const error = ref('');
 const deleting = ref<string | null>(null);
 let request = 0;
-const locked = computed(() => props.starting || props.game.launch_state === 'preparing' || props.game.launch_state === 'running');
+const locked = computed(() => contentInstalling.value || props.starting || props.game.launch_state === 'preparing' || props.game.launch_state === 'running');
 const filtered = computed(() => {
   const search = query.value.trim().toLocaleLowerCase();
   return mods.value.filter((mod) => [mod.name, mod.file_name, mod.version, mod.loader, ...mod.authors].some((value) => value?.toLocaleLowerCase().includes(search)));
@@ -62,7 +67,7 @@ onUnmounted(() => { ++request; });
         :disabled="locked || busy"
         @click="$emit('play', game.id)"
       >
-        {{ game.launch_state === 'running' ? '运行中' : locked ? '启动中…' : hasProfile ? '开始游戏' : '设置离线档案' }}
+        {{ contentInstalling ? '安装 Mod 中' : game.launch_state === 'running' ? '运行中' : locked ? '启动中…' : hasProfile ? '开始游戏' : '设置离线档案' }}
       </button>
     </div>
     <p
@@ -76,139 +81,182 @@ onUnmounted(() => { ++request; });
       class="content-section"
       aria-labelledby="content-heading"
     >
-      <div class="content-heading">
-        <h2 id="content-heading">
-          本地 Mod <span class="count">{{ mods.length }}</span>
-        </h2>
+      <div
+        class="content-tabs"
+        role="tablist"
+        aria-label="Mod 内容"
+      >
         <button
-          class="secondary-button"
-          :disabled="locked || busy || loading"
-          @click="mutate('import_game_mods')"
+          id="installed-tab"
+          role="tab"
+          :aria-selected="tab === 'installed'"
+          :disabled="contentInstalling"
+          aria-controls="installed-content"
+          @click="tab = 'installed'"
         >
-          {{ busy ? '处理中…' : '导入 Mod' }}
+          已安装 <span class="count">{{ mods.length }}</span>
+        </button>
+        <button
+          id="discover-tab"
+          role="tab"
+          :aria-selected="tab === 'discover'"
+          :disabled="contentInstalling"
+          aria-controls="discover-content"
+          @click="tab = 'discover'"
+        >
+          发现 Mod
         </button>
       </div>
-      <p
-        v-if="locked"
-        class="setting-hint"
-        role="status"
+      <DiscoverMods
+        v-if="tab === 'discover'"
+        id="discover-content"
+        role="tabpanel"
+        aria-labelledby="discover-tab"
+        :game="game"
+        :locked="locked || busy"
+        @installing="installingMod = $event"
+        @installed="installed"
+      />
+      <div
+        v-show="tab === 'installed'"
+        id="installed-content"
+        role="tabpanel"
+        aria-labelledby="installed-tab"
       >
-        游戏启动或运行期间无法修改内容，请关闭游戏后再试。
-      </p>
-      <p
-        v-else-if="!game.loader_version"
-        class="setting-hint"
-      >
-        原版不会加载 Mod。需要使用 Fabric 等模组加载器。
-      </p>
-      <div class="content-toolbar">
-        <input
-          v-model="query"
-          type="search"
-          aria-label="搜索本地 Mod"
-          placeholder="搜索名称、版本或作者"
-          :disabled="loading"
-        >
-        <button
-          class="text-button"
-          :disabled="busy || loading"
-          @click="refresh"
-        >
-          {{ loading ? '读取中…' : '刷新' }}
-        </button>
-      </div>
-      <p
-        v-if="error"
-        class="settings-error"
-        role="alert"
-      >
-        {{ error }}
-      </p>
-      <p
-        v-if="loading"
-        class="content-empty"
-        role="status"
-      >
-        正在读取本地内容…
-      </p>
-      <ul
-        v-else-if="filtered.length"
-        class="mod-list"
-        aria-label="本地 Mod"
-      >
-        <li
-          v-for="mod in filtered"
-          :key="mod.file_name"
-          class="mod-row"
-        >
-          <div
-            class="mod-info"
-            :class="{ 'mod-disabled': !mod.enabled }"
+        <div class="content-heading">
+          <h2 id="content-heading">
+            本地 Mod <span class="count">{{ mods.length }}</span>
+          </h2>
+          <button
+            class="secondary-button"
+            :disabled="locked || busy || loading"
+            @click="mutate('import_game_mods')"
           >
-            <h3>
-              {{ mod.name }}<span
-                v-if="!mod.enabled"
-                class="mod-state"
-              >已禁用</span>
-            </h3>
-            <p class="mod-meta">
-              {{ mod.version || '版本未知' }} · {{ mod.loader || '加载器未知' }}<span v-if="mod.authors.length"> · {{ mod.authors.join('、') }}</span>
-            </p>
-            <p
-              v-if="mod.description"
-              class="mod-description"
+            {{ busy ? '处理中…' : '导入 Mod' }}
+          </button>
+        </div>
+        <p
+          v-if="locked && !contentInstalling"
+          class="setting-hint"
+          role="status"
+        >
+          游戏启动或运行期间无法修改内容，请关闭游戏后再试。
+        </p>
+        <p
+          v-else-if="!game.loader_version"
+          class="setting-hint"
+        >
+          原版不会加载 Mod。需要使用 Fabric 等模组加载器。
+        </p>
+        <div class="content-toolbar">
+          <input
+            v-model="query"
+            type="search"
+            aria-label="搜索本地 Mod"
+            placeholder="搜索名称、版本或作者"
+            :disabled="loading"
+          >
+          <button
+            class="text-button"
+            :disabled="busy || loading"
+            @click="refresh"
+          >
+            {{ loading ? '读取中…' : '刷新' }}
+          </button>
+        </div>
+        <p
+          v-if="error"
+          class="settings-error"
+          role="alert"
+        >
+          {{ error }}
+        </p>
+        <p
+          v-if="loading"
+          class="content-empty"
+          role="status"
+        >
+          正在读取本地内容…
+        </p>
+        <ul
+          v-else-if="filtered.length"
+          class="mod-list"
+          aria-label="本地 Mod"
+        >
+          <li
+            v-for="mod in filtered"
+            :key="mod.file_name"
+            class="mod-row"
+          >
+            <div
+              class="mod-info"
+              :class="{ 'mod-disabled': !mod.enabled }"
             >
-              {{ mod.description }}
-            </p>
-            <p class="mod-filename">
-              {{ mod.file_name }}
-            </p>
-          </div>
-          <div class="mod-actions">
-            <button
-              class="mod-toggle"
-              role="switch"
-              :aria-label="`启用 ${mod.name}`"
-              :aria-checked="mod.enabled"
-              :disabled="locked || busy || loading"
-              @click="mutate('set_game_mod_enabled', { fileName: mod.file_name, enabled: !mod.enabled })"
-            >
-              <span />
-            </button>
-            <template v-if="deleting === mod.file_name">
+              <h3>
+                {{ mod.name }}<span
+                  v-if="!mod.enabled"
+                  class="mod-state"
+                >已禁用</span>
+              </h3>
+              <p class="mod-meta">
+                {{ mod.version || '版本未知' }} · {{ mod.loader || '加载器未知' }}<span v-if="mod.authors.length"> · {{ mod.authors.join('、') }}</span>
+              </p>
+              <p
+                v-if="mod.description"
+                class="mod-description"
+              >
+                {{ mod.description }}
+              </p>
+              <p class="mod-filename">
+                {{ mod.file_name }}
+              </p>
+            </div>
+            <div class="mod-actions">
               <button
-                class="text-button"
+                class="mod-toggle"
+                role="switch"
+                :aria-label="`启用 ${mod.name}`"
+                :aria-checked="mod.enabled"
                 :disabled="locked || busy || loading"
-                @click="remove(mod)"
+                @click="mutate('set_game_mod_enabled', { fileName: mod.file_name, enabled: !mod.enabled })"
               >
-                确认删除
+                <span />
               </button>
+              <template v-if="deleting === mod.file_name">
+                <button
+                  class="text-button"
+                  :disabled="locked || busy || loading"
+                  @click="remove(mod)"
+                >
+                  确认删除
+                </button>
+                <button
+                  class="text-button"
+                  :disabled="busy"
+                  @click="deleting = null"
+                >
+                  取消
+                </button>
+              </template>
               <button
+                v-else
                 class="text-button"
-                :disabled="busy"
-                @click="deleting = null"
+                :aria-label="`删除 ${mod.name}`"
+                :disabled="locked || busy || loading"
+                @click="deleting = mod.file_name"
               >
-                取消
+                删除
               </button>
-            </template>
-            <button
-              v-else
-              class="text-button"
-              :aria-label="`删除 ${mod.name}`"
-              :disabled="locked || busy || loading"
-              @click="deleting = mod.file_name"
-            >
-              删除
-            </button>
-          </div>
-        </li>
-      </ul>
-      <p
-        v-else
-        class="content-empty"
-      >
-        {{ query.trim() ? '没有找到匹配的 Mod。' : '还没有 Mod，导入本地 .jar 文件开始。' }}
-      </p>
+            </div>
+          </li>
+        </ul>
+        <p
+          v-else
+          class="content-empty"
+        >
+          {{ query.trim() ? '没有找到匹配的 Mod。' : '还没有 Mod，导入本地 .jar 文件开始。' }}
+        </p>
+      </div>
     </section>
   </div>
 </template>
