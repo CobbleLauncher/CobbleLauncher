@@ -58,6 +58,7 @@ async function mockNative(page: Page, persisted: Game[] = [], savedProfile: { na
           return javaSelection;
         }
         if (command === 'get_download_settings') return { source: 'bmclapi', mirror: '' };
+        if (command === 'get_launcher_preferences') return { memory_mb: 2048, game_directory: 'C:\\Cobble\\games', custom_game_directory: false };
         if (command === 'default_game_directory') return 'C:\\Cobble\\games';
         if (command === 'list_game_versions') return [{ id: '1.21.1', kind: 'release' }, { id: '1.20.6', kind: 'release' }];
         if (command === 'pick_game_directory') return 'D:\\My Games';
@@ -197,7 +198,7 @@ test('Java selection probes through native picker, survives navigation, and supp
   await page.getByRole('button', { name: '选择 Java', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Java 21', exact: true })).toBeVisible();
   await expect(page.getByText('Microsoft · 21.0.7 · amd64', { exact: true })).toBeVisible();
-  await expect(page.locator('.java-path')).toHaveText('C:\\Java\\bin\\java.exe');
+  await expect(page.locator('.java-selection .java-path')).toHaveText('C:\\Java\\bin\\java.exe');
   await page.getByRole('button', { name: '选择 Java', exact: true }).scrollIntoViewIfNeeded();
   await expect(page.getByRole('button', { name: '关闭窗口', exact: true })).toBeInViewport();
   await expect(page.getByRole('button', { name: '最小化', exact: true })).toBeInViewport();
@@ -220,7 +221,7 @@ test('Java selection probes through native picker, survives navigation, and supp
   await expect(page.getByRole('heading', { name: 'Java 21', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '自动选择', exact: true }).click();
   await expect(page.getByText('按游戏版本选择', { exact: true })).toBeVisible();
-  await expect(page.locator('.java-path')).toHaveCount(0);
+  await expect(page.locator('.java-selection .java-path')).toHaveCount(0);
 });
 
 test('unavailable saved Java can be recovered with automatic selection', async ({ page }) => {

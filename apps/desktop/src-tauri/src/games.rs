@@ -24,6 +24,8 @@ pub struct Game {
     #[serde(default)]
     profile_id: Option<String>,
     #[serde(default)]
+    runtime_overrides: cobble_minecraft::LaunchOverrides,
+    #[serde(default)]
     download_source: Option<DownloadSettings>,
     status: String,
     error: Option<String>,
@@ -213,6 +215,7 @@ pub fn create_mrpack_game(
         loader_version: selection.pack.loader_version.clone(),
         loader_kind: selection.pack.loader_kind.clone(),
         profile_id: None,
+        runtime_overrides: cobble_minecraft::LaunchOverrides::default(),
         download_source: Some(source.clone()),
         status: "installing".into(),
         error: None,
@@ -253,9 +256,7 @@ fn library_file() -> Result<PathBuf, String> {
         .join("CobbleLauncher/games.json"))
 }
 fn default_directory() -> Result<PathBuf, String> {
-    Ok(dirs::data_local_dir()
-        .ok_or("无法找到游戏目录")?
-        .join("CobbleLauncher/games"))
+    crate::preferences::game_directory()
 }
 fn save(games: &[Game]) -> Result<(), String> {
     let path = library_file()?;
@@ -413,6 +414,7 @@ pub fn create_game(
         loader_version,
         loader_kind,
         profile_id: None,
+        runtime_overrides: cobble_minecraft::LaunchOverrides::default(),
         download_source: Some(source.clone()),
         status: "installing".into(),
         error: None,
@@ -598,7 +600,7 @@ pub async fn prepare_game_launch(
     id: String,
     library: State<'_, GameLibrary>,
 ) -> Result<LaunchReadiness, String> {
-    let (version, directory) = {
+    let (version, directory, java_override) = {
         let library = library.0.lock().map_err(|e| e.to_string())?;
         let game = library
             .games
@@ -608,12 +610,16 @@ pub async fn prepare_game_launch(
         if game.status != "installed" {
             return Err("请先完成游戏安装".into());
         }
-        (game.version.clone(), game.directory.clone())
+        (
+            game.version.clone(),
+            game.directory.clone(),
+            game.runtime_overrides.java.clone(),
+        )
     };
     let launch = cobble_core::prepare_launch(&version, &directory)
         .await
         .map_err(|e| e.to_string())?;
-    let java = cobble_minecraft::resolve_java(launch.required_java)
+    let java = cobble_minecraft::resolve_java_override(launch.required_java, &java_override)
         .await
         .map_err(|e| e.to_string())?;
     Ok(LaunchReadiness {
@@ -655,7 +661,14 @@ pub fn start_game(
     drop(library);
     let launch = snapshot.clone();
     tauri::async_runtime::spawn(async move {
-        match cobble_core::start_offline_game(&launch.version, &launch.directory, &profile).await {
+        match cobble_core::start_offline_game_with_options(
+            &launch.version,
+            &launch.directory,
+            &profile,
+            &launch.runtime_overrides,
+        )
+        .await
+        {
             Ok(mut running) => {
                 update_game(
                     &app,
@@ -1065,4 +1078,102 @@ pub fn set_game_profile(
         return Err(error);
     }
     Ok(snapshot)
+}
+
+fn change_runtime(
+    library: &GameLibrary,
+    id: &str,
+    change: impl FnOnce(&mut cobble_minecraft::LaunchOverrides),
+) -> Result<Game, String> {
+    let mut library = library.0.lock().map_err(|e| e.to_string())?;
+    let game = library
+        .games
+        .iter_mut()
+        .find(|game| game.id == id)
+        .ok_or("找不到这个游戏")?;
+    let previous = game.runtime_overrides.clone();
+    change(&mut game.runtime_overrides);
+    let snapshot = game.clone();
+    if let Err(error) = save(&library.games) {
+        library
+            .games
+            .iter_mut()
+            .find(|game| game.id == id)
+            .unwrap()
+            .runtime_overrides = previous;
+        return Err(error);
+    }
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn set_game_memory(
+    library: State<'_, GameLibrary>,
+    id: String,
+    memory_mb: Option<u32>,
+) -> Result<Game, String> {
+    if let Some(memory) = memory_mb {
+        cobble_minecraft::validate_memory_mb(memory).map_err(|e| e.to_string())?;
+    }
+    change_runtime(&library, &id, |settings| settings.memory_mb = memory_mb)
+}
+
+#[tauri::command]
+pub fn set_game_java_mode(
+    library: State<'_, GameLibrary>,
+    id: String,
+    mode: String,
+) -> Result<Game, String> {
+    let java = match mode.as_str() {
+        "inherit" => cobble_minecraft::JavaOverride::Inherit,
+        "automatic" => cobble_minecraft::JavaOverride::Automatic,
+        _ => return Err("请选择自动选择或跟随默认 Java".into()),
+    };
+    change_runtime(&library, &id, |settings| settings.java = java)
+}
+
+#[tauri::command]
+pub async fn pick_game_java_executable(
+    window: WebviewWindow,
+    library: State<'_, GameLibrary>,
+    id: String,
+) -> Result<Option<Game>, String> {
+    let (version, directory) = {
+        let library = library.0.lock().map_err(|e| e.to_string())?;
+        let game = library
+            .games
+            .iter()
+            .find(|game| game.id == id)
+            .ok_or("找不到这个游戏")?;
+        (game.version.clone(), game.directory.clone())
+    };
+    let bytes = fs::read(directory.join(format!("versions/{version}/{version}.json")))
+        .map_err(|e| e.to_string())?;
+    let required = cobble_minecraft::VersionMetadata::parse_installed(&bytes, &version)
+        .map_err(|e| e.to_string())?
+        .java_version
+        .major_version;
+    let dialog = rfd::AsyncFileDialog::new()
+        .set_parent(&window)
+        .set_title("选择此游戏使用的 Java");
+    #[cfg(windows)]
+    let dialog = dialog.add_filter("Java (java.exe / javaw.exe)", &["exe"]);
+    let Some(file) = dialog.pick_file().await else {
+        return Ok(None);
+    };
+    let java = cobble_minecraft::probe_java(file.path())
+        .await
+        .map_err(|e| format!("无法使用这个 Java：{e}"))?;
+    if java.major != required {
+        return Err(format!(
+            "这个游戏需要 Java {required}，所选版本为 Java {}",
+            java.major
+        ));
+    }
+    change_runtime(&library, &id, |settings| {
+        settings.java = cobble_minecraft::JavaOverride::Custom {
+            executable: java.executable,
+        }
+    })
+    .map(Some)
 }

@@ -19,7 +19,9 @@ pub use install::{InstallOutcome, InstallProgress, install_game, install_resourc
 pub use launch::{LaunchPreparation, prepare_launch};
 pub use modrinth::{ModrinthInstallOutcome, install_modrinth_plan};
 pub use mrpack::{MrpackInstallOutcome, install_mrpack};
-pub use runner::{RunningGame, start_offline_game};
+pub use runner::{
+    RunningGame, prepare_offline_arguments, start_offline_game, start_offline_game_with_options,
+};
 
 /// Local, side-effect-free information shared by desktop and CLI adapters.
 pub fn app_info() -> AppInfo {

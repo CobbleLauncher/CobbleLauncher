@@ -30,6 +30,8 @@ async function native(page: Page, library: ProfileLibrary = { profiles: [], acti
         if (command === 'plugin:event|listen') { handler = args.handler as number; return 1; }
         if (command === 'list_games') return [currentGame];
         if (command === 'list_game_mods') return [];
+        if (command === 'get_launcher_preferences') return { memory_mb: 2048, game_directory: 'C:\\Cobble\\games', custom_game_directory: false };
+        if (command === 'get_java_settings') return { mode: 'automatic', executable: null, runtime: null };
         if (command === 'list_player_profiles') return structuredClone(library);
         if (['add_offline_profile', 'select_player_profile', 'update_profile_note', 'remove_player_profile'].includes(command) && target.__failProfileSave) throw new Error('synthetic disk failure');
         if (command === 'add_offline_profile') {

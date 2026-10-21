@@ -2,7 +2,10 @@
 //! Explicit local offline-profile launch. This does not authenticate an account.
 use crate::{LaunchPreparation, prepare_launch};
 use cobble_auth::OfflineProfile;
-use cobble_minecraft::{resolve_java, substitute};
+use cobble_minecraft::{
+    LaunchOverrides, read_launcher_preferences, resolve_java_override, substitute,
+    validate_memory_mb,
+};
 use std::{
     collections::HashMap,
     fs,
@@ -26,9 +29,23 @@ pub async fn start_offline_game(
     directory: &Path,
     profile: &OfflineProfile,
 ) -> Result<RunningGame, BoxError> {
+    start_offline_game_with_options(version, directory, profile, &LaunchOverrides::default()).await
+}
+
+pub async fn start_offline_game_with_options(
+    version: &str,
+    directory: &Path,
+    profile: &OfflineProfile,
+    options: &LaunchOverrides,
+) -> Result<RunningGame, BoxError> {
+    let memory_mb = match options.memory_mb {
+        Some(memory_mb) => memory_mb,
+        None => read_launcher_preferences()?.memory_mb,
+    };
+    validate_memory_mb(memory_mb)?;
     let plan = prepare_launch(version, directory).await?;
-    let java = resolve_java(plan.required_java).await?;
-    let arguments = offline_arguments(&plan, profile)?;
+    let java = resolve_java_override(plan.required_java, &options.java).await?;
+    let arguments = prepare_offline_arguments(&plan, profile, memory_mb)?;
     let directory = dunce::canonicalize(directory)?;
     let logs = directory.join(".cobble-logs");
     fs::create_dir_all(&logs)?;
@@ -54,10 +71,13 @@ pub async fn start_offline_game(
     })
 }
 
-fn offline_arguments(
+/// Prepare argv without spawning a game or accessing launcher configuration.
+pub fn prepare_offline_arguments(
     plan: &LaunchPreparation,
     profile: &OfflineProfile,
+    memory_mb: u32,
 ) -> Result<Vec<String>, BoxError> {
+    validate_memory_mb(memory_mb)?;
     // Public fields may have been constructed by a caller: revalidate the name
     // and deterministic offline UUID before passing them to a game process.
     if OfflineProfile::new(&profile.name)? != *profile {
@@ -79,12 +99,11 @@ fn offline_arguments(
         }
         Ok(value)
     };
-    let mut arguments = Vec::new();
-    if !plan.jvm_arguments.iter().any(|arg| arg.starts_with("-Xmx")) {
-        arguments.push("-Xmx2048M".into());
-    }
+    let mut arguments = vec![format!("-Xmx{memory_mb}M")];
     for argument in &plan.jvm_arguments {
-        arguments.push(bind(argument)?);
+        if !argument.starts_with("-Xmx") {
+            arguments.push(bind(argument)?);
+        }
     }
     arguments.push(plan.main_class.clone());
     for argument in &plan.game_arguments {
@@ -127,7 +146,7 @@ mod tests {
     #[test]
     fn binds_only_explicit_offline_values_preserving_argv_and_spaces() {
         let profile = OfflineProfile::new("Notch").unwrap();
-        let arguments = offline_arguments(&plan(), &profile).unwrap();
+        let arguments = prepare_offline_arguments(&plan(), &profile, 2048).unwrap();
         assert_eq!(
             arguments,
             [
@@ -152,19 +171,29 @@ mod tests {
     }
 
     #[test]
-    fn preserves_metadata_heap_and_rejects_unbound_or_tampered_profile() {
+    fn replaces_all_metadata_heaps_and_rejects_unbound_or_tampered_profile() {
         let profile = OfflineProfile::new("Notch").unwrap();
         let mut plan = plan();
         plan.jvm_arguments.push("-Xmx1024M".into());
-        let arguments = offline_arguments(&plan, &profile).unwrap();
-        assert!(!arguments.contains(&"-Xmx2048M".into()));
+        plan.jvm_arguments.push("-Xmx8G".into());
+        let arguments = prepare_offline_arguments(&plan, &profile, 4096).unwrap();
+        assert_eq!(
+            arguments
+                .iter()
+                .filter(|argument| argument.starts_with("-Xmx"))
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["-Xmx4096M"]
+        );
+        assert!(prepare_offline_arguments(&plan, &profile, 511).is_err());
         plan.game_arguments.push("${clientid}".into());
-        assert!(offline_arguments(&plan, &profile).is_err());
+        assert!(prepare_offline_arguments(&plan, &profile, 2048).is_err());
         plan.game_arguments.pop();
         plan.game_arguments.push("${unknown}".into());
-        assert!(offline_arguments(&plan, &profile).is_err());
+        assert!(prepare_offline_arguments(&plan, &profile, 2048).is_err());
+        plan.game_arguments.pop();
         let mut profile = profile;
         profile.uuid = "0".repeat(32);
-        assert!(offline_arguments(&plan, &profile).is_err());
+        assert!(prepare_offline_arguments(&plan, &profile, 2048).is_err());
     }
 }

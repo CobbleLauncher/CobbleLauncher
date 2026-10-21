@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Game, LocalMod, PlayerProfile, ProfileLibrary } from './games';
 import { gameLoaderLabel } from './games';
 import DiscoverMods from './DiscoverMods.vue';
+import GameRuntimeSettings from './GameRuntimeSettings.vue';
 
 const props = defineProps<{ game: Game; starting: boolean; profile: PlayerProfile | null; library: ProfileLibrary }>();
 const emit = defineEmits<{ play: [id: string]; renamed: [game: Game]; profileChanged: [game: Game] }>();
@@ -277,6 +278,10 @@ onUnmounted(() => { disposed = true; ++request; });
       >
         {{ profileBindingError }}
       </p>
+      <GameRuntimeSettings
+        :game="game"
+        @updated="$emit('profileChanged', $event)"
+      />
     </section>
     <section
       v-show="pageTab === 'content'"

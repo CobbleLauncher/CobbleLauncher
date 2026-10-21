@@ -3,6 +3,13 @@ fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "get_app_info",
+            "get_launcher_preferences",
+            "set_default_memory",
+            "pick_default_game_directory",
+            "reset_default_game_directory",
+            "set_game_memory",
+            "set_game_java_mode",
+            "pick_game_java_executable",
             "get_download_settings",
             "set_download_settings",
             "get_java_settings",

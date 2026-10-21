@@ -6,6 +6,14 @@
   ],
   "permissions": [
     "allow-get-app-info",
+    "allow-get-launcher-preferences",
+    "allow-set-default-memory",
+    "allow-pick-default-game-directory",
+    "allow-reset-default-game-directory",
+    "allow-set-game-memory",
+    "allow-set-game-java-mode",
+    "allow-pick-game-java-executable",
+
     "allow-get-download-settings",
     "allow-set-download-settings",
     "allow-get-java-settings",

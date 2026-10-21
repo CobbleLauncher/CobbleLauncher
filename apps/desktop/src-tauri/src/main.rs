@@ -3,6 +3,7 @@
 mod games;
 mod java;
 mod offline;
+mod preferences;
 
 #[tauri::command]
 fn get_app_info() -> cobble_domain::AppInfo {
@@ -24,6 +25,13 @@ fn main() {
         .manage(games::GameLibrary::load())
         .invoke_handler(tauri::generate_handler![
             get_app_info,
+            preferences::get_launcher_preferences,
+            preferences::set_default_memory,
+            preferences::pick_default_game_directory,
+            preferences::reset_default_game_directory,
+            games::set_game_memory,
+            games::set_game_java_mode,
+            games::pick_game_java_executable,
             get_download_settings,
             set_download_settings,
             java::get_java_settings,

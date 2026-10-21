@@ -77,13 +77,13 @@ test('minimum window and 200 percent CSS zoom preserve settings access', async (
 test('download source selection persists and custom mirrors are validated', async ({ page }, testInfo) => {
   await page.goto('/');
   await page.getByRole('button', { name: '打开设置' }).click();
-  await page.getByRole('tab', { name: '下载', exact: true }).click();
+  await page.getByRole('tab', { name: '下载与目录', exact: true }).click();
   await page.getByRole('radio', { name: 'BMCLAPI', exact: true }).click();
   await expect(page.getByText('BMCLAPI 由 bangbang93', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: '保存并返回' }).click();
   await page.reload();
   await page.getByRole('button', { name: '打开设置' }).click();
-  await page.getByRole('tab', { name: '下载', exact: true }).click();
+  await page.getByRole('tab', { name: '下载与目录', exact: true }).click();
   await expect(page.getByRole('radio', { name: 'BMCLAPI', exact: true })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('radio', { name: '自定义镜像', exact: true }).click();
   await page.getByLabel('镜像地址', { exact: true }).fill('http://mirror.example.invalid/');
@@ -94,7 +94,7 @@ test('download source selection persists and custom mirrors are validated', asyn
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await page.reload();
   await page.getByRole('button', { name: '打开设置' }).click();
-  await page.getByRole('tab', { name: '下载', exact: true }).click();
+  await page.getByRole('tab', { name: '下载与目录', exact: true }).click();
   await expect(page.getByLabel('镜像地址', { exact: true })).toHaveValue('https://mirror.example.invalid/minecraft/');
   await page.getByRole('tab', { name: '外观', exact: true }).click();
   for (const theme of ['浅色', '深色']) {
@@ -102,7 +102,7 @@ test('download source selection persists and custom mirrors are validated', asyn
     await page.screenshot({ path: testInfo.outputPath(theme === '浅色' ? 'settings-light.png' : 'settings-dark.png'), animations: 'disabled' });
   }
   await page.setViewportSize({ width: 560, height: 420 });
-  await page.getByRole('tab', { name: '下载', exact: true }).click();
+  await page.getByRole('tab', { name: '下载与目录', exact: true }).click();
   await page.getByRole('button', { name: '保存并返回' }).scrollIntoViewIfNeeded();
   await expect(page.getByRole('button', { name: '保存并返回' })).toBeInViewport();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -111,10 +111,10 @@ test('download source selection persists and custom mirrors are validated', asyn
 test('returning from settings discards unsaved download source', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: '打开设置' }).click();
-  await page.getByRole('tab', { name: '下载', exact: true }).click();
+  await page.getByRole('tab', { name: '下载与目录', exact: true }).click();
   await page.getByRole('radio', { name: 'BMCLAPI', exact: true }).click();
   await page.getByRole('button', { name: '返回游戏库' }).click();
   await page.getByRole('button', { name: '打开设置' }).click();
-  await page.getByRole('tab', { name: '下载', exact: true }).click();
+  await page.getByRole('tab', { name: '下载与目录', exact: true }).click();
   await expect(page.getByRole('radio', { name: '官方', exact: true })).toHaveAttribute('aria-checked', 'true');
 });

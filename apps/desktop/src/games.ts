@@ -4,6 +4,10 @@ export type FabricVersion = { version: string; stable: boolean };
 export type LoaderKind = 'fabric' | 'forge' | 'neoforge';
 export type LoaderVersion = { version: string; recommended: boolean };
 export type LocalMod = { file_name: string; name: string; version: string | null; authors: string[]; loader: string | null; enabled: boolean; description: string | null; pack_owned?: boolean };
+export type JavaRuntimeInfo = { version: string; major: number; arch: string; vendor: string; executable: string };
+export type JavaSelection = { mode: 'automatic' | 'custom'; executable: string | null; runtime: JavaRuntimeInfo | null };
+export type LauncherPreferences = { memory_mb: number; game_directory: string; custom_game_directory: boolean };
+export type RuntimeOverrides = { java: { mode: 'inherit' | 'automatic' | 'custom'; executable?: string }; memory_mb: number | null };
 export type Game = {
   id: string;
   name: string;
@@ -13,6 +17,7 @@ export type Game = {
   pack_name?: string | null;
   pack_version?: string | null;
   profile_id?: string | null;
+  runtime_overrides?: RuntimeOverrides;
   directory: string;
   status: 'installing' | 'installed' | 'failed';
   error: string | null;

@@ -1,14 +1,16 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { RadioGroupRoot, RadioGroupItem } from 'reka-ui';
 import { applyTheme, readTheme, type Theme } from './theme';
+import MemoryField from './MemoryField.vue';
+import type { JavaSelection, LauncherPreferences } from './games';
 import { defaultDownloadSettings, readDownloadSettings, saveDownloadSettings, validateDownloadSettings } from './download-settings';
 const theme = ref<Theme>(readTheme());
 const options = [{ value: 'system', label: '跟随系统' }, { value: 'light', label: '浅色' }, { value: 'dark', label: '深色' }];
 const emit = defineEmits<{ saved: [] }>();
-const categories = ['外观', '下载', '默认运行设置', '关于'] as const;
+const categories = ['外观', '下载与目录', '默认运行设置', '关于'] as const;
 const activeCategory = ref<(typeof categories)[number]>('外观');
 function selectCategory(category: (typeof categories)[number]) { activeCategory.value = category; }
 function moveCategory(event: KeyboardEvent) {
@@ -67,8 +69,6 @@ function changeTheme(value: unknown) {
 }
 
 const native = isTauri();
-type JavaRuntimeInfo = { version: string; major: number; arch: string; vendor: string; executable: string };
-type JavaSelection = { mode: 'automatic' | 'custom'; executable: string | null; runtime: JavaRuntimeInfo | null };
 const javaSelection = ref<JavaSelection>({ mode: 'automatic', executable: null, runtime: null });
 const javaReady = ref(false);
 const javaBusy = ref(false);
@@ -95,7 +95,42 @@ async function automaticJava() {
   catch { javaError.value = '无法切换为自动选择，请重试'; }
   finally { javaBusy.value = false; }
 }
-onMounted(() => { void loadSettings(); void loadJava(); });
+const preferences = ref<LauncherPreferences | null>(null);
+const preferencesBusy = ref(false);
+const preferencesError = ref('');
+const memoryDraft = ref(4096);
+const memoryBusy = ref(false);
+const memoryError = ref('');
+const directoryBusy = ref(false);
+const directoryError = ref('');
+async function loadPreferences() {
+  if (!native || preferencesBusy.value) return;
+  preferencesBusy.value = true; preferencesError.value = '';
+  try { preferences.value = await invoke<LauncherPreferences>('get_launcher_preferences'); memoryDraft.value = preferences.value.memory_mb; }
+  catch { preferencesError.value = '无法读取默认设置，请重试'; }
+  finally { preferencesBusy.value = false; }
+}
+async function saveMemory() {
+  if (!native || !preferences.value || memoryBusy.value) return;
+  memoryError.value = '';
+  if (!Number.isInteger(memoryDraft.value) || memoryDraft.value < 512 || memoryDraft.value > 262144) { memoryError.value = '内存须为 512–262144 MiB 的整数'; return; }
+  memoryBusy.value = true;
+  try { preferences.value = await invoke<LauncherPreferences>('set_default_memory', { memoryMb: memoryDraft.value }); }
+  catch { memoryError.value = '未能保存默认内存，请重试'; }
+  finally { memoryBusy.value = false; }
+}
+async function changeDirectory(reset = false) {
+  if (!native || directoryBusy.value || !preferences.value) return;
+  directoryBusy.value = true; directoryError.value = '';
+  try { const value = await invoke<LauncherPreferences | null>(reset ? 'reset_default_game_directory' : 'pick_default_game_directory'); if (value) preferences.value = value; }
+  catch { directoryError.value = '未能更改默认目录，请重试'; }
+  finally { directoryBusy.value = false; }
+}
+watch(activeCategory, (category) => {
+  if (category === '默认运行设置' && !javaReady.value) void loadJava();
+  if ((category === '默认运行设置' || category === '下载与目录') && !preferences.value) void loadPreferences();
+});
+onMounted(() => { void loadSettings(); });
 </script>
 <template>
   <div class="settings-page page-content">
@@ -151,7 +186,7 @@ onMounted(() => { void loadSettings(); void loadJava(); });
       </RadioGroupRoot>
     </section>
     <section
-      v-show="activeCategory === '下载'"
+      v-show="activeCategory === '下载与目录'"
       id="settings-panel-1"
       class="settings-panel settings-section"
       role="tabpanel"
@@ -217,6 +252,55 @@ onMounted(() => { void loadSettings(); void loadJava(); });
       >
         {{ settingsError }}
       </p>
+      <div class="runtime-option-section directory-default">
+        <h2 class="setting-label">
+          默认游戏目录
+        </h2>
+        <p
+          v-if="preferences"
+          class="java-path default-game-path"
+        >
+          {{ preferences.game_directory }}
+        </p>
+        <div class="java-actions">
+          <button
+            class="secondary-button"
+            :disabled="!preferences || directoryBusy || !native"
+            @click="changeDirectory()"
+          >
+            {{ directoryBusy ? '请稍候…' : '更改目录' }}
+          </button><button
+            v-if="preferences?.custom_game_directory"
+            class="text-button"
+            :disabled="directoryBusy"
+            @click="changeDirectory(true)"
+          >
+            恢复默认目录
+          </button>
+        </div>
+        <p class="setting-hint">
+          只影响以后创建的游戏，已有游戏不会搬迁。
+        </p>
+        <p
+          v-if="directoryError"
+          class="settings-error"
+          role="alert"
+        >
+          {{ directoryError }}
+        </p>
+        <p
+          v-if="preferencesError"
+          class="settings-error"
+          role="alert"
+        >
+          {{ preferencesError }} <button
+            class="text-button"
+            @click="loadPreferences"
+          >
+            重试
+          </button>
+        </p>
+      </div>
     </section>
 
     <section
@@ -283,6 +367,55 @@ onMounted(() => { void loadSettings(); void loadJava(); });
       >
         {{ javaError }}
       </p>
+      <section
+        class="runtime-option-section"
+        aria-labelledby="default-memory-heading"
+      >
+        <h2
+          id="default-memory-heading"
+          class="setting-label"
+        >
+          最大内存
+        </h2>
+        <form
+          novalidate
+          @submit.prevent="saveMemory"
+        >
+          <MemoryField
+            id="default-memory"
+            v-model="memoryDraft"
+            label="默认最大内存 (MiB)"
+            :disabled="!preferences || memoryBusy || !native"
+          /><p class="setting-hint">
+            用于未单独设置内存的游戏。
+          </p><button
+            class="secondary-button runtime-save-button"
+            type="submit"
+            :disabled="!preferences || memoryBusy || memoryDraft === preferences.memory_mb || !native"
+          >
+            {{ memoryBusy ? '保存中…' : '保存默认内存' }}
+          </button>
+        </form>
+        <p
+          v-if="memoryError"
+          class="settings-error"
+          role="alert"
+        >
+          {{ memoryError }}
+        </p>
+        <p
+          v-if="preferencesError"
+          class="settings-error"
+          role="alert"
+        >
+          {{ preferencesError }} <button
+            class="text-button"
+            @click="loadPreferences"
+          >
+            重试
+          </button>
+        </p>
+      </section>
     </section>
     <section
       v-show="activeCategory === '关于'"
@@ -306,7 +439,7 @@ onMounted(() => { void loadSettings(); void loadJava(); });
       </p>
     </section>
     <button
-      v-if="activeCategory === '下载'"
+      v-if="activeCategory === '下载与目录'"
       class="done-button"
       :disabled="!settingsReady || savingSettings || !hasDownloadChanges"
       @click="finishSettings"
