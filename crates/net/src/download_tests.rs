@@ -12,6 +12,276 @@ use std::{
 
 const URL: &str = "https://one.fixture.invalid/file";
 const BODY: &[u8] = b"abcdef";
+
+#[cfg(test)]
+mod managed {
+    use super::*;
+    use crate::{DownloadManager, ManagedDownloadError};
+
+    #[tokio::test]
+    async fn manager_bounds_queued_jobs_and_subscribers_and_drop_closes_subscription() {
+        use std::future::Future;
+        let server = Server::new(|_| raw(full())).await;
+        let temp = Temp::new();
+        let mut downloader = temp.downloader(server.broker(config()));
+        downloader.jobs = Arc::new(Semaphore::new(0));
+        let manager = DownloadManager::new(downloader);
+        let mut pending = Vec::new();
+        for _ in 0..64 {
+            let mut future = Box::pin(manager.download(request(), TransferCancellation::default()));
+            std::future::poll_fn(|cx| {
+                assert!(future.as_mut().poll(cx).is_pending());
+                std::task::Poll::Ready(())
+            })
+            .await;
+            pending.push(future);
+        }
+        assert!(matches!(
+            manager
+                .download(request(), TransferCancellation::default())
+                .await,
+            Err(ManagedDownloadError::Busy)
+        ));
+        // Dropping each future invokes its subscription guard. The last one
+        // leaves a closing entry until the spawned worker observes cancellation.
+        drop(pending);
+        assert!(matches!(
+            manager
+                .download(request(), TransferCancellation::default())
+                .await,
+            Err(ManagedDownloadError::Busy)
+        ));
+        let mut pending = Vec::new();
+        for index in 0..15 {
+            let request = DownloadRequest::new(
+                &format!("https://one.fixture.invalid/{index}"),
+                expected(),
+                DownloadAuthority::same_origin("p", "artifact", "policy", None).unwrap(),
+                None,
+            )
+            .unwrap();
+            let mut future = Box::pin(manager.download(request, TransferCancellation::default()));
+            std::future::poll_fn(|cx| {
+                assert!(future.as_mut().poll(cx).is_pending());
+                std::task::Poll::Ready(())
+            })
+            .await;
+            pending.push(future);
+        }
+        let extra = DownloadRequest::new(
+            "https://one.fixture.invalid/extra",
+            expected(),
+            DownloadAuthority::same_origin("p", "artifact", "policy", None).unwrap(),
+            None,
+        )
+        .unwrap();
+        assert!(matches!(
+            manager
+                .download(extra, TransferCancellation::default())
+                .await,
+            Err(ManagedDownloadError::Busy)
+        ));
+        assert!(server.captured().is_empty());
+    }
+
+    #[tokio::test]
+    async fn manager_checks_credential_namespace_before_joining_identical_job() {
+        let server = Server::new(|_| vec![(Duration::from_millis(100), full())]).await;
+        let broker = server.broker(config());
+        let other_broker = server.broker(config());
+        let partition = CredentialPartition::new("fixture:principal").unwrap();
+        let register = |broker: &Broker| {
+            broker
+                .register_download_credentials(
+                    CredentialScope::new("https://one.fixture.invalid", "/").unwrap(),
+                    ProviderCredentials {
+                        bearer: None,
+                        api_key: Some("synthetic-key".into()),
+                        cookie: None,
+                    },
+                    partition,
+                )
+                .unwrap()
+        };
+        let valid = register(&broker);
+        let foreign = register(&other_broker);
+        let make_request = |credential| {
+            DownloadRequest::new(
+                URL,
+                expected(),
+                DownloadAuthority::same_origin("p", "artifact", "policy", Some(partition)).unwrap(),
+                Some(credential),
+            )
+            .unwrap()
+        };
+        let (valid, foreign) = (make_request(valid), make_request(foreign));
+        assert_eq!(valid.key(), foreign.key());
+        let temp = Temp::new();
+        let manager = DownloadManager::new(temp.downloader(broker));
+        let (ok, denied) = tokio::join!(
+            manager.download(valid, TransferCancellation::default()),
+            manager.download(foreign, TransferCancellation::default()),
+        );
+        assert!(ok.is_ok());
+        assert!(matches!(denied, Err(ManagedDownloadError::Download(error))
+            if matches!(*error, DownloadError::Policy(NetError::CredentialScope))));
+        assert_eq!(server.captured().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn manager_two_subscribers_share_one_verified_transfer() {
+        let server = Server::new(|_| vec![(Duration::from_millis(100), full())]).await;
+        let temp = Temp::new();
+        let manager = DownloadManager::new(temp.downloader(server.broker(config())));
+        let (a, b) = tokio::join!(
+            manager.download(request(), TransferCancellation::default()),
+            manager.download(request(), TransferCancellation::default()),
+        );
+        let (a, b) = (a.unwrap(), b.unwrap());
+        assert!(Arc::ptr_eq(&a, &b));
+        assert_eq!(a.artifact.size_bytes(), 6);
+        assert_eq!(server.captured().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn manager_cancel_one_subscriber_preserves_the_other() {
+        let server = Server::new(|_| vec![(Duration::from_millis(150), full())]).await;
+        let temp = Temp::new();
+        let manager = DownloadManager::new(temp.downloader(server.broker(config())));
+        let cancel = TransferCancellation::default();
+        let (a, b, _) = tokio::join!(
+            manager.download(request(), cancel.clone()),
+            manager.download(request(), TransferCancellation::default()),
+            async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                cancel.cancel();
+            },
+        );
+        assert!(matches!(a, Err(ManagedDownloadError::Cancelled)));
+        assert!(b.is_ok());
+        assert_eq!(server.captured().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn manager_last_subscriber_cancel_keeps_writer_closed_until_worker_exit() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let observed = count.clone();
+        let server = Server::new(move |_| {
+            if observed.fetch_add(1, Ordering::Relaxed) == 0 {
+                vec![
+                    (Duration::ZERO, interrupted()),
+                    (Duration::from_secs(5), b"def".to_vec()),
+                ]
+            } else {
+                raw(suffix())
+            }
+        })
+        .await;
+        let temp = Temp::new();
+        let manager = DownloadManager::new(temp.downloader(server.broker(config())));
+        let cancel = TransferCancellation::default();
+        let running_manager = manager.clone();
+        let running_cancel = cancel.clone();
+        let running =
+            tokio::spawn(async move { running_manager.download(request(), running_cancel).await });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !std::fs::metadata(temp.part(request().identity)).is_ok_and(|m| m.len() == 3) {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        cancel.cancel();
+        assert!(matches!(
+            running.await.unwrap(),
+            Err(ManagedDownloadError::Cancelled)
+        ));
+        let result = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                match manager
+                    .download(request(), TransferCancellation::default())
+                    .await
+                {
+                    Err(ManagedDownloadError::Busy) => {
+                        tokio::time::sleep(Duration::from_millis(10)).await
+                    }
+                    other => break other,
+                }
+            }
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(result.artifact.size_bytes(), 6);
+        assert_eq!(count.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn manager_retry_after_and_attempt_limit_and_no_auth_retry() {
+        for (response, expected_calls) in [
+            (
+                b"HTTP/1.1 503 Unavailable\r\nRetry-After: 0\r\nContent-Length: 0\r\n\r\n"
+                    .as_slice(),
+                3,
+            ),
+            (
+                b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n".as_slice(),
+                1,
+            ),
+            (
+                b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n".as_slice(),
+                1,
+            ),
+        ] {
+            let server = Server::new(move |_| raw(response)).await;
+            let temp = Temp::new();
+            let manager = DownloadManager::new(temp.downloader(server.broker(config())));
+            assert!(
+                manager
+                    .download(request(), TransferCancellation::default())
+                    .await
+                    .is_err()
+            );
+            assert_eq!(server.captured().len(), expected_calls);
+        }
+        let count = Arc::new(AtomicUsize::new(0));
+        let observed = count.clone();
+        let server = Server::new(move |_| {
+            raw(if observed.fetch_add(1, Ordering::Relaxed) == 0 {
+                b"HTTP/1.1 503 Unavailable\r\nRetry-After: 1\r\nContent-Length: 0\r\n\r\n".to_vec()
+            } else {
+                full()
+            })
+        })
+        .await;
+        let temp = Temp::new();
+        let manager = DownloadManager::new(temp.downloader(server.broker(config())));
+        let start = Instant::now();
+        assert!(
+            manager
+                .download(request(), TransferCancellation::default())
+                .await
+                .is_ok()
+        );
+        assert!(start.elapsed() >= Duration::from_secs(1));
+        assert_eq!(count.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn manager_retry_after_larger_than_total_budget_stops_without_second_attempt() {
+        let server = Server::new(|_| {
+            raw(b"HTTP/1.1 429 Limited\r\nRetry-After: 20\r\nContent-Length: 0\r\n\r\n")
+        })
+        .await;
+        let temp = Temp::new();
+        let manager = DownloadManager::new(temp.downloader(server.broker(config())));
+        assert!(
+            matches!(manager.download(request(), TransferCancellation::default()).await,
+            Err(ManagedDownloadError::Download(error)) if matches!(*error, DownloadError::Deadline))
+        );
+        assert_eq!(server.captured().len(), 1);
+    }
+}
 struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {

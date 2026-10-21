@@ -65,6 +65,7 @@ impl DownloadAuthority {
 /// Fields are private so source/grant/identity cannot drift after validation.
 /// External artifact jobs require known size and at least one trusted expected
 /// digest. UserConfirmedLocal imports remain a separate T006 API.
+#[derive(Clone)]
 pub struct DownloadRequest {
     endpoint: Endpoint,
     url: String,
@@ -74,6 +75,9 @@ pub struct DownloadRequest {
     partition: Option<CredentialPartition>,
 }
 impl DownloadRequest {
+    pub(crate) fn key(&self) -> [u8; 32] {
+        self.identity.request_key
+    }
     pub fn new(
         url: &str,
         expectation: ArtifactExpectation,
@@ -200,18 +204,55 @@ impl ArtifactDownloader {
             disk: Arc::new(Semaphore::new(2)),
         }
     }
+    pub(crate) fn total_timeout(&self) -> Duration {
+        self.broker.artifact_config().total_timeout
+    }
+    pub(crate) fn validate_request(&self, request: &DownloadRequest) -> Result<(), DownloadError> {
+        self.broker
+            .check_download_credentials(
+                &request.endpoint,
+                request.credential.as_ref(),
+                request.partition,
+            )
+            .map_err(DownloadError::Policy)
+    }
     pub async fn download(
         &self,
         request: DownloadRequest,
         cancel: TransferCancellation,
     ) -> Result<DownloadResult, DownloadError> {
-        let total = self.broker.artifact_config().total_timeout;
-        let deadline = Instant::now() + total;
+        self.download_until(request, cancel, Instant::now() + self.total_timeout(), None)
+            .await
+    }
+    // Wait for the last preparation/transfer/CAS owner, including workers which
+    // outlive a timed-out async attempt, before allowing a retry/new writer.
+    pub(crate) async fn download_shared_before(
+        &self,
+        request: DownloadRequest,
+        cancel: TransferCancellation,
+        deadline: Instant,
+    ) -> Result<DownloadResult, DownloadError> {
+        let (send, receive) = tokio::sync::oneshot::channel();
+        let completion = Arc::new(AttemptCompletion(Some(send)));
+        let result = self
+            .download_until(request, cancel, deadline, Some(completion))
+            .await;
+        let _ = receive.await;
+        result
+    }
+    async fn download_until(
+        &self,
+        request: DownloadRequest,
+        cancel: TransferCancellation,
+        deadline: Instant,
+        completion: Option<Arc<AttemptCompletion>>,
+    ) -> Result<DownloadResult, DownloadError> {
+        let total = deadline.saturating_duration_since(Instant::now());
         let mut guard = CancelOnDrop {
             cancellation: cancel.clone(),
             armed: true,
         };
-        let operation = self.download_inner(request, cancel.clone(), deadline);
+        let operation = self.download_inner(request, cancel.clone(), deadline, completion);
         let result = tokio::select! { biased;
             _ = cancel.cancelled() => return Err(DownloadError::Cancelled),
             result = tokio::time::timeout(total, operation) => result,
@@ -229,6 +270,7 @@ impl ArtifactDownloader {
         request: DownloadRequest,
         cancel: TransferCancellation,
         deadline: Instant,
+        completion: Option<Arc<AttemptCompletion>>,
     ) -> Result<DownloadResult, DownloadError> {
         self.broker
             .check_download_credentials(
@@ -258,8 +300,10 @@ impl ArtifactDownloader {
             let worker_job = job.clone();
             let status = Arc::new(Mutex::new(None));
             let worker_status = status.clone();
+            let worker_completion = completion.clone();
             let recovery_budget = StageRecoveryBudget::new(deadline, cancel.stop_flag());
             let (file, mode) = tokio::task::spawn_blocking(move || {
+                let completion = worker_completion;
                 let mut stage = staging
                     .open_job_with_budget(identity, recovery_budget)
                     .map_err(DownloadError::Staging)?;
@@ -296,6 +340,7 @@ impl ArtifactDownloader {
                         status: worker_status,
                         _job: worker_job,
                         _disk: disk,
+                        _completion: completion,
                     },
                     mode,
                 ))
@@ -334,6 +379,7 @@ impl ArtifactDownloader {
         let content = self.content.clone();
         tokio::task::spawn_blocking(move || {
             let _disk = file._disk;
+            let _completion = file._completion;
             let _job = job;
             let mut stage = file.stage.expect("owned stage");
             check_live(&cancel, deadline)?;
@@ -425,6 +471,15 @@ impl Read for CancellableRead<'_> {
     }
 }
 
+struct AttemptCompletion(Option<tokio::sync::oneshot::Sender<()>>);
+impl Drop for AttemptCompletion {
+    fn drop(&mut self) {
+        if let Some(send) = self.0.take() {
+            let _ = send.send(());
+        }
+    }
+}
+
 struct StageFile {
     stage: Option<DownloadStage>,
     validator: Option<StrongEtag>,
@@ -437,6 +492,7 @@ struct StageFile {
     // slice permits two disk-backed jobs (and thus two artifact transfers) per
     // cloned downloader; metadata keeps the broker's separate shared budgets.
     _disk: Arc<OwnedSemaphorePermit>,
+    _completion: Option<Arc<AttemptCompletion>>,
 }
 impl StageFile {
     fn checkpoint(&mut self) -> io::Result<()> {

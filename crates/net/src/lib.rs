@@ -8,6 +8,7 @@ mod artifact;
 mod broker;
 mod credentials;
 mod download;
+mod manager;
 mod policy;
 pub use artifact::{
     AcceptedArtifactHeaders, ArtifactFile, ArtifactTransferRequest, StrongEtag,
@@ -20,5 +21,6 @@ pub use credentials::{CredentialId, CredentialPartition, CredentialScope, Provid
 pub use download::{
     ArtifactDownloader, DownloadAuthority, DownloadError, DownloadRequest, DownloadResult,
 };
+pub use manager::{DownloadManager, ManagedDownloadError};
 #[cfg(test)]
 mod tests;

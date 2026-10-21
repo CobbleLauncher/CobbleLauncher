@@ -156,6 +156,11 @@ pub enum TransferError {
     InvalidRange,
     SizeMismatch,
     HttpStatus(u16),
+    HttpRetry {
+        status: u16,
+        retry_after_seconds: Option<u64>,
+    },
+    UnsupportedRetryAfter,
     Worker,
     SourceNotAuthorized,
 }
@@ -450,6 +455,24 @@ impl<S: ArtifactFile> Worker<S> {
             }
             self.gate = Gate::Verify;
             return Ok(());
+        }
+        if matches!(self.status, 429 | 503) {
+            let retry_after_seconds = text(&self.headers, "retry-after")?
+                .map(|value| {
+                    // This slice supports delta-seconds only; never retry early on
+                    // an HTTP-date which we have not interpreted.
+                    if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
+                        return Err(TransferError::UnsupportedRetryAfter);
+                    }
+                    value
+                        .parse::<u64>()
+                        .map_err(|_| TransferError::UnsupportedRetryAfter)
+                })
+                .transpose()?;
+            return Err(TransferError::HttpRetry {
+                status: self.status,
+                retry_after_seconds,
+            });
         }
         let start = match (&self.mode, self.status) {
             (_, 200) => {
