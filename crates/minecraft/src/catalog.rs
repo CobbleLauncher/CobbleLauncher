@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-use crate::{DownloadSource, MetadataError, SourceError, VersionMetadata};
+use crate::{DownloadSource, MetadataError, PublicFetchError, SourceError, VersionMetadata};
 use cobble_net::{Broker, NetError};
 use serde::Deserialize;
 use std::fmt;
@@ -80,6 +80,17 @@ impl fmt::Display for CatalogError {
 }
 impl std::error::Error for CatalogError {}
 
+impl From<PublicFetchError> for CatalogError {
+    fn from(error: PublicFetchError) -> Self {
+        match error {
+            PublicFetchError::Source(error) => Self::Source(error),
+            PublicFetchError::Network(error) => Self::Network(error),
+            PublicFetchError::HttpStatus(status) => Self::HttpStatus(status),
+            PublicFetchError::InvalidResponse => Self::InvalidResponse,
+        }
+    }
+}
+
 impl VersionCatalog {
     pub async fn fetch_version(
         &self,
@@ -103,9 +114,12 @@ impl VersionCatalog {
             .iter()
             .find(|version| version.id == id)
             .ok_or(CatalogError::UnknownVersion)?;
-        let url = source.resolve(&summary.url).map_err(CatalogError::Source)?;
-        let bytes = fetch_document(broker, &url, &summary.url, 8 * 1024 * 1024).await?;
-        VersionMetadata::parse_verified(&bytes, id, &summary.sha1).map_err(CatalogError::Metadata)
+        source
+            .fetch_public_validated(broker, &summary.url, 8 * 1024 * 1024, |bytes| {
+                VersionMetadata::parse_verified(bytes, id, &summary.sha1)
+                    .map_err(CatalogError::Metadata)
+            })
+            .await
     }
     /// Explicit user operation; never called during application bootstrap.
     /// Catalog entries are display data, not verified installation plans.
@@ -118,9 +132,9 @@ impl VersionCatalog {
         broker: &Broker,
         source: &DownloadSource,
     ) -> Result<Self, CatalogError> {
-        let url = source.resolve(MANIFEST_URL).map_err(CatalogError::Source)?;
-        let bytes = fetch_document(broker, &url, MANIFEST_URL, 4 * 1024 * 1024).await?;
-        Self::parse(&bytes)
+        source
+            .fetch_public_validated(broker, MANIFEST_URL, 4 * 1024 * 1024, Self::parse)
+            .await
     }
 
     fn parse(bytes: &[u8]) -> Result<Self, CatalogError> {
@@ -133,55 +147,26 @@ impl VersionCatalog {
     }
 }
 
-async fn get_document(broker: &Broker, url: &str, limit: u64) -> Result<Vec<u8>, CatalogError> {
-    let response = broker
-        .get(url, None, limit)
-        .await
-        .map_err(CatalogError::Network)?;
-    if response.metadata.status != 200 {
-        return Err(CatalogError::HttpStatus(response.metadata.status));
-    }
-    Ok(response.body)
-}
-
-fn temporary_failure(error: &CatalogError) -> bool {
-    matches!(
-        error,
-        CatalogError::Network(
-            NetError::Timeout(_) | NetError::Connect | NetError::Tls | NetError::Resolution
-        ) | CatalogError::HttpStatus(429 | 500..=599)
-    )
-}
-
-async fn fetch_document(
-    broker: &Broker,
-    selected: &str,
-    official: &str,
-    limit: u64,
-) -> Result<Vec<u8>, CatalogError> {
-    match get_document(broker, selected, limit).await {
-        Err(error) if selected != official && temporary_failure(&error) => {
-            get_document(broker, official, limit).await
-        }
-        result => result,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn transient_mirror_failures_allow_one_official_attempt() {
-        assert!(temporary_failure(&CatalogError::Network(
-            NetError::Timeout(cobble_net::TimeoutPhase::Headers)
-        )));
-        assert!(temporary_failure(&CatalogError::HttpStatus(503)));
-        assert!(!temporary_failure(&CatalogError::HttpStatus(403)));
-        assert!(!temporary_failure(&CatalogError::Network(
-            NetError::ForbiddenDestination
-        )));
-        assert!(!temporary_failure(&CatalogError::InvalidResponse));
+    fn shared_fetch_errors_keep_catalog_error_categories() {
+        assert!(matches!(
+            CatalogError::from(PublicFetchError::Network(NetError::Timeout(
+                cobble_net::TimeoutPhase::Total
+            ))),
+            CatalogError::Network(NetError::Timeout(_))
+        ));
+        assert!(matches!(
+            CatalogError::from(PublicFetchError::HttpStatus(503)),
+            CatalogError::HttpStatus(503)
+        ));
+        assert!(matches!(
+            CatalogError::from(PublicFetchError::InvalidResponse),
+            CatalogError::InvalidResponse
+        ));
     }
 
     #[tokio::test]

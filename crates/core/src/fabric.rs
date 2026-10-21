@@ -82,13 +82,14 @@ pub async fn list_fabric_versions_from(
 ) -> Result<Vec<FabricVersion>, Error> {
     identifier(mc_version)?;
     let broker = Broker::new(BrokerConfig::default())?;
-    let bytes = fetch(
-        &broker,
-        &source.resolve(&format!("{META}/{mc_version}"))?,
-        4 * 1024 * 1024,
-    )
-    .await?;
-    let entries: Vec<LoaderEntry> = serde_json::from_slice(&bytes)?;
+    let entries = source
+        .fetch_public_validated(
+            &broker,
+            &format!("{META}/{mc_version}"),
+            4 * 1024 * 1024,
+            |bytes| -> Result<Vec<LoaderEntry>, Error> { Ok(serde_json::from_slice(bytes)?) },
+        )
+        .await?;
     Ok(entries.into_iter().map(|entry| entry.loader).collect())
 }
 
@@ -110,12 +111,19 @@ pub async fn install_fabric(
         total_timeout: std::time::Duration::from_secs(300),
         ..BrokerConfig::default()
     })?;
-    let url = source.resolve(&format!(
-        "{META}/{mc_version}/{loader_version}/profile/json"
-    ))?;
-    let profile: FabricProfile =
-        serde_json::from_slice(&fetch(&broker, &url, 4 * 1024 * 1024).await?)?;
-    validate_profile(&profile, mc_version, loader_version)?;
+    let url = format!("{META}/{mc_version}/{loader_version}/profile/json");
+    let profile = source
+        .fetch_public_validated(
+            &broker,
+            &url,
+            4 * 1024 * 1024,
+            |bytes| -> Result<FabricProfile, Error> {
+                let profile = serde_json::from_slice(bytes)?;
+                validate_profile(&profile, mc_version, loader_version)?;
+                Ok(profile)
+            },
+        )
+        .await?;
     let outcome = install_game(mc_version, target, source.clone(), on_progress.clone()).await?;
     let root = Dir::open_ambient_dir(target, cap_std::ambient_authority())?;
     let mut state = FabricState {
@@ -150,7 +158,6 @@ pub async fn install_fabric(
             library.url.trim_end_matches('/'),
             path.as_str().trim_start_matches("libraries/")
         );
-        let url = source.resolve(&official)?;
         let digest = match &library.sha1 {
             Some(hash) => parse_sha1(hash)?,
             None => {
@@ -190,7 +197,9 @@ pub async fn install_fabric(
             let artifact = match cached {
                 Some(artifact) => artifact,
                 None => {
-                    let bytes = fetch(&broker, &url, MAX_JAR)
+                    // Artifact requests stay sequential and retain the longer body timeout.
+                    let bytes = source
+                        .fetch_public(&broker, &official, MAX_JAR)
                         .await
                         .map_err(|error| -> Error {
                             format!("Fabric library {}: {error}", library.name).into()

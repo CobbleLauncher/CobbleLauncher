@@ -22,7 +22,7 @@ pub use preferences::{
     read_launcher_preferences, save_launcher_preferences, validate_memory_mb,
 };
 mod source;
-pub use source::{DownloadSource, SourceError};
+pub use source::{DownloadSource, PublicFetchError, SourceError};
 mod settings;
 pub use settings::{
     DownloadSettings, DownloadSettingsError, DownloadSourceChoice, read_download_settings,

@@ -3,7 +3,7 @@
 //! Independently implemented from public profiles and the MIT XMCL behavior
 //! reference (154e2719b1ac962631d80ae4a280382f4f1ac09d); no source copied.
 use crate::{InstallOutcome, InstallProgress};
-use cobble_minecraft::DownloadSource;
+use cobble_minecraft::{DownloadSource, PublicFetchError};
 use cobble_net::{Broker, BrokerConfig, NetError};
 use cobble_store::SafeRelativePath;
 use serde::{Deserialize, Serialize};
@@ -90,61 +90,89 @@ pub(crate) struct ForgeArtifact {
 }
 
 pub async fn list_forge_versions(mc: &str, kind: ForgeKind) -> Result<Vec<ForgeVersion>, Error> {
+    let source = cobble_minecraft::read_download_settings()?.download_source()?;
+    list_forge_versions_from(mc, kind, &source).await
+}
+
+pub async fn list_forge_versions_from(
+    mc: &str,
+    kind: ForgeKind,
+    source: &DownloadSource,
+) -> Result<Vec<ForgeVersion>, Error> {
     supported(mc, kind, None)?;
     let broker = Broker::new(BrokerConfig::default())?;
     match kind {
         ForgeKind::Forge => {
-            let value: serde_json::Value = serde_json::from_slice(&fetch(&broker, "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json", 1024 * 1024).await?)?;
-            let mut versions = Vec::new();
-            for (suffix, recommended) in [("recommended", true), ("latest", false)] {
-                if let Some(version) = value["promos"][format!("{mc}-{suffix}")].as_str()
-                    && !versions
-                        .iter()
-                        .any(|item: &ForgeVersion| item.version == version)
-                {
-                    supported(mc, kind, Some(version))?;
-                    versions.push(ForgeVersion {
-                        version: version.into(),
-                        recommended,
-                    });
-                }
-            }
-            Ok(versions)
+            fetch_metadata(
+                source,
+                &broker,
+                "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json",
+                1024 * 1024,
+                |bytes| parse_forge_versions(bytes, mc),
+            )
+            .await
         }
         ForgeKind::NeoForge => {
-            let bytes = fetch(
+            fetch_metadata(
+                source,
                 &broker,
                 "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge",
                 4 * 1024 * 1024,
+                parse_neoforge_versions,
             )
-            .await?;
-            let value: serde_json::Value = serde_json::from_slice(&bytes)?;
-            let mut versions: Vec<_> = value["versions"]
-                .as_array()
-                .ok_or("missing NeoForge versions")?
-                .iter()
-                .filter_map(serde_json::Value::as_str)
-                .filter(|version| {
-                    version.starts_with("21.1.")
-                        && version.split('.').all(|part| part.parse::<u32>().is_ok())
-                })
-                .map(|version| ForgeVersion {
-                    version: version.into(),
-                    recommended: false,
-                })
-                .collect();
-            versions.sort_by_key(|version| {
-                version
-                    .version
-                    .rsplit('.')
-                    .next()
-                    .and_then(|part| part.parse::<u32>().ok())
-            });
-            versions.reverse();
-            versions.truncate(20);
-            Ok(versions)
+            .await
         }
     }
+}
+
+fn parse_forge_versions(bytes: &[u8], mc: &str) -> Result<Vec<ForgeVersion>, Error> {
+    let value: serde_json::Value = serde_json::from_slice(bytes)?;
+    if !value["promos"].is_object() {
+        return Err("missing Forge promotions".into());
+    }
+    let mut versions = Vec::new();
+    for (suffix, recommended) in [("recommended", true), ("latest", false)] {
+        if let Some(version) = value["promos"][format!("{mc}-{suffix}")].as_str()
+            && !versions
+                .iter()
+                .any(|item: &ForgeVersion| item.version == version)
+        {
+            supported(mc, ForgeKind::Forge, Some(version))?;
+            versions.push(ForgeVersion {
+                version: version.into(),
+                recommended,
+            });
+        }
+    }
+    Ok(versions)
+}
+
+fn parse_neoforge_versions(bytes: &[u8]) -> Result<Vec<ForgeVersion>, Error> {
+    let value: serde_json::Value = serde_json::from_slice(bytes)?;
+    let mut versions: Vec<_> = value["versions"]
+        .as_array()
+        .ok_or("missing NeoForge versions")?
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .filter(|version| {
+            version.starts_with("21.1.")
+                && version.split('.').all(|part| part.parse::<u32>().is_ok())
+        })
+        .map(|version| ForgeVersion {
+            version: version.into(),
+            recommended: false,
+        })
+        .collect();
+    versions.sort_by_key(|version| {
+        version
+            .version
+            .rsplit('.')
+            .next()
+            .and_then(|part| part.parse::<u32>().ok())
+    });
+    versions.reverse();
+    versions.truncate(20);
+    Ok(versions)
 }
 
 /// The caller owns the stopped-instance write lease and explicitly chose this
@@ -186,12 +214,24 @@ pub async fn install_forge(
     let url = kind.installer_url(mc, version);
     let checksum = fetch(&broker, &format!("{url}.sha1"), 256).await?;
     let expected = parse_sha1(std::str::from_utf8(&checksum)?.trim())?;
-    let download_url = source.resolve(&url)?;
-    let bytes = match fetch(&broker, &download_url, 32 * 1024 * 1024).await {
-        Ok(bytes) => bytes,
-        Err(_) if download_url != url => fetch(&broker, &url, 32 * 1024 * 1024).await?,
-        Err(error) => return Err(error),
-    };
+    // Binaries follow the remembered metadata winner, without racing JAR bodies.
+    // Keep the loader-only system-proxy fallback on every concrete attempt.
+    let mut bytes = None;
+    let mut last_error = None;
+    for (candidate, download_url) in source.candidates(&url)? {
+        match fetch(&broker, &download_url, 32 * 1024 * 1024).await {
+            Ok(value) => {
+                bytes = Some(value);
+                break;
+            }
+            Err(error) => {
+                candidate.report_failure();
+                last_error = Some(error);
+            }
+        }
+    }
+    let bytes = bytes
+        .ok_or_else(|| last_error.unwrap_or_else(|| "no installer download sources".into()))?;
     if Sha1::digest(&bytes).as_slice() != expected {
         return Err("official installer checksum mismatch".into());
     }
@@ -527,6 +567,37 @@ fn parse_sha1(value: &str) -> Result<[u8; 20], Error> {
     Ok(digest)
 }
 
+fn proxy_retryable(error: &Error) -> bool {
+    matches!(
+        error.downcast_ref::<PublicFetchError>(),
+        Some(PublicFetchError::Network(
+            NetError::Connect | NetError::Tls | NetError::Timeout(_)
+        ))
+    )
+}
+
+async fn fetch_metadata<T, F>(
+    source: &DownloadSource,
+    broker: &Broker,
+    url: &str,
+    limit: u64,
+    parse: F,
+) -> Result<T, Error>
+where
+    F: Fn(&[u8]) -> Result<T, Error> + Sync,
+{
+    match source
+        .fetch_public_validated(broker, url, limit, &parse)
+        .await
+    {
+        Err(error) if proxy_retryable(&error) => {
+            let bytes = cobble_net::fetch_loader_via_system_proxy(url, limit).await?;
+            parse(&bytes)
+        }
+        result => result,
+    }
+}
+
 async fn fetch(broker: &Broker, url: &str, limit: u64) -> Result<Vec<u8>, Error> {
     let response = match broker.get(url, None, limit).await {
         Ok(response) => response,
@@ -548,6 +619,48 @@ async fn fetch(broker: &Broker, url: &str, limit: u64) -> Result<Vec<u8>, Error>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loader_metadata_validation_rejects_invalid_success_bodies() {
+        assert!(parse_forge_versions(b"{}", "1.21.1").is_err());
+        assert!(parse_forge_versions(b"<html>proxy error</html>", "1.21.1").is_err());
+        let forge = parse_forge_versions(
+            br#"{"promos":{"1.21.1-recommended":"52.1.0","1.21.1-latest":"52.1.0"}}"#,
+            "1.21.1",
+        )
+        .unwrap();
+        assert_eq!(forge.len(), 1);
+        assert!(forge[0].recommended);
+        assert!(parse_neoforge_versions(b"{}").is_err());
+        let neo =
+            parse_neoforge_versions(br#"{"versions":["21.1.9","21.2.1","21.1.10"]}"#).unwrap();
+        assert_eq!(
+            neo.iter()
+                .map(|version| version.version.as_str())
+                .collect::<Vec<_>>(),
+            ["21.1.10", "21.1.9"]
+        );
+    }
+
+    #[test]
+    fn proxy_fallback_stays_limited_to_connection_tls_and_timeout_errors() {
+        for error in [
+            NetError::Connect,
+            NetError::Tls,
+            NetError::Timeout(cobble_net::TimeoutPhase::Total),
+        ] {
+            let error: Error = PublicFetchError::Network(error).into();
+            assert!(proxy_retryable(&error));
+        }
+        for error in [
+            PublicFetchError::HttpStatus(403),
+            PublicFetchError::InvalidResponse,
+            PublicFetchError::Network(NetError::ForbiddenDestination),
+        ] {
+            let error: Error = error.into();
+            assert!(!proxy_retryable(&error));
+        }
+    }
 
     #[test]
     fn completed_marker_skips_repair_only_while_base_and_overlay_files_exist() {

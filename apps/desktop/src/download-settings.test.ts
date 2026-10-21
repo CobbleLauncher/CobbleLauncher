@@ -6,6 +6,10 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: vi.fn() }));
 
 beforeEach(() => { vi.resetAllMocks(); localStorage.clear(); });
 describe('download source preferences', () => {
+  it('defaults to Automatic and accepts it as a source choice', () => {
+    expect(defaultDownloadSettings()).toEqual({ source: 'automatic', mirror: '' });
+    expect(validateDownloadSettings(defaultDownloadSettings())).toBeNull();
+  });
   it('keeps browser preview persistence separate from native IPC', async () => {
     vi.mocked(isTauri).mockReturnValue(false);
     expect(await readDownloadSettings()).toEqual(defaultDownloadSettings());

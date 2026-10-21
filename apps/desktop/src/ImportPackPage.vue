@@ -162,6 +162,12 @@ onUnmounted(() => { disposed = true; });
           aria-labelledby="pack-source-label"
         >
           <RadioGroupItem
+            value="automatic"
+            class="source-option"
+          >
+            自动（推荐）
+          </RadioGroupItem>
+          <RadioGroupItem
             value="official"
             class="source-option"
           >
@@ -180,6 +186,12 @@ onUnmounted(() => { disposed = true; });
             自定义镜像
           </RadioGroupItem>
         </RadioGroupRoot>
+        <p
+          v-if="source.source === 'automatic'"
+          class="setting-hint"
+        >
+          自动选择响应较快的下载源，失败时切换。
+        </p>
         <template v-if="source.source === 'custom'">
           <label
             class="sr-only"

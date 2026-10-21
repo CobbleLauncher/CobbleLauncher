@@ -16,7 +16,9 @@ mod modupdates;
 mod mrpack;
 mod runner;
 pub use fabric::{FabricVersion, install_fabric, list_fabric_versions, list_fabric_versions_from};
-pub use forge::{ForgeKind, ForgeVersion, install_forge, list_forge_versions};
+pub use forge::{
+    ForgeKind, ForgeVersion, install_forge, list_forge_versions, list_forge_versions_from,
+};
 pub use install::{InstallOutcome, InstallProgress, install_game, install_resources};
 pub use instances::{copy_instance, export_instance_mrpack};
 pub use launch::{LaunchPreparation, prepare_launch};

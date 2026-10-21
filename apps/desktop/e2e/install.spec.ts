@@ -57,7 +57,7 @@ async function mockNative(page: Page, persisted: Game[] = [], savedProfile: { na
           javaSelection = { mode: 'custom', executable: 'C:\\Java\\bin\\java.exe', runtime: { version: '21.0.7', major: 21, arch: 'amd64', vendor: 'Microsoft', executable: 'C:\\Java\\bin\\java.exe' } };
           return javaSelection;
         }
-        if (command === 'get_download_settings') return { source: 'bmclapi', mirror: '' };
+        if (command === 'get_download_settings') return { source: 'automatic', mirror: '' };
         if (command === 'get_launcher_preferences') return { memory_mb: 2048, game_directory: 'C:\\Cobble\\games', custom_game_directory: false };
         if (command === 'default_game_directory') return 'C:\\Cobble\\games';
         if (command === 'list_game_versions') return [{ id: '1.21.1', kind: 'release' }, { id: '1.20.6', kind: 'release' }];
@@ -89,7 +89,8 @@ test('create, real event presentation, failure and retry through mocked native b
   expect(await page.evaluate(() => (window as unknown as TestWindow).__calls.some((call) => call.command === 'list_game_versions'))).toBe(false);
   await page.getByRole('button', { name: '创建游戏', exact: true }).click();
   await expect(page.getByLabel('Minecraft 版本')).toHaveValue('1.21.1');
-  await expect(page.getByRole('radio', { name: 'BMCLAPI', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('radio', { name: '自动（推荐）', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByText('自动选择响应较快的下载源，失败时切换。')).toBeVisible();
   await page.getByLabel('游戏名称').fill('林间小屋');
   await page.getByRole('button', { name: '更改', exact: false }).click();
   await expect(page.getByRole('button', { name: 'D:\\My Games 更改' })).toBeVisible();
@@ -107,7 +108,7 @@ test('create, real event presentation, failure and retry through mocked native b
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await expect(page.getByRole('article', { name: '林间小屋' })).toBeVisible();
   const createCall = await page.evaluate(() => (window as unknown as TestWindow).__calls.find((call) => call.command === 'create_game'));
-  expect(createCall?.args).toEqual({ name: '林间小屋', version: '1.21.1', loaderKind: null, loaderVersion: null, source: { source: 'bmclapi', mirror: '' }, useDefaultDirectory: false });
+  expect(createCall?.args).toEqual({ name: '林间小屋', version: '1.21.1', loaderKind: null, loaderVersion: null, source: { source: 'automatic', mirror: '' }, useDefaultDirectory: false });
   await page.evaluate((game) => (window as unknown as TestWindow).__gameEvent(game), { ...initialGame, name: '林间小屋', progress: { phase: 'assets', completed: 24, total: 80, reused: 2 } } satisfies Game);
   await expect(page.getByRole('status')).toHaveText('下载游戏资源24 / 80');
   await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '24');

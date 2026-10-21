@@ -12,6 +12,7 @@ use std::{
 #[serde(rename_all = "snake_case")]
 pub enum DownloadSourceChoice {
     #[default]
+    Automatic,
     Official,
     Bmclapi,
     Custom,
@@ -26,6 +27,7 @@ pub struct DownloadSettings {
 impl DownloadSettings {
     pub fn download_source(&self) -> Result<DownloadSource, SourceError> {
         match self.source {
+            DownloadSourceChoice::Automatic => Ok(DownloadSource::Automatic),
             DownloadSourceChoice::Official => Ok(DownloadSource::Official),
             DownloadSourceChoice::Bmclapi => Ok(DownloadSource::Bmclapi),
             DownloadSourceChoice::Custom => DownloadSource::custom(self.mirror.trim()),
@@ -117,7 +119,16 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("settings.json");
         assert_eq!(read_at(&path).unwrap(), DownloadSettings::default());
+        assert_eq!(
+            DownloadSettings::default().source,
+            DownloadSourceChoice::Automatic
+        );
+        assert_eq!(
+            serde_json::to_string(&DownloadSourceChoice::Automatic).unwrap(),
+            "\"automatic\""
+        );
         for source in [
+            DownloadSourceChoice::Automatic,
             DownloadSourceChoice::Bmclapi,
             DownloadSourceChoice::Custom,
             DownloadSourceChoice::Official,

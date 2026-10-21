@@ -34,7 +34,7 @@ const hasDownloadChanges = computed(() => loadedDownloadSettings.value !== null 
 const settingsError = ref('');
 const settingsReady = ref(false);
 const savingSettings = ref(false);
-const sourceOptions = [{ value: 'official', label: '官方' }, { value: 'bmclapi', label: 'BMCLAPI' }, { value: 'custom', label: '自定义镜像' }];
+const sourceOptions = [{ value: 'automatic', label: '自动（推荐）' }, { value: 'official', label: '官方' }, { value: 'bmclapi', label: 'BMCLAPI' }, { value: 'custom', label: '自定义镜像' }];
 async function loadSettings() {
   settingsError.value = '';
   settingsReady.value = false;
@@ -46,7 +46,7 @@ async function loadSettings() {
   catch { settingsError.value = '无法读取下载源设置，请返回后重试'; }
 }
 function changeSource(value: unknown) {
-  if (value === 'official' || value === 'bmclapi' || value === 'custom') {
+  if (value === 'automatic' || value === 'official' || value === 'bmclapi' || value === 'custom') {
     downloadSettings.value.source = value;
     settingsError.value = '';
   }
@@ -215,6 +215,12 @@ onMounted(() => { void loadSettings(); });
           {{ option.label }}
         </RadioGroupItem>
       </RadioGroupRoot>
+      <p
+        v-if="downloadSettings.source === 'automatic'"
+        class="setting-hint"
+      >
+        自动选择响应较快的下载源，失败时切换。
+      </p>
       <div
         v-if="downloadSettings.source === 'custom'"
         class="mirror-field"

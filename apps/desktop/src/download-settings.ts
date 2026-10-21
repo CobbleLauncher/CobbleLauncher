@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 import { invoke, isTauri } from '@tauri-apps/api/core';
 
-export type DownloadSettings = { source: 'official' | 'bmclapi' | 'custom'; mirror: string };
+export type DownloadSettings = { source: 'automatic' | 'official' | 'bmclapi' | 'custom'; mirror: string };
 const previewKey = 'cobble.preview.download-source';
-export const defaultDownloadSettings = (): DownloadSettings => ({ source: 'official', mirror: '' });
+export const defaultDownloadSettings = (): DownloadSettings => ({ source: 'automatic', mirror: '' });
 
 export function validateDownloadSettings(settings: DownloadSettings): string | null {
-  if (!['official', 'bmclapi', 'custom'].includes(settings.source) || typeof settings.mirror !== 'string') return '下载源设置无效';
+  if (!['automatic', 'official', 'bmclapi', 'custom'].includes(settings.source) || typeof settings.mirror !== 'string') return '下载源设置无效';
   if (settings.source !== 'custom') return null;
   try {
     const url = new URL(settings.mirror.trim());

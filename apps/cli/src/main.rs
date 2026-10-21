@@ -15,7 +15,7 @@ fn main() -> ExitCode {
     match args.next().as_deref() {
         None | Some("--help" | "-h") => {
             println!(
-                "Cobble Launcher\n\nUsage:\n  cobble versions          List the latest 20 releases\n  cobble versions --all    List all versions, including snapshots\n  cobble fabric-versions <version>  List compatible Fabric loaders\n  cobble loader-versions <forge|neoforge> <version>  List supported loaders\n  cobble info <version>    Show Java requirements and download size\n  cobble install <version> --dir <folder> [--client-only | --fabric <loader-version> | --forge <loader-version> | --neoforge <loader-version>] [--source official|bmclapi | --mirror <https-base>]\n  cobble mods-search <minecraft> <query> [--loader fabric|forge|neoforge]  Search compatible mods\n  cobble mod-install <minecraft> <project-id> --dir <folder>  Install mods into a stopped modded instance\n  cobble pack-info <file.mrpack>  Preview a local modpack\n  cobble pack-install <file.mrpack> --dir <folder> [--source official|bmclapi] [--optional <path> ...]\n  cobble java <major>      Find a matching installed Java runtime\n  cobble launch-info <version> --dir <folder>  Prepare an installed game without launching\n  cobble play <version> --dir <folder> [--name <offline-name>]  Launch with an explicit offline profile\n  cobble --version\n\nOffline profiles do not authenticate a Microsoft account."
+                "Cobble Launcher\n\nUsage:\n  cobble versions          List the latest 20 releases\n  cobble versions --all    List all versions, including snapshots\n  cobble fabric-versions <version>  List compatible Fabric loaders\n  cobble loader-versions <forge|neoforge> <version>  List supported loaders\n  cobble info <version>    Show Java requirements and download size\n  cobble install <version> --dir <folder> [--client-only | --fabric <loader-version> | --forge <loader-version> | --neoforge <loader-version>] [--source automatic|official|bmclapi | --mirror <https-base>]\n  cobble mods-search <minecraft> <query> [--loader fabric|forge|neoforge]  Search compatible mods\n  cobble mod-install <minecraft> <project-id> --dir <folder>  Install mods into a stopped modded instance\n  cobble pack-info <file.mrpack>  Preview a local modpack\n  cobble pack-install <file.mrpack> --dir <folder> [--source automatic|official|bmclapi] [--optional <path> ...]\n  cobble java <major>      Find a matching installed Java runtime\n  cobble launch-info <version> --dir <folder>  Prepare an installed game without launching\n  cobble play <version> --dir <folder> [--name <offline-name>]  Launch with an explicit offline profile\n  cobble --version\n\nOffline profiles do not authenticate a Microsoft account."
             );
             ExitCode::SUCCESS
         }
@@ -146,7 +146,7 @@ fn main() -> ExitCode {
         Some("install") => {
             let Some(version) = args.next() else {
                 eprintln!(
-                    "Usage: cobble install <version> --dir <folder> [--client-only | --fabric <loader-version> | --forge <loader-version> | --neoforge <loader-version>] [--source official|bmclapi | --mirror <https-base>]"
+                    "Usage: cobble install <version> --dir <folder> [--client-only | --fabric <loader-version> | --forge <loader-version> | --neoforge <loader-version>] [--source automatic|official|bmclapi | --mirror <https-base>]"
                 );
                 return ExitCode::from(2);
             };
@@ -191,10 +191,11 @@ fn main() -> ExitCode {
                     }
                     "--source" if !source_selected => {
                         source = Some(match args.next().as_deref() {
+                            Some("automatic") => DownloadSource::Automatic,
                             Some("official") => DownloadSource::Official,
                             Some("bmclapi") => DownloadSource::Bmclapi,
                             _ => {
-                                eprintln!("--source requires official or bmclapi");
+                                eprintln!("--source requires automatic, official or bmclapi");
                                 return ExitCode::from(2);
                             }
                         });
@@ -212,7 +213,7 @@ fn main() -> ExitCode {
                     }
                     _ => {
                         eprintln!(
-                            "Usage: cobble install <version> --dir <folder> [--client-only | --fabric <loader-version> | --forge <loader-version> | --neoforge <loader-version>] [--source official|bmclapi | --mirror <https-base>]"
+                            "Usage: cobble install <version> --dir <folder> [--client-only | --fabric <loader-version> | --forge <loader-version> | --neoforge <loader-version>] [--source automatic|official|bmclapi | --mirror <https-base>]"
                         );
                         return ExitCode::from(2);
                     }
@@ -220,7 +221,7 @@ fn main() -> ExitCode {
             }
             let Some(target) = target else {
                 eprintln!(
-                    "Usage: cobble install <version> --dir <folder> [--client-only | --fabric <loader-version> | --forge <loader-version> | --neoforge <loader-version>] [--source official|bmclapi | --mirror <https-base>]"
+                    "Usage: cobble install <version> --dir <folder> [--client-only | --fabric <loader-version> | --forge <loader-version> | --neoforge <loader-version>] [--source automatic|official|bmclapi | --mirror <https-base>]"
                 );
                 return ExitCode::from(2);
             };

@@ -1057,13 +1057,13 @@ pub async fn list_loader_versions(
     kind: String,
     source: DownloadSettings,
 ) -> Result<Vec<cobble_core::ForgeVersion>, String> {
-    source.download_source().map_err(|e| e.to_string())?;
+    let source = source.download_source().map_err(|e| e.to_string())?;
     let kind = match kind.as_str() {
         "forge" => cobble_core::ForgeKind::Forge,
         "neoforge" => cobble_core::ForgeKind::NeoForge,
         _ => return Err("不支持这个模组加载器".into()),
     };
-    cobble_core::list_forge_versions(&version, kind)
+    cobble_core::list_forge_versions_from(&version, kind, &source)
         .await
         .map_err(|e| e.to_string())
 }

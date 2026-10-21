@@ -83,7 +83,7 @@ async function show() {
 }
 
 async function changeSource(value: unknown) {
-  if (value !== 'official' && value !== 'bmclapi' && value !== 'custom') return;
+  if (value !== 'automatic' && value !== 'official' && value !== 'bmclapi' && value !== 'custom') return;
   source.value.source = value;
   await loadVersions();
 }
@@ -151,6 +151,12 @@ onUnmounted(() => { ++versionRequest; ++loaderRequest; });
           @update:model-value="changeSource"
         >
           <RadioGroupItem
+            value="automatic"
+            class="source-option"
+          >
+            自动（推荐）
+          </RadioGroupItem>
+          <RadioGroupItem
             value="official"
             class="source-option"
           >
@@ -169,6 +175,12 @@ onUnmounted(() => { ++versionRequest; ++loaderRequest; });
             自定义镜像
           </RadioGroupItem>
         </RadioGroupRoot>
+        <p
+          v-if="source.source === 'automatic'"
+          class="setting-hint"
+        >
+          自动选择响应较快的下载源，失败时切换。
+        </p>
         <div
           v-if="source.source === 'custom'"
           class="custom-version-source"

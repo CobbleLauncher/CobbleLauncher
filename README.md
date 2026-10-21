@@ -9,7 +9,7 @@ CobbleLauncher is an open-source launcher for Minecraft: Java Edition. It aims t
 - Use a clean, frameless interface with light and dark themes.
 - Create Vanilla, Fabric, Forge, or NeoForge installations from the desktop or command line.
 - Follow download progress and retry interrupted installations.
-- Choose the official download source, BMCLAPI, or a custom BMCLAPI-compatible source.
+- Automatically choose between official downloads and BMCLAPI, with fallback if a source fails. You can also choose a source manually or use a custom BMCLAPI-compatible source.
 - Choose Java and memory defaults, with optional settings for each game.
 - Choose where new games are stored.
 - Keep multiple offline player profiles, switch between them, or pin one to a game before launching.

@@ -78,6 +78,20 @@ test('download source selection persists and custom mirrors are validated', asyn
   await page.goto('/');
   await page.getByRole('button', { name: '打开设置' }).click();
   await page.getByRole('tab', { name: '下载与目录', exact: true }).click();
+  await expect(page.getByRole('radio', { name: '自动（推荐）', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByText('自动选择响应较快的下载源，失败时切换。')).toBeVisible();
+  await page.setViewportSize({ width: 560, height: 420 });
+  await page.getByRole('tab', { name: '外观', exact: true }).click();
+  await page.getByRole('radio', { name: '浅色', exact: true }).click();
+  await page.getByRole('tab', { name: '下载与目录', exact: true }).click();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath('automatic-source-light-560.png'), fullPage: true, animations: 'disabled' });
+  await page.getByRole('tab', { name: '外观', exact: true }).click();
+  await page.getByRole('radio', { name: '深色', exact: true }).click();
+  await page.getByRole('tab', { name: '下载与目录', exact: true }).click();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath('automatic-source-dark-560.png'), fullPage: true, animations: 'disabled' });
+  await page.setViewportSize({ width: 680, height: 560 });
   await page.getByRole('radio', { name: 'BMCLAPI', exact: true }).click();
   await expect(page.getByText('BMCLAPI 由 bangbang93', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: '保存并返回' }).click();
@@ -116,5 +130,5 @@ test('returning from settings discards unsaved download source', async ({ page }
   await page.getByRole('button', { name: '返回游戏库' }).click();
   await page.getByRole('button', { name: '打开设置' }).click();
   await page.getByRole('tab', { name: '下载与目录', exact: true }).click();
-  await expect(page.getByRole('radio', { name: '官方', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('radio', { name: '自动（推荐）', exact: true })).toHaveAttribute('aria-checked', 'true');
 });

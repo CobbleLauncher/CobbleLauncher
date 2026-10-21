@@ -8,9 +8,9 @@ const game: Game = { id: 'synthetic-pack', name: pack.name, pack_name: pack.name
 type Call = { command: string; args: Record<string, unknown> };
 type TestWindow = Window & { __calls: Call[]; __pick: 'pack' | 'cancel' | 'replacement' | 'unsupported'; __createFails: boolean; __directoryCancel: boolean; __gameEvent: (game: Game) => void };
 
-async function mockNative(page: Page, stored: Game[] = [], packSelection: PackPreview = pack) {
+async function mockNative(page: Page, stored: Game[] = [], packSelection: PackPreview = pack, source = 'bmclapi') {
   const selectedGame = { ...game, loader_kind: packSelection.loader_kind, loader_version: packSelection.loader_version };
-  await page.addInitScript(({ pack, game, stored }) => {
+  await page.addInitScript(({ pack, game, stored, source }) => {
     const target = window as unknown as TestWindow & { isTauri: boolean; __TAURI_INTERNALS__: unknown; __TAURI_EVENT_PLUGIN_INTERNALS__: unknown };
     const callbacks = new Map<number, (event: unknown) => void>();
     let handler = 0;
@@ -29,7 +29,7 @@ async function mockNative(page: Page, stored: Game[] = [], packSelection: PackPr
         if (command === 'plugin:event|listen') { handler = args.handler as number; return 1; }
         if (command === 'list_games') return stored;
         if (command === 'list_player_profiles') return { profiles: [], active_id: null };
-        if (command === 'get_download_settings') return { source: 'bmclapi', mirror: '' };
+        if (command === 'get_download_settings') return { source, mirror: '' };
         if (command === 'default_game_directory') return 'C:\\Cobble\\games';
         if (command === 'pick_game_directory') return target.__directoryCancel ? null : 'D:\\My Games';
         if (command === 'preview_mrpack') {
@@ -47,7 +47,7 @@ async function mockNative(page: Page, stored: Game[] = [], packSelection: PackPr
         return null;
       },
     };
-  }, { pack: packSelection, game: selectedGame, stored });
+  }, { pack: packSelection, game: selectedGame, stored, source });
 }
 async function openImport(page: Page) {
   await page.goto('/');
@@ -55,6 +55,16 @@ async function openImport(page: Page) {
   await expect(page.getByRole('heading', { name: '导入整合包', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '选择整合包文件', exact: false }).click();
 }
+
+test('mrpack creation uses the saved Automatic source choice', async ({ page }) => {
+  await mockNative(page, [], pack, 'automatic');
+  await openImport(page);
+  await expect(page.getByRole('radio', { name: '自动（推荐）', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByText('自动选择响应较快的下载源，失败时切换。')).toBeVisible();
+  await page.getByRole('button', { name: '导入并安装' }).click();
+  const args = await page.evaluate(() => (window as unknown as TestWindow).__calls.find((call) => call.command === 'create_mrpack_game')?.args);
+  expect(args).toEqual({ previewId: pack.preview_id, name: pack.name, source: { source: 'automatic', mirror: '' }, useDefaultDirectory: true, optionalFiles: [] });
+});
 
 test('preview choices, cancellation, source and native-owned creation with install events and retry', async ({ page }, testInfo) => {
   await mockNative(page);

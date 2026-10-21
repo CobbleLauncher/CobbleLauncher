@@ -324,40 +324,45 @@ async fn download_file(
     let artifact = if let Some(artifact) = cached {
         artifact
     } else {
-        let url = source.resolve(&file.url)?;
-        let mut request = DownloadRequest::new(
-            &url,
-            expected,
-            DownloadAuthority::same_origin(&source.id(), "minecraft-install", "vanilla-v1", None)?,
-            None,
-        )?;
-        if url != file.url {
-            request = request.with_mirror_redirects(&file.url)?;
-        }
-        let result = match downloader
-            .download(request, TransferCancellation::default())
-            .await
-        {
-            Ok(result) => result,
-            Err(_) if url != file.url => {
-                let official = DownloadRequest::new(
-                    &file.url,
-                    expected,
-                    DownloadAuthority::same_origin(
-                        &DownloadSource::Official.id(),
-                        "minecraft-install",
-                        "vanilla-v1",
-                        None,
-                    )?,
+        let mut downloaded = None;
+        let mut last_error = None;
+        let candidates = source.candidates(&file.url)?;
+        let has_fallback = candidates.len() > 1;
+        for (candidate, url) in candidates {
+            let mut request = DownloadRequest::new(
+                &url,
+                expected,
+                DownloadAuthority::same_origin(
+                    &candidate.id(),
+                    "minecraft-install",
+                    "vanilla-v1",
                     None,
-                )?;
-                downloader
-                    .download(official, TransferCancellation::default())
-                    .await?
+                )?,
+                None,
+            )?;
+            if url != file.url {
+                request = request.with_mirror_redirects(&file.url)?;
             }
-            Err(error) => return Err(error.into()),
-        };
-        result.artifact.clone()
+            match downloader
+                .download(request, TransferCancellation::default())
+                .await
+            {
+                Ok(result) => {
+                    downloaded = Some(result.artifact.clone());
+                    break;
+                }
+                Err(error) => {
+                    if has_fallback {
+                        candidate.report_failure();
+                    }
+                    last_error = Some(error);
+                }
+            }
+        }
+        match downloaded {
+            Some(artifact) => artifact,
+            None => return Err(last_error.ok_or("No download source available")?.into()),
+        }
     };
     tokio::task::spawn_blocking(move || {
         let _ = crate::cache::record(&index, &artifact);
