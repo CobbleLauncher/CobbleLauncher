@@ -78,7 +78,8 @@ impl DownloadSource {
         let path = official.path();
         let prefix = match official.host_str() {
             Some("resources.download.minecraft.net") => "/assets",
-            Some("libraries.minecraft.net") => "/maven",
+            Some("libraries.minecraft.net" | "maven.fabricmc.net") => "/maven",
+            Some("meta.fabricmc.net") if path.starts_with("/v2/") => "/fabric-meta",
             Some("piston-meta.mojang.com" | "launchermeta.mojang.com")
                 if path.starts_with("/v1/packages/") || path.starts_with("/mc/game/") =>
             {
@@ -125,6 +126,14 @@ mod tests {
     #[test]
     fn maps_only_known_public_content_routes() {
         for (input, path) in [
+            (
+                "https://meta.fabricmc.net/v2/versions/loader/1.21.1",
+                "/fabric-meta/v2/versions/loader/1.21.1",
+            ),
+            (
+                "https://maven.fabricmc.net/net/fabricmc/fabric-loader/0.16.14/fabric-loader-0.16.14.jar",
+                "/maven/net/fabricmc/fabric-loader/0.16.14/fabric-loader-0.16.14.jar",
+            ),
             (
                 "https://libraries.minecraft.net/example/library.jar",
                 "/maven/example/library.jar",

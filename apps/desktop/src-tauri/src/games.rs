@@ -15,6 +15,8 @@ pub struct Game {
     id: String,
     name: String,
     version: String,
+    #[serde(default)]
+    loader_version: Option<String>,
     directory: PathBuf,
     status: String,
     error: Option<String>,
@@ -163,6 +165,7 @@ pub fn create_game(
     version: String,
     source: DownloadSettings,
     use_default_directory: bool,
+    loader_version: Option<String>,
 ) -> Result<Game, String> {
     if name.trim().is_empty() {
         return Err("请填写游戏名称".into());
@@ -193,6 +196,7 @@ pub fn create_game(
         id,
         name: name.trim().into(),
         version,
+        loader_version,
         status: "installing".into(),
         error: None,
         progress: None,
@@ -280,8 +284,21 @@ fn start_install(app: AppHandle, game: Game, source: cobble_minecraft::DownloadS
                 );
             }
         });
-        let result =
-            cobble_core::install_game(&game.version, &game.directory, source, progress).await;
+        let result = match &game.loader_version {
+            Some(loader) => {
+                cobble_core::install_fabric(
+                    &game.version,
+                    loader,
+                    &game.directory,
+                    source,
+                    progress,
+                )
+                .await
+            }
+            None => {
+                cobble_core::install_game(&game.version, &game.directory, source, progress).await
+            }
+        };
         update_game(
             &app,
             &game.id,
@@ -404,4 +421,108 @@ pub fn start_game(
         }
     });
     Ok(snapshot)
+}
+
+#[tauri::command]
+pub async fn list_fabric_versions(
+    version: String,
+    source: DownloadSettings,
+) -> Result<Vec<cobble_core::FabricVersion>, String> {
+    let source = source.download_source().map_err(|e| e.to_string())?;
+    cobble_core::list_fabric_versions_from(&version, &source)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+fn with_game_mods(
+    app: &AppHandle,
+    id: &str,
+    writable: bool,
+    operation: impl FnOnce(
+        &std::path::Path,
+    ) -> Result<Vec<cobble_content::LocalMod>, cobble_content::BoxError>,
+) -> Result<Vec<cobble_content::LocalMod>, String> {
+    let state = app.state::<GameLibrary>();
+    let library = state.0.lock().map_err(|e| e.to_string())?;
+    let game = library
+        .games
+        .iter()
+        .find(|g| g.id == id)
+        .ok_or("找不到这个游戏")?;
+    if game.status != "installed" {
+        return Err("请先完成游戏安装".into());
+    }
+    if writable && game.launch_state != "idle" {
+        return Err("请先关闭游戏，再修改 Mod".into());
+    }
+    operation(&game.directory).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_game_mods(
+    app: AppHandle,
+    id: String,
+) -> Result<Vec<cobble_content::LocalMod>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        with_game_mods(&app, &id, false, cobble_content::list_mods)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn import_game_mods(
+    window: WebviewWindow,
+    app: AppHandle,
+    id: String,
+) -> Result<Option<Vec<cobble_content::LocalMod>>, String> {
+    let Some(files) = rfd::AsyncFileDialog::new()
+        .set_title("导入 Mod")
+        .add_filter("Minecraft Mod", &["jar"])
+        .set_parent(&window)
+        .pick_files()
+        .await
+    else {
+        return Ok(None);
+    };
+    let paths: Vec<PathBuf> = files.iter().map(|file| file.path().to_owned()).collect();
+    tauri::async_runtime::spawn_blocking(move || {
+        with_game_mods(&app, &id, true, |directory| {
+            cobble_content::import_mods(directory, &paths)
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map(Some)
+}
+
+#[tauri::command]
+pub async fn set_game_mod_enabled(
+    app: AppHandle,
+    id: String,
+    file_name: String,
+    enabled: bool,
+) -> Result<Vec<cobble_content::LocalMod>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        with_game_mods(&app, &id, true, |directory| {
+            cobble_content::set_mod_enabled(directory, &file_name, enabled)
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn remove_game_mod(
+    app: AppHandle,
+    id: String,
+    file_name: String,
+) -> Result<Vec<cobble_content::LocalMod>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        with_game_mods(&app, &id, true, |directory| {
+            cobble_content::remove_mod(directory, &file_name)
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

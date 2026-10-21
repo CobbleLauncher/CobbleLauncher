@@ -1,16 +1,41 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { RadioGroupRoot, RadioGroupItem } from 'reka-ui';
 import { defaultDownloadSettings, readDownloadSettings, validateDownloadSettings } from './download-settings';
-import type { Game, GameVersion } from './games';
+import type { FabricVersion, Game, GameVersion } from './games';
 
 const emit = defineEmits<{ created: [game: Game] }>();
 const name = ref('我的世界');
 const version = ref('');
+const loader = ref('vanilla');
+const loaderVersion = ref('');
+const fabricVersions = ref<FabricVersion[]>([]);
+const loadingFabric = ref(false);
+const fabricError = ref('');
+let fabricRequest = 0;
+async function loadFabricVersions() {
+  const request = ++fabricRequest;
+  loaderVersion.value = '';
+  fabricVersions.value = [];
+  fabricError.value = '';
+  loadingFabric.value = false;
+  if (loader.value !== 'fabric' || !version.value || !isTauri()) return;
+  loadingFabric.value = true;
+  try {
+    const result = await invoke<FabricVersion[]>('list_fabric_versions', { version: version.value, source: { ...source.value } });
+    if (request !== fabricRequest) return;
+    fabricVersions.value = result;
+    loaderVersion.value = (result.find((item) => item.stable) ?? result[0])?.version ?? '';
+    if (!result.length) fabricError.value = '此 Minecraft 版本暂无可用的 Fabric';
+  } catch (cause) {
+    if (request === fabricRequest) fabricError.value = `无法获取 Fabric 版本：${String(cause)}`;
+  } finally { if (request === fabricRequest) loadingFabric.value = false; }
+}
 const versions = ref<GameVersion[]>([]);
 const source = ref(defaultDownloadSettings());
+watch([loader, version, () => source.value.source, () => source.value.mirror], () => { void loadFabricVersions(); });
 const directory = ref('');
 const useDefaultDirectory = ref(true);
 const loading = ref(false);
@@ -77,22 +102,23 @@ async function create() {
   error.value = validateDownloadSettings(source.value) ?? '';
   if (error.value) return;
   if (!name.value.trim() || !version.value) { error.value = '请填写游戏名称并选择版本'; return; }
+  if (loader.value === 'fabric' && (loadingFabric.value || !loaderVersion.value)) { error.value = '请选择可用的 Fabric 版本'; return; }
   submitting.value = true;
   try {
-    const game = await invoke<Game>('create_game', { name: name.value.trim(), version: version.value, source: { ...source.value }, useDefaultDirectory: useDefaultDirectory.value });
+    const game = await invoke<Game>('create_game', { name: name.value.trim(), version: version.value, loaderVersion: loader.value === 'fabric' ? loaderVersion.value : null, source: { ...source.value }, useDefaultDirectory: useDefaultDirectory.value });
     emit('created', game);
   } catch (cause) { error.value = `无法创建游戏：${String(cause)}`; }
   finally { submitting.value = false; }
 }
 
 onMounted(() => { void show(); });
-onUnmounted(() => { ++versionRequest; });
+onUnmounted(() => { ++versionRequest; ++fabricRequest; });
 </script>
 
 <template>
   <div class="create-page page-content">
     <p class="create-description">
-      从一个全新的原版世界开始。
+      选择喜欢的版本，开始一个新世界。
     </p>
     <form
       class="create-form"
@@ -196,6 +222,74 @@ onUnmounted(() => { ++versionRequest; });
         </div>
       </div>
       <div class="form-field">
+        <label id="loader-label">游戏类型</label>
+        <RadioGroupRoot
+          v-model="loader"
+          class="source-options"
+          :disabled="submitting"
+          aria-labelledby="loader-label"
+        >
+          <RadioGroupItem
+            value="vanilla"
+            class="source-option"
+          >
+            原版
+          </RadioGroupItem>
+          <RadioGroupItem
+            value="fabric"
+            class="source-option"
+          >
+            Fabric
+          </RadioGroupItem>
+        </RadioGroupRoot>
+        <p class="setting-hint">
+          {{ loader === 'fabric' ? '轻量模组加载器，安装后可添加本地 Mod。' : 'Minecraft 原版体验。' }}
+        </p>
+      </div>
+      <div
+        v-if="loader === 'fabric'"
+        class="form-field"
+      >
+        <label for="fabric-version">Fabric 版本</label>
+        <div class="version-control">
+          <select
+            id="fabric-version"
+            v-model="loaderVersion"
+            :disabled="loadingFabric || submitting || !fabricVersions.length"
+          >
+            <option
+              v-if="!fabricVersions.length"
+              value=""
+            >
+              {{ loadingFabric ? '正在获取版本…' : '暂无可选版本' }}
+            </option>
+            <option
+              v-for="item in fabricVersions"
+              :key="item.version"
+              :value="item.version"
+            >
+              {{ item.version }}{{ item.stable ? ' · 稳定版' : '' }}
+            </option>
+          </select>
+          <button
+            v-if="fabricError"
+            type="button"
+            class="text-button"
+            :disabled="loadingFabric || submitting"
+            @click="loadFabricVersions"
+          >
+            重试
+          </button>
+        </div>
+        <p
+          v-if="fabricError"
+          class="settings-error"
+          role="alert"
+        >
+          {{ fabricError }}
+        </p>
+      </div>
+      <div class="form-field">
         <label>安装位置</label>
         <button
           type="button"
@@ -223,7 +317,7 @@ onUnmounted(() => { ++versionRequest; });
       <button
         class="done-button"
         type="submit"
-        :disabled="loading || submitting"
+        :disabled="loading || submitting || (loader === 'fabric' && (loadingFabric || !loaderVersion))"
       >
         {{ submitting ? '正在创建…' : '创建并安装' }}
       </button>

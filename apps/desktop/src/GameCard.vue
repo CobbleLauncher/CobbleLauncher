@@ -3,8 +3,8 @@
 import { computed } from 'vue';
 import type { Game } from './games';
 const props = defineProps<{ game: Game; retrying: boolean; hasProfile: boolean; starting: boolean }>();
-defineEmits<{ retry: [id: string]; play: [id: string] }>();
-const phase = computed(() => ({ metadata: '获取游戏信息', files: '下载游戏文件', assets: '下载游戏资源', complete: '安装完成' })[props.game.progress?.phase ?? 'metadata']);
+defineEmits<{ retry: [id: string]; play: [id: string]; manage: [id: string] }>();
+const phase = computed(() => ({ metadata: '获取游戏信息', files: '下载游戏文件', assets: '下载游戏资源', fabric: '安装 Fabric', complete: '安装完成' })[props.game.progress?.phase ?? 'metadata']);
 const percent = computed(() => {
   const progress = props.game.progress;
   return progress && progress.total > 0 ? Math.min(100, progress.completed / progress.total * 100) : 0;
@@ -51,7 +51,7 @@ const percent = computed(() => {
         >安装未完成</span>
       </div>
       <p class="game-version">
-        Minecraft {{ game.version }} <span>· 原版</span>
+        Minecraft {{ game.version }} <span>· {{ game.loader_version ? `Fabric ${game.loader_version}` : '原版' }}</span>
       </p>
       <template v-if="game.status === 'installing'">
         <div
@@ -91,6 +91,13 @@ const percent = computed(() => {
       >
         启动失败：{{ game.launch_error }}
       </p>
+      <button
+        v-if="game.status === 'installed'"
+        class="text-button"
+        @click="$emit('manage', game.id)"
+      >
+        管理内容
+      </button>
       <p
         v-if="game.launch_state === 'preparing' || game.launch_state === 'running'"
         class="launch-status"

@@ -32,12 +32,13 @@ pub fn run(
     target: &Path,
     client_only: bool,
     source: DownloadSource,
+    fabric: Option<&str>,
 ) -> Result<(), Error> {
     let runtime = runtime()?;
     println!("Download source: {}", source.attribution());
     let progress = Arc::new(|progress: cobble_core::InstallProgress| {
         let report_every = if progress.total > 256 { 256 } else { 32 };
-        if matches!(progress.phase.as_str(), "files" | "assets")
+        if matches!(progress.phase.as_str(), "files" | "assets" | "fabric")
             && progress.completed > 0
             && (progress.completed.is_multiple_of(report_every)
                 || progress.completed == progress.total)
@@ -48,13 +49,16 @@ pub fn run(
             );
         }
     });
-    let result = runtime.block_on(cobble_core::install_resources(
-        version,
-        target,
-        client_only,
-        source,
-        progress,
-    ));
+    let result = runtime.block_on(async {
+        match fabric {
+            Some(loader) => {
+                cobble_core::install_fabric(version, loader, target, source, progress).await
+            }
+            None => {
+                cobble_core::install_resources(version, target, client_only, source, progress).await
+            }
+        }
+    });
     // Blocking transfer/copy workers must finish before process exit.
     drop(runtime);
     let outcome = result?;
@@ -69,7 +73,7 @@ pub fn run(
         );
     } else {
         println!(
-            "Game files downloaded to {}. Java {} and sign-in are required to launch.",
+            "Game files downloaded to {}. Java {} is required; use play to launch with an offline profile.",
             target.display(),
             outcome.java_major
         );

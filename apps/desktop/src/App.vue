@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -8,6 +8,7 @@ import { applyTheme, readTheme } from './theme';
 import CreateGamePage from './CreateGamePage.vue';
 import SettingsPage from './SettingsPage.vue';
 import GameCard from './GameCard.vue';
+import GameDetailsPage from './GameDetailsPage.vue';
 import type { Game, OfflineProfile } from './games';
 const games = ref<Game[]>([]);
 const offlineProfile = ref<OfflineProfile | null>(null);
@@ -65,7 +66,14 @@ async function retryGame(id: string) {
   catch (cause) { error.value = `无法重试安装：${String(cause)}`; }
   finally { retrying.value = retrying.value.filter((item) => item !== id); }
 }
-const view = ref<'library' | 'create' | 'settings'>('library');
+const view = ref<'library' | 'create' | 'settings' | 'details'>('library');
+const selectedGameId = ref('');
+const selectedGame = computed(() => games.value.find((game) => game.id === selectedGameId.value));
+function manageGame(id: string) {
+  if (games.value.find((game) => game.id === id)?.status !== 'installed') return;
+  selectedGameId.value = id;
+  view.value = 'details';
+}
 watch(view, async () => {
   await nextTick();
   document.querySelector<HTMLElement>('main h1')?.focus();
@@ -280,6 +288,7 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
             :starting="starting.includes(game.id)"
             @retry="retryGame"
             @play="startGame"
+            @manage="manageGame"
           />
           <button
             class="add-game-button"
@@ -299,15 +308,22 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
             <svg viewBox="0 0 20 20"><path d="m11 4-6 6 6 6M5 10h11" /></svg>游戏库
           </button>
           <h1 tabindex="-1">
-            {{ view === 'create' ? '创建游戏' : '设置' }}
+            {{ view === 'create' ? '创建游戏' : view === 'details' ? selectedGame?.name : '设置' }}
           </h1>
         </div>
         <CreateGamePage
           v-if="view === 'create'"
           @created="addCreatedGame"
         />
+        <GameDetailsPage
+          v-else-if="view === 'details' && selectedGame"
+          :game="selectedGame"
+          :starting="starting.includes(selectedGame.id)"
+          :has-profile="!!offlineProfile"
+          @play="startGame"
+        />
         <SettingsPage
-          v-else
+          v-else-if="view === 'settings'"
           @profile-saved="offlineProfile = $event"
           @saved="view = 'library'"
         />

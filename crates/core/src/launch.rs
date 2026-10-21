@@ -56,17 +56,52 @@ fn prepare(version: &str, directory: &Path) -> Result<LaunchPreparation, Error> 
     }
     let bytes = fs::read(directory.join(format!("versions/{version}/{version}.json")))?;
     let metadata = VersionMetadata::parse_installed(&bytes, version)?;
+    let fabric = crate::fabric::load_overlay(&directory, version)?;
     let raw: serde_json::Value = serde_json::from_slice(&bytes)?;
+    // Child Maven libraries replace the parent's same group/artifact identity.
+    // Fabric's supported client profiles use ordinary three-part coordinates.
+    let overridden: std::collections::HashSet<&str> = fabric
+        .as_ref()
+        .map(|state| {
+            state
+                .profile
+                .libraries
+                .iter()
+                .map(|library| library.identity())
+                .collect()
+        })
+        .unwrap_or_default();
+    let replaced_paths: std::collections::HashSet<&str> = raw["libraries"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|library| {
+            let name = library["name"].as_str()?;
+            let (identity, _) = name.rsplit_once(':')?;
+            overridden
+                .contains(identity)
+                .then(|| library["downloads"]["artifact"]["path"].as_str())
+                .flatten()
+        })
+        .collect();
     let platform = PlatformContext::current()?;
     let plan = metadata.download_plan(&platform)?;
     let has_native_artifacts = plan
         .files
         .iter()
         .any(|file| file.kind == FileKind::Native || file.path.as_str().contains("-natives-"));
-    let mut classpath = Vec::new();
+    let mut classpath = match &fabric {
+        Some(state) => crate::fabric::overlay_classpath(state, &directory)?,
+        None => Vec::new(),
+    };
     let mut native_jars = Vec::new();
     let mut client = None;
     for file in &plan.files {
+        if file.kind == FileKind::Library
+            && replaced_paths.contains(file.path.as_str().trim_start_matches("libraries/"))
+        {
+            continue;
+        }
         if !native_artifact_matches(file.path.as_str(), &platform) {
             continue;
         }
@@ -145,10 +180,25 @@ fn prepare(version: &str, directory: &Path) -> Result<LaunchPreparation, Error> 
         );
         jvm_arguments.push(substitute(argument, &placeholders)?);
     }
-    let game_arguments = resolve_arguments(&metadata.arguments["game"], &platform, &placeholders)?;
+    let mut game_arguments =
+        resolve_arguments(&metadata.arguments["game"], &platform, &placeholders)?;
+    let mut main_class = metadata.main_class;
+    if let Some(state) = fabric {
+        main_class = state.profile.main_class;
+        jvm_arguments.extend(resolve_arguments(
+            &state.profile.arguments["jvm"],
+            &platform,
+            &placeholders,
+        )?);
+        game_arguments.extend(resolve_arguments(
+            &state.profile.arguments["game"],
+            &platform,
+            &placeholders,
+        )?);
+    }
     Ok(LaunchPreparation {
         required_java: metadata.java_version.major_version,
-        main_class: metadata.main_class,
+        main_class,
         classpath_entries: classpath.len(),
         classpath,
         jvm_arguments,
@@ -198,6 +248,72 @@ fn extract_natives(jar: &Path, destination: &Path, os: &str) -> Result<usize, Er
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn fabric_preparation_merges_arguments_and_replaces_parent_library_offline() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("cobble-fabric-launch-{nonce}"));
+        fs::create_dir_all(root.join("versions/synthetic")).unwrap();
+        fs::create_dir_all(root.join("assets/indexes")).unwrap();
+        fs::create_dir_all(root.join("libraries/example/asm/2")).unwrap();
+        let jar = root.join("libraries/example/asm/2/asm-2.jar");
+        fs::write(&jar, b"synthetic library").unwrap();
+        fs::write(
+            root.join("versions/synthetic/synthetic.jar"),
+            b"synthetic client",
+        )
+        .unwrap();
+        fs::write(root.join("assets/indexes/synthetic.json"), b"{}").unwrap();
+        fs::write(
+            root.join(".cobble-install.json"),
+            br#"{"version":"synthetic","complete":true,"client_only":false}"#,
+        )
+        .unwrap();
+        let artifact = serde_json::json!({"url":"https://example.invalid/unused", "sha1":"0000000000000000000000000000000000000000", "size":1});
+        let mut old = artifact.clone();
+        old["path"] = "example/asm/1/asm-1.jar".into();
+        let metadata = serde_json::json!({
+            "id":"synthetic", "type":"release", "mainClass":"example.Vanilla", "javaVersion":{"majorVersion":21},
+            "assetIndex":{"id":"synthetic","url":"https://example.invalid/index", "sha1":"0000000000000000000000000000000000000000","size":2},
+            "downloads":{"client":artifact}, "libraries":[{"name":"example:asm:1", "downloads":{"artifact":old}}],
+            "arguments":{"jvm":["-cp","${classpath}"], "game":["--username","${auth_player_name}"]}
+        });
+        fs::write(
+            root.join("versions/synthetic/synthetic.json"),
+            serde_json::to_vec(&metadata).unwrap(),
+        )
+        .unwrap();
+        let overlay = serde_json::json!({
+            "mc_version":"synthetic","loader_version":"0.16.14","complete":true,
+            "profile":{"id":"fabric-loader-0.16.14-synthetic","inheritsFrom":"synthetic","mainClass":"net.fabricmc.loader.impl.launch.knot.KnotClient",
+                "arguments":{"jvm":["-Dfixture=one argument with spaces"],"game":["--fixture"]},
+                "libraries":[{"name":"example:asm:2","url":"https://maven.fabricmc.net/"}]}
+        });
+        fs::write(
+            root.join(".cobble-fabric.json"),
+            serde_json::to_vec(&overlay).unwrap(),
+        )
+        .unwrap();
+        let plan = prepare("synthetic", &root).unwrap();
+        assert_eq!(
+            plan.main_class,
+            "net.fabricmc.loader.impl.launch.knot.KnotClient"
+        );
+        assert_eq!(plan.classpath.len(), 2);
+        assert!(plan.classpath[0].ends_with("asm-2.jar"));
+        assert_eq!(
+            plan.jvm_arguments.last().unwrap(),
+            "-Dfixture=one argument with spaces"
+        );
+        assert_eq!(
+            plan.game_arguments,
+            ["--username", "${auth_player_name}", "--fixture"]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn native_jars_extract_only_binaries_and_do_not_replace_existing_files() {
         let nonce = SystemTime::now()

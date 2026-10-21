@@ -449,6 +449,12 @@ dependencies = [
 [[package]]
 name = "cobble-content"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml 1.1.8+spec-1.1.0",
+ "zip",
+]
 
 [[package]]
 name = "cobble-core"
@@ -475,6 +481,7 @@ name = "cobble-desktop"
 version = "0.1.0"
 dependencies = [
  "cobble-auth",
+ "cobble-content",
  "cobble-core",
  "cobble-domain",
  "cobble-minecraft",

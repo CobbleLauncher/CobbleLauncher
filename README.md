@@ -7,13 +7,14 @@ CobbleLauncher is an open-source launcher for Minecraft: Java Edition. It aims t
 ## What you can do today
 
 - Use a clean, frameless interface with light and dark themes.
-- Create Vanilla installations from the desktop or command line.
+- Create Vanilla or Fabric installations from the desktop or command line.
 - Follow download progress and retry interrupted installations.
 - Choose the official download source, BMCLAPI, or a custom BMCLAPI-compatible source.
 - Choose Java automatically or select an installed runtime yourself.
-- Save an offline player name and launch installed Vanilla games.
+- Save an offline player name and launch installed games.
+- Import local Mods, view their details, and enable, disable, or remove them.
 
-Fabric, Forge, NeoForge, and modpack support are planned.
+Online Mod browsing, modpacks, Forge, and NeoForge support are planned.
 
 ## Get started
 
@@ -35,6 +36,8 @@ cargo run -p cobble-cli --locked -- versions
 cargo run -p cobble-cli --locked -- install 1.21.1 --dir ./game
 cargo run -p cobble-cli --locked -- play 1.21.1 --dir ./game --name Player
 ```
+
+For Fabric, add `--fabric <loader-version>` to the install command. Run `cargo run -p cobble-cli --locked -- fabric-versions 1.21.1` to list loaders.
 
 To use BMCLAPI, add `--source bmclapi`. Install a compatible Java runtime first. Offline profiles cannot authenticate to servers that require a Microsoft account.
 

@@ -104,7 +104,7 @@ test('create, real event presentation, failure and retry through mocked native b
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await expect(page.getByRole('article', { name: '林间小屋' })).toBeVisible();
   const createCall = await page.evaluate(() => (window as unknown as TestWindow).__calls.find((call) => call.command === 'create_game'));
-  expect(createCall?.args).toEqual({ name: '林间小屋', version: '1.21.1', source: { source: 'bmclapi', mirror: '' }, useDefaultDirectory: false });
+  expect(createCall?.args).toEqual({ name: '林间小屋', version: '1.21.1', loaderVersion: null, source: { source: 'bmclapi', mirror: '' }, useDefaultDirectory: false });
   await page.evaluate((game) => (window as unknown as TestWindow).__gameEvent(game), { ...initialGame, name: '林间小屋', progress: { phase: 'assets', completed: 24, total: 80, reused: 2 } } satisfies Game);
   await expect(page.getByRole('status')).toHaveText('下载游戏资源24 / 80');
   await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '24');

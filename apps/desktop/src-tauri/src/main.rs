@@ -37,6 +37,11 @@ fn main() {
             games::retry_game,
             games::prepare_game_launch,
             games::start_game,
+            games::list_fabric_versions,
+            games::list_game_mods,
+            games::import_game_mods,
+            games::set_game_mod_enabled,
+            games::remove_game_mod,
             offline::get_offline_profile,
             offline::save_offline_profile,
             offline::remove_offline_profile

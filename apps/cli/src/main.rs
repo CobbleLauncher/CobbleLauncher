@@ -13,7 +13,7 @@ fn main() -> ExitCode {
     match args.next().as_deref() {
         None | Some("--help" | "-h") => {
             println!(
-                "Cobble Launcher\n\nUsage:\n  cobble versions          List the latest 20 releases\n  cobble versions --all    List all versions, including snapshots\n  cobble info <version>    Show Java requirements and download size\n  cobble install <version> --dir <folder> [--client-only] [--source official|bmclapi | --mirror <https-base>]\n  cobble java <major>      Find a matching installed Java runtime\n  cobble launch-info <version> --dir <folder>  Prepare installed Vanilla without launching\n  cobble play <version> --dir <folder> [--name <offline-name>]  Launch with an explicit offline profile\n  cobble --version\n\nOffline profiles do not authenticate a Microsoft account."
+                "Cobble Launcher\n\nUsage:\n  cobble versions          List the latest 20 releases\n  cobble versions --all    List all versions, including snapshots\n  cobble fabric-versions <version>  List compatible Fabric loaders\n  cobble info <version>    Show Java requirements and download size\n  cobble install <version> --dir <folder> [--client-only | --fabric <loader-version>] [--source official|bmclapi | --mirror <https-base>]\n  cobble java <major>      Find a matching installed Java runtime\n  cobble launch-info <version> --dir <folder>  Prepare an installed game without launching\n  cobble play <version> --dir <folder> [--name <offline-name>]  Launch with an explicit offline profile\n  cobble --version\n\nOffline profiles do not authenticate a Microsoft account."
             );
             ExitCode::SUCCESS
         }
@@ -33,6 +33,37 @@ fn main() -> ExitCode {
             };
             match list_versions(all) {
                 Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("{error}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Some("fabric-versions") => {
+            let Some(version) = args.next().filter(|_| args.next().is_none()) else {
+                eprintln!("Usage: cobble fabric-versions <minecraft-version>");
+                return ExitCode::from(2);
+            };
+            let result = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|error| error.to_string())
+                .and_then(|runtime| {
+                    runtime
+                        .block_on(cobble_core::list_fabric_versions(&version))
+                        .map_err(|error| error.to_string())
+                });
+            match result {
+                Ok(versions) => {
+                    for loader in versions {
+                        println!(
+                            "{}{}",
+                            loader.version,
+                            if loader.stable { " (stable)" } else { "" }
+                        );
+                    }
+                    ExitCode::SUCCESS
+                }
                 Err(error) => {
                     eprintln!("{error}");
                     ExitCode::FAILURE
@@ -88,12 +119,13 @@ fn main() -> ExitCode {
         Some("install") => {
             let Some(version) = args.next() else {
                 eprintln!(
-                    "Usage: cobble install <version> --dir <folder> [--client-only] [--source official|bmclapi | --mirror <https-base>]"
+                    "Usage: cobble install <version> --dir <folder> [--client-only | --fabric <loader-version>] [--source official|bmclapi | --mirror <https-base>]"
                 );
                 return ExitCode::from(2);
             };
             let mut target = None;
             let mut client_only = false;
+            let mut fabric = None;
             let mut source = None;
             let mut source_selected = false;
             while let Some(option) = args.next() {
@@ -109,6 +141,13 @@ fn main() -> ExitCode {
                         }
                     }
                     "--client-only" if !client_only => client_only = true,
+                    "--fabric" if fabric.is_none() => {
+                        fabric = args.next().filter(|value| !value.starts_with("--"));
+                        if fabric.is_none() {
+                            eprintln!("--fabric requires a loader version");
+                            return ExitCode::from(2);
+                        }
+                    }
                     "--source" if !source_selected => {
                         source = Some(match args.next().as_deref() {
                             Some("official") => DownloadSource::Official,
@@ -132,7 +171,7 @@ fn main() -> ExitCode {
                     }
                     _ => {
                         eprintln!(
-                            "Usage: cobble install <version> --dir <folder> [--client-only] [--source official|bmclapi | --mirror <https-base>]"
+                            "Usage: cobble install <version> --dir <folder> [--client-only | --fabric <loader-version>] [--source official|bmclapi | --mirror <https-base>]"
                         );
                         return ExitCode::from(2);
                     }
@@ -140,7 +179,7 @@ fn main() -> ExitCode {
             }
             let Some(target) = target else {
                 eprintln!(
-                    "Usage: cobble install <version> --dir <folder> [--client-only] [--source official|bmclapi | --mirror <https-base>]"
+                    "Usage: cobble install <version> --dir <folder> [--client-only | --fabric <loader-version>] [--source official|bmclapi | --mirror <https-base>]"
                 );
                 return ExitCode::from(2);
             };
@@ -156,7 +195,11 @@ fn main() -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             };
-            match install::run(&version, &target, client_only, source) {
+            if client_only && fabric.is_some() {
+                eprintln!("--fabric cannot be combined with --client-only");
+                return ExitCode::from(2);
+            }
+            match install::run(&version, &target, client_only, source, fabric.as_deref()) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(error) => {
                     eprintln!("{error}");
