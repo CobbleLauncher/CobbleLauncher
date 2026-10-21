@@ -48,3 +48,5 @@ export type ModUpdateCheck = { updates: ModUpdateCandidate[]; managed_count: num
 export type ModUpdatePreview = { plan_id: string; changes: { project_id: string; name: string; from_version: string | null; to_version: string; filename: string; enabled: boolean }[] };
 export type ModUpdateResult = { updated: number; added: number };
 export type ModRecognitionResult = { recognized: number; unmatched: number };
+export type LocalPackKind = 'resource_pack' | 'shader_pack';
+export type LocalPack = { file_name: string; name: string; description: string | null; size_bytes: number; pack_format: number | null };

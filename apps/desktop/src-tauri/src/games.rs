@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+#[path = "local_packs.rs"]
+pub mod local_packs;
 #[path = "management.rs"]
 pub mod management;
 #[path = "mod_updates.rs"]

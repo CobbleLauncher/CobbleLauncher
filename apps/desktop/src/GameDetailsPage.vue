@@ -2,12 +2,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from 'reka-ui';
-import type { Game, GameAction, LocalMod, PlayerProfile, ProfileLibrary } from './games';
+import { DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, TabsRoot, TabsList, TabsTrigger, TabsContent } from 'reka-ui';
+import type { Game, GameAction, LocalMod, LocalPackKind, PlayerProfile, ProfileLibrary } from './games';
 import { gameLoaderLabel } from './games';
 import DiscoverMods from './DiscoverMods.vue';
 import ModUpdates from './ModUpdates.vue';
 import GameRuntimeSettings from './GameRuntimeSettings.vue';
+import LocalPacks from './LocalPacks.vue';
 
 const props = defineProps<{ game: Game; starting: boolean; profile: PlayerProfile | null; library: ProfileLibrary }>();
 const emit = defineEmits<{ play: [id: string]; renamed: [game: Game]; profileChanged: [game: Game]; action: [action: GameAction]; contentBusy: [value: boolean] }>();
@@ -60,6 +61,10 @@ async function openLocation(command: 'open_game_directory' | 'open_game_log') {
   catch (cause) { if (!disposed) actionError.value = `无法打开${command === 'open_game_log' ? '日志' : '文件夹'}：${String(cause)}`; }
   finally { actionBusy.value = false; }
 }
+const contentType = ref<'mod' | LocalPackKind>('mod');
+const visitedPacks = ref<LocalPackKind[]>([]);
+const packMutationBusy = ref(false);
+watch(contentType, (kind) => { if (kind !== 'mod' && !visitedPacks.value.includes(kind)) visitedPacks.value.push(kind); });
 const mods = ref<LocalMod[]>([]);
 const tab = ref<'installed' | 'discover' | 'updates'>('installed');
 const updatingMods = ref(false);
@@ -74,8 +79,8 @@ const error = ref('');
 const deleting = ref<string | null>(null);
 const selectedMods = ref<string[]>([]);
 const batchDeleting = ref(false);
-const contentBusy = computed(() => busy.value || installingMod.value || updatingMods.value);
-watch(() => busy.value || updatingMods.value, (value) => emit('contentBusy', value));
+const contentBusy = computed(() => busy.value || installingMod.value || updatingMods.value || packMutationBusy.value);
+watch(() => busy.value || updatingMods.value || packMutationBusy.value, (value) => emit('contentBusy', value));
 watch(mods, (value) => { selectedMods.value = selectedMods.value.filter((file) => value.some((mod) => mod.file_name === file)); });
 const allVisibleSelected = computed(() => filtered.value.length > 0 && filtered.value.every((mod) => selectedMods.value.includes(mod.file_name)));
 function selectMod(file: string, checked: boolean) { selectedMods.value = checked ? [...new Set([...selectedMods.value, file])] : selectedMods.value.filter((value) => value !== file); batchDeleting.value = false; }
@@ -99,7 +104,7 @@ async function batch(command: 'set_game_mod_enabled' | 'remove_game_mod', enable
   finally { await refresh(true); busy.value = false; }
 }
 let request = 0;
-const locked = computed(() => contentInstalling.value || props.starting || props.game.launch_state === 'preparing' || props.game.launch_state === 'running');
+const locked = computed(() => contentInstalling.value || packMutationBusy.value || props.starting || props.game.launch_state === 'preparing' || props.game.launch_state === 'running');
 const filtered = computed(() => {
   const search = query.value.trim().toLocaleLowerCase();
   return mods.value.filter((mod) => [mod.name, mod.file_name, mod.version, mod.loader, ...mod.authors].some((value) => value?.toLocaleLowerCase().includes(search)));
@@ -131,7 +136,7 @@ function remove(mod: LocalMod) {
   void mutate('remove_game_mod', { fileName: mod.file_name });
 }
 watch(locked, (value) => { if (value) { deleting.value = null; batchDeleting.value = false; } });
-watch(() => props.game.id, () => { mods.value = []; selectedMods.value = []; batchDeleting.value = false; busy.value = false; query.value = ''; void refresh(); }, { immediate: true });
+watch(() => props.game.id, () => { contentType.value = 'mod'; visitedPacks.value = []; mods.value = []; selectedMods.value = []; batchDeleting.value = false; busy.value = false; query.value = ''; void refresh(); }, { immediate: true });
 onUnmounted(() => { disposed = true; ++request; });
 </script>
 
@@ -161,7 +166,7 @@ onUnmounted(() => { disposed = true; ++request; });
         :disabled="locked || busy || profileBindingBusy"
         @click="$emit('play', game.id)"
       >
-        {{ recognizingMods ? '识别 Mod 中' : updatingMods ? '更新 Mod 中' : contentInstalling ? '安装 Mod 中' : game.launch_state === 'running' ? '运行中' : locked ? '启动中…' : profile ? `以 ${profile.name} 开始` : '选择玩家档案' }}
+        {{ packMutationBusy ? '处理内容中…' : recognizingMods ? '识别 Mod 中' : updatingMods ? '更新 Mod 中' : contentInstalling ? '安装 Mod 中' : game.launch_state === 'running' ? '运行中' : locked ? '启动中…' : profile ? `以 ${profile.name} 开始` : '选择玩家档案' }}
       </button>
     </div>
     <div class="game-management-actions">
@@ -363,272 +368,329 @@ onUnmounted(() => { disposed = true; ++request; });
       aria-labelledby="game-content-tab"
       class="content-section"
     >
-      <div
-        class="content-tabs"
-        role="tablist"
-        aria-label="Mod 内容"
+      <TabsRoot
+        v-model="contentType"
+        :unmount-on-hide="false"
       >
-        <button
-          id="installed-tab"
-          role="tab"
-          :aria-selected="tab === 'installed'"
-          :disabled="contentInstalling || busy"
-          aria-controls="installed-content"
-          @click="tab = 'installed'"
+        <TabsList
+          class="content-kind-tabs"
+          aria-label="内容类型"
         >
-          已安装 <span class="count">{{ mods.length }}</span>
-        </button>
-        <button
-          id="discover-tab"
-          role="tab"
-          :aria-selected="tab === 'discover'"
-          :disabled="contentInstalling || busy"
-          aria-controls="discover-content"
-          @click="tab = 'discover'"
-        >
-          发现 Mod
-        </button>
-        <button
-          id="updates-tab"
-          role="tab"
-          :aria-selected="tab === 'updates'"
-          :disabled="contentInstalling || busy"
-          aria-controls="updates-content"
-          @click="tab = 'updates'"
-        >
-          更新
-        </button>
-      </div>
-      <DiscoverMods
-        v-if="tab === 'discover'"
-        id="discover-content"
-        role="tabpanel"
-        aria-labelledby="discover-tab"
-        :game="game"
-        :locked="locked || busy"
-        @installing="installingMod = $event"
-        @installed="installed"
-      />
-      <ModUpdates
-        v-show="tab === 'updates'"
-        id="updates-content"
-        role="tabpanel"
-        aria-labelledby="updates-tab"
-        :game="game"
-        :locked="locked || busy || loading"
-        @busy="updatingMods = $event"
-        @recognizing="recognizingMods = $event"
-        @updated="refresh()"
-      />
-      <div
-        v-show="tab === 'installed'"
-        id="installed-content"
-        role="tabpanel"
-        aria-labelledby="installed-tab"
-      >
-        <div class="content-heading">
-          <h2 id="content-heading">
-            本地 Mod <span class="count">{{ mods.length }}</span>
-          </h2>
-          <button
-            class="secondary-button"
-            :disabled="locked || busy || loading"
-            @click="mutate('import_game_mods')"
+          <TabsTrigger
+            value="mod"
+            :disabled="contentBusy"
           >
-            {{ busy ? '处理中…' : '导入 Mod' }}
-          </button>
-        </div>
-        <p
-          v-if="locked && !contentInstalling"
-          class="setting-hint"
-          role="status"
-        >
-          游戏启动或运行期间无法修改内容，请关闭游戏后再试。
-        </p>
-        <p
-          v-else-if="!game.loader_version"
-          class="setting-hint"
-        >
-          原版不会加载 Mod。需要使用 Fabric 等模组加载器。
-        </p>
-        <div class="content-toolbar">
-          <input
-            v-model="query"
-            type="search"
-            aria-label="搜索本地 Mod"
-            placeholder="搜索名称、版本或作者"
-            :disabled="loading"
+            Mod
+          </TabsTrigger>
+          <TabsTrigger
+            value="resource_pack"
+            :disabled="contentBusy"
           >
-          <button
-            class="text-button"
-            :disabled="busy || loading"
-            @click="refresh()"
+            资源包
+          </TabsTrigger>
+          <TabsTrigger
+            value="shader_pack"
+            :disabled="contentBusy"
           >
-            {{ loading ? '读取中…' : '刷新' }}
-          </button>
-        </div>
-        <div
-          v-if="mods.length"
-          class="mod-selection-toolbar installed-selection"
+            光影包
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent
+          value="mod"
+          class="content-kind-panel"
         >
-          <label class="mod-selection-label"><input
-            type="checkbox"
-            aria-label="全选当前列表"
-            :checked="allVisibleSelected"
-            :indeterminate="filtered.some((mod) => selectedMods.includes(mod.file_name)) && !allVisibleSelected"
-            :disabled="locked || busy || loading || !filtered.length"
-            @change="selectVisible(($event.target as HTMLInputElement).checked)"
-          ><span>{{ selectedMods.length ? `已选择 ${selectedMods.length} 个` : '选择 Mod' }}</span></label>
           <div
-            v-if="selectedMods.length"
-            class="mod-batch-actions"
+            class="content-tabs"
+            role="tablist"
+            aria-label="Mod 内容"
           >
             <button
-              class="text-button"
-              :disabled="locked || busy || loading"
-              @click="batch('set_game_mod_enabled', true)"
+              id="installed-tab"
+              role="tab"
+              :aria-selected="tab === 'installed'"
+              :disabled="contentInstalling || busy"
+              aria-controls="installed-content"
+              @click="tab = 'installed'"
             >
-              启用所选
-            </button><button
-              class="text-button"
-              :disabled="locked || busy || loading"
-              @click="batch('set_game_mod_enabled', false)"
-            >
-              停用所选
-            </button><button
-              class="text-button danger-text"
-              :disabled="locked || busy || loading"
-              @click="batchDeleting = true; deleting = null"
-            >
-              移除所选
+              已安装 <span class="count">{{ mods.length }}</span>
             </button>
-          </div>
-        </div>
-        <div
-          v-if="batchDeleting"
-          class="mod-batch-confirm"
-        >
-          <p>移除选中的 {{ selectedMods.length }} 个 Mod？游戏和存档会保留。</p><div class="profile-form-actions">
             <button
-              class="secondary-button danger-text"
-              :disabled="locked || busy || loading"
-              @click="batch('remove_game_mod')"
+              id="discover-tab"
+              role="tab"
+              :aria-selected="tab === 'discover'"
+              :disabled="contentInstalling || busy"
+              aria-controls="discover-content"
+              @click="tab = 'discover'"
             >
-              确认移除所选
-            </button><button
-              class="text-button"
-              :disabled="busy"
-              @click="batchDeleting = false"
+              发现 Mod
+            </button>
+            <button
+              id="updates-tab"
+              role="tab"
+              :aria-selected="tab === 'updates'"
+              :disabled="contentInstalling || busy"
+              aria-controls="updates-content"
+              @click="tab = 'updates'"
             >
-              取消
+              更新
             </button>
           </div>
-        </div>
-        <p
-          v-if="error"
-          class="settings-error"
-          role="alert"
-        >
-          {{ error }}
-        </p>
-        <p
-          v-if="loading"
-          class="content-empty"
-          role="status"
-        >
-          正在读取本地内容…
-        </p>
-        <ul
-          v-else-if="filtered.length"
-          class="mod-list"
-          aria-label="本地 Mod"
-        >
-          <li
-            v-for="mod in filtered"
-            :key="mod.file_name"
-            class="mod-row"
+          <DiscoverMods
+            v-if="tab === 'discover'"
+            id="discover-content"
+            role="tabpanel"
+            aria-labelledby="discover-tab"
+            :game="game"
+            :locked="locked || busy"
+            @installing="installingMod = $event"
+            @installed="installed"
+          />
+          <ModUpdates
+            v-show="tab === 'updates'"
+            id="updates-content"
+            role="tabpanel"
+            aria-labelledby="updates-tab"
+            :game="game"
+            :locked="locked || busy || loading"
+            @busy="updatingMods = $event"
+            @recognizing="recognizingMods = $event"
+            @updated="refresh()"
+          />
+          <div
+            v-show="tab === 'installed'"
+            id="installed-content"
+            role="tabpanel"
+            aria-labelledby="installed-tab"
           >
-            <input
-              class="mod-selection-checkbox"
-              type="checkbox"
-              :aria-label="`选择 ${mod.name}`"
-              :checked="selectedMods.includes(mod.file_name)"
-              :disabled="locked || busy || loading"
-              @change="selectMod(mod.file_name, ($event.target as HTMLInputElement).checked)"
-            >
-            <div
-              class="mod-info"
-              :class="{ 'mod-disabled': !mod.enabled }"
-            >
-              <h3>
-                {{ mod.name }}<span
-                  v-if="!mod.enabled"
-                  class="mod-state"
-                >已禁用</span>
-                <span
-                  v-if="mod.pack_owned || game.pack_name"
-                  class="mod-state"
-                >{{ mod.pack_owned ? '整合包自带' : '自行添加' }}</span>
-              </h3>
-              <p class="mod-meta">
-                {{ mod.version || '版本未知' }} · {{ mod.loader || '加载器未知' }}<span v-if="mod.authors.length"> · {{ mod.authors.join('、') }}</span>
-              </p>
-              <p
-                v-if="mod.description"
-                class="mod-description"
-              >
-                {{ mod.description }}
-              </p>
-              <p class="mod-filename">
-                {{ mod.file_name }}
-              </p>
-            </div>
-            <div class="mod-actions">
+            <div class="content-heading">
+              <h2 id="content-heading">
+                本地 Mod <span class="count">{{ mods.length }}</span>
+              </h2>
               <button
-                class="mod-toggle"
-                role="switch"
-                :aria-label="`启用 ${mod.name}`"
-                :aria-checked="mod.enabled"
+                class="secondary-button"
                 :disabled="locked || busy || loading"
-                @click="mutate('set_game_mod_enabled', { fileName: mod.file_name, enabled: !mod.enabled })"
+                @click="mutate('import_game_mods')"
               >
-                <span />
+                {{ busy ? '处理中…' : '导入 Mod' }}
               </button>
-              <template v-if="deleting === mod.file_name">
+            </div>
+            <p
+              v-if="locked && !contentInstalling"
+              class="setting-hint"
+              role="status"
+            >
+              游戏启动或运行期间无法修改内容，请关闭游戏后再试。
+            </p>
+            <p
+              v-else-if="!game.loader_version"
+              class="setting-hint"
+            >
+              原版不会加载 Mod。需要使用 Fabric 等模组加载器。
+            </p>
+            <div class="content-toolbar">
+              <input
+                v-model="query"
+                type="search"
+                aria-label="搜索本地 Mod"
+                placeholder="搜索名称、版本或作者"
+                :disabled="loading"
+              >
+              <button
+                class="text-button"
+                :disabled="busy || loading"
+                @click="refresh()"
+              >
+                {{ loading ? '读取中…' : '刷新' }}
+              </button>
+            </div>
+            <div
+              v-if="mods.length"
+              class="mod-selection-toolbar installed-selection"
+            >
+              <label class="mod-selection-label"><input
+                type="checkbox"
+                aria-label="全选当前列表"
+                :checked="allVisibleSelected"
+                :indeterminate="filtered.some((mod) => selectedMods.includes(mod.file_name)) && !allVisibleSelected"
+                :disabled="locked || busy || loading || !filtered.length"
+                @change="selectVisible(($event.target as HTMLInputElement).checked)"
+              ><span>{{ selectedMods.length ? `已选择 ${selectedMods.length} 个` : '选择 Mod' }}</span></label>
+              <div
+                v-if="selectedMods.length"
+                class="mod-batch-actions"
+              >
                 <button
                   class="text-button"
                   :disabled="locked || busy || loading"
-                  @click="remove(mod)"
+                  @click="batch('set_game_mod_enabled', true)"
                 >
-                  确认删除
+                  启用所选
+                </button><button
+                  class="text-button"
+                  :disabled="locked || busy || loading"
+                  @click="batch('set_game_mod_enabled', false)"
+                >
+                  停用所选
+                </button><button
+                  class="text-button danger-text"
+                  :disabled="locked || busy || loading"
+                  @click="batchDeleting = true; deleting = null"
+                >
+                  移除所选
                 </button>
+              </div>
+            </div>
+            <div
+              v-if="batchDeleting"
+              class="mod-batch-confirm"
+            >
+              <p>移除选中的 {{ selectedMods.length }} 个 Mod？游戏和存档会保留。</p><div class="profile-form-actions">
                 <button
+                  class="secondary-button danger-text"
+                  :disabled="locked || busy || loading"
+                  @click="batch('remove_game_mod')"
+                >
+                  确认移除所选
+                </button><button
                   class="text-button"
                   :disabled="busy"
-                  @click="deleting = null"
+                  @click="batchDeleting = false"
                 >
                   取消
                 </button>
-              </template>
-              <button
-                v-else
-                class="text-button"
-                :aria-label="`删除 ${mod.name}`"
-                :disabled="locked || busy || loading"
-                @click="deleting = mod.file_name"
-              >
-                删除
-              </button>
+              </div>
             </div>
-          </li>
-        </ul>
-        <p
-          v-else
-          class="content-empty"
+            <p
+              v-if="error"
+              class="settings-error"
+              role="alert"
+            >
+              {{ error }}
+            </p>
+            <p
+              v-if="loading"
+              class="content-empty"
+              role="status"
+            >
+              正在读取本地内容…
+            </p>
+            <ul
+              v-else-if="filtered.length"
+              class="mod-list"
+              aria-label="本地 Mod"
+            >
+              <li
+                v-for="mod in filtered"
+                :key="mod.file_name"
+                class="mod-row"
+              >
+                <input
+                  class="mod-selection-checkbox"
+                  type="checkbox"
+                  :aria-label="`选择 ${mod.name}`"
+                  :checked="selectedMods.includes(mod.file_name)"
+                  :disabled="locked || busy || loading"
+                  @change="selectMod(mod.file_name, ($event.target as HTMLInputElement).checked)"
+                >
+                <div
+                  class="mod-info"
+                  :class="{ 'mod-disabled': !mod.enabled }"
+                >
+                  <h3>
+                    {{ mod.name }}<span
+                      v-if="!mod.enabled"
+                      class="mod-state"
+                    >已禁用</span>
+                    <span
+                      v-if="mod.pack_owned || game.pack_name"
+                      class="mod-state"
+                    >{{ mod.pack_owned ? '整合包自带' : '自行添加' }}</span>
+                  </h3>
+                  <p class="mod-meta">
+                    {{ mod.version || '版本未知' }} · {{ mod.loader || '加载器未知' }}<span v-if="mod.authors.length"> · {{ mod.authors.join('、') }}</span>
+                  </p>
+                  <p
+                    v-if="mod.description"
+                    class="mod-description"
+                  >
+                    {{ mod.description }}
+                  </p>
+                  <p class="mod-filename">
+                    {{ mod.file_name }}
+                  </p>
+                </div>
+                <div class="mod-actions">
+                  <button
+                    class="mod-toggle"
+                    role="switch"
+                    :aria-label="`启用 ${mod.name}`"
+                    :aria-checked="mod.enabled"
+                    :disabled="locked || busy || loading"
+                    @click="mutate('set_game_mod_enabled', { fileName: mod.file_name, enabled: !mod.enabled })"
+                  >
+                    <span />
+                  </button>
+                  <template v-if="deleting === mod.file_name">
+                    <button
+                      class="text-button"
+                      :disabled="locked || busy || loading"
+                      @click="remove(mod)"
+                    >
+                      确认删除
+                    </button>
+                    <button
+                      class="text-button"
+                      :disabled="busy"
+                      @click="deleting = null"
+                    >
+                      取消
+                    </button>
+                  </template>
+                  <button
+                    v-else
+                    class="text-button"
+                    :aria-label="`删除 ${mod.name}`"
+                    :disabled="locked || busy || loading"
+                    @click="deleting = mod.file_name"
+                  >
+                    删除
+                  </button>
+                </div>
+              </li>
+            </ul>
+            <p
+              v-else
+              class="content-empty"
+            >
+              {{ query.trim() ? '没有找到匹配的 Mod。' : '还没有 Mod，导入本地 .jar 文件开始。' }}
+            </p>
+          </div>
+        </TabsContent>
+        <TabsContent
+          value="resource_pack"
+          class="content-kind-panel"
         >
-          {{ query.trim() ? '没有找到匹配的 Mod。' : '还没有 Mod，导入本地 .jar 文件开始。' }}
-        </p>
-      </div>
+          <LocalPacks
+            v-if="visitedPacks.includes('resource_pack')"
+            :game-id="game.id"
+            kind="resource_pack"
+            :locked="locked || busy"
+            @busy="packMutationBusy = $event"
+          />
+        </TabsContent>
+        <TabsContent
+          value="shader_pack"
+          class="content-kind-panel"
+        >
+          <LocalPacks
+            v-if="visitedPacks.includes('shader_pack')"
+            :game-id="game.id"
+            kind="shader_pack"
+            :locked="locked || busy"
+            @busy="packMutationBusy = $event"
+          />
+        </TabsContent>
+      </TabsRoot>
     </section>
   </div>
 </template>
