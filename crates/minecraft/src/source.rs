@@ -75,10 +75,20 @@ impl DownloadSource {
         {
             return Ok(official_url.into());
         }
-        let path = official.path();
+        let path = if official.host_str() == Some("maven.neoforged.net") {
+            official
+                .path()
+                .strip_prefix("/releases")
+                .unwrap_or(official.path())
+        } else {
+            official.path()
+        };
         let prefix = match official.host_str() {
             Some("resources.download.minecraft.net") => "/assets",
-            Some("libraries.minecraft.net" | "maven.fabricmc.net") => "/maven",
+            Some("libraries.minecraft.net" | "maven.fabricmc.net" | "maven.minecraftforge.net") => {
+                "/maven"
+            }
+            Some("maven.neoforged.net") if path.starts_with("/net/neoforged/neoforge/") => "/maven",
             Some("meta.fabricmc.net") if path.starts_with("/v2/") => "/fabric-meta",
             Some("piston-meta.mojang.com" | "launchermeta.mojang.com")
                 if path.starts_with("/v1/packages/") || path.starts_with("/mc/game/") =>
@@ -126,6 +136,14 @@ mod tests {
     #[test]
     fn maps_only_known_public_content_routes() {
         for (input, path) in [
+            (
+                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.21.1-52.1.0/forge-1.21.1-52.1.0-installer.jar",
+                "/maven/net/minecraftforge/forge/1.21.1-52.1.0/forge-1.21.1-52.1.0-installer.jar",
+            ),
+            (
+                "https://maven.neoforged.net/releases/net/neoforged/neoforge/21.1.264/neoforge-21.1.264-installer.jar",
+                "/maven/net/neoforged/neoforge/21.1.264/neoforge-21.1.264-installer.jar",
+            ),
             (
                 "https://meta.fabricmc.net/v2/versions/loader/1.21.1",
                 "/fabric-meta/v2/versions/loader/1.21.1",

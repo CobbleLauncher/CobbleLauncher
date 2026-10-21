@@ -17,6 +17,7 @@ fn main() {
             "prepare_game_launch",
             "start_game",
             "list_fabric_versions",
+            "list_loader_versions",
             "rename_game",
             "open_game_directory",
             "open_game_log",

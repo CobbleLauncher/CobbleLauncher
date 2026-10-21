@@ -101,6 +101,9 @@ pub async fn install_fabric(
     source: DownloadSource,
     on_progress: Arc<dyn Fn(InstallProgress) + Send + Sync>,
 ) -> Result<InstallOutcome, Error> {
+    if target.join(".cobble-forge.json").exists() {
+        return Err("this instance already has Forge or NeoForge".into());
+    }
     identifier(mc_version)?;
     identifier(loader_version)?;
     let broker = Broker::new(BrokerConfig {
@@ -343,6 +346,37 @@ pub(crate) fn overlay_classpath(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn forge_instance_is_rejected_before_metadata_fetch_or_base_writes() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!("cobble-fabric-forge-guard-{nonce}"));
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::write(directory.join(".cobble-forge.json"), b"owned Forge marker").unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let error = runtime
+            .block_on(install_fabric(
+                "1.21.1",
+                "0.16.14",
+                &directory,
+                DownloadSource::Official,
+                Arc::new(|_| {}),
+            ))
+            .unwrap_err();
+        assert!(error.to_string().contains("already has Forge or NeoForge"));
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+        assert_eq!(
+            std::fs::read(directory.join(".cobble-forge.json")).unwrap(),
+            b"owned Forge marker"
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
     #[test]
     fn maven_paths_preserve_plus_and_reject_traversal_and_foreign_hosts() {
         let mut library = FabricLibrary {

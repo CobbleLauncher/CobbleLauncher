@@ -38,6 +38,7 @@ fn main() {
             games::prepare_game_launch,
             games::start_game,
             games::list_fabric_versions,
+            games::list_loader_versions,
             games::rename_game,
             games::open_game_directory,
             games::open_game_log,

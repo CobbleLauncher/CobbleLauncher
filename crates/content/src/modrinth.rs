@@ -68,7 +68,7 @@ fn identifier(value: &str) -> Result<(), BoxError> {
     Ok(())
 }
 fn target(mc: &str, loader: &str) -> Result<(), BoxError> {
-    if loader != "fabric"
+    if !matches!(loader, "fabric" | "forge" | "neoforge")
         || mc.is_empty()
         || mc.len() > 64
         || !mc
@@ -76,7 +76,7 @@ fn target(mc: &str, loader: &str) -> Result<(), BoxError> {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
     {
         return Err(error(
-            "Modrinth browsing currently supports Fabric; the Minecraft version must be a valid version identifier",
+            "Modrinth browsing supports Fabric, Forge and NeoForge; the Minecraft version must be a valid version identifier",
         ));
     }
     Ok(())
@@ -93,16 +93,7 @@ pub async fn search_modrinth(
     if query.len() > 200 || offset > 100_000 {
         return Err(error("Search query or offset is too large"));
     }
-    let facets = serde_json::to_string(&vec![
-        vec!["project_type:mod".to_string()],
-        vec![format!("versions:{mc}")],
-        vec![format!("categories:{loader}")],
-        vec![
-            "client_side:required".to_string(),
-            "client_side:optional".to_string(),
-            "client_side:unknown".to_string(),
-        ],
-    ])?;
+    let facets = search_facets(mc, loader)?;
     let mut url = Url::parse(&format!("{API}search"))?;
     url.query_pairs_mut()
         .append_pair("query", query)
@@ -112,6 +103,20 @@ pub async fn search_modrinth(
         .append_pair("index", "relevance");
     let mut api = LiveApi::new()?;
     api.get(url).await
+}
+
+fn search_facets(mc: &str, loader: &str) -> Result<String, BoxError> {
+    target(mc, loader)?;
+    Ok(serde_json::to_string(&vec![
+        vec!["project_type:mod".to_string()],
+        vec![format!("versions:{mc}")],
+        vec![format!("categories:{loader}")],
+        vec![
+            "client_side:required".to_string(),
+            "client_side:optional".to_string(),
+            "client_side:unknown".to_string(),
+        ],
+    ])?)
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -502,15 +507,13 @@ mod tests {
         serde_json::from_value(json!({"project_id":project,"id":id,"version_number":id,"version_type":"release","date_published":date,"game_versions":["1.21.1"],"loaders":["fabric"],"dependencies":deps,"files":[{"url":"https://cdn.modrinth.com/data/Example/versions/Example/example.jar","filename":format!("{project}.jar"),"size":100,"primary":true,"hashes":{"sha1":"0123456789012345678901234567890123456789"}}]})).unwrap()
     }
     fn run(versions: Vec<Version>) -> Result<ModrinthPlan, BoxError> {
+        run_for_loader(versions, "fabric")
+    }
+    fn run_for_loader(versions: Vec<Version>, loader: &str) -> Result<ModrinthPlan, BoxError> {
         tokio::runtime::Builder::new_current_thread()
             .build()
             .unwrap()
-            .block_on(resolve(
-                &mut Fixture { versions },
-                "Root",
-                "1.21.1",
-                "fabric",
-            ))
+            .block_on(resolve(&mut Fixture { versions }, "Root", "1.21.1", loader))
     }
     #[test]
     fn required_cycle_is_deduplicated_optional_and_embedded_skipped() {
@@ -627,9 +630,60 @@ mod tests {
         root.files[0].url = "https://cdn.modrinth.com/data/mod.jar".into();
         root.files[0].filename = "../escape.jar".into();
         assert!(file(&root).is_err());
-        assert!(target("1.21.1", "forge").is_err());
+        assert!(target("1.21.1", "quilt").is_err());
         assert!(target("26.1", "fabric").is_ok());
         assert!(target("../version", "fabric").is_err());
         assert!(identifier("../../version").is_err());
+    }
+
+    #[test]
+    fn supported_loader_search_facets_and_resolution_are_exact() {
+        for loader in ["fabric", "forge", "neoforge"] {
+            let facets: serde_json::Value =
+                serde_json::from_str(&search_facets("1.21.1", loader).unwrap()).unwrap();
+            assert_eq!(facets[1], json!(["versions:1.21.1"]));
+            assert_eq!(facets[2], json!([format!("categories:{loader}")]));
+            let mut selected = version("Root", "Correct", "2026-01-01", json!([]));
+            selected.loaders = vec![loader.into()];
+            let mut wrong = selected.clone();
+            wrong.id = "WrongLoader".into();
+            wrong.date_published = "2026-12-01".into();
+            wrong.loaders = vec![
+                if loader == "fabric" {
+                    "forge"
+                } else {
+                    "fabric"
+                }
+                .into(),
+            ];
+            let plan = run_for_loader(vec![wrong.clone(), selected], loader).unwrap();
+            assert_eq!(plan.version_id, "Correct");
+            assert!(run_for_loader(vec![wrong], loader).is_err());
+        }
+    }
+
+    #[test]
+    fn forge_and_neoforge_required_pins_retain_loader_filtering() {
+        for loader in ["forge", "neoforge"] {
+            let mut root = version(
+                "Root",
+                "RootV",
+                "2026-01-01",
+                json!([{"project_id":"Lib","version_id":"LibV","dependency_type":"required"}]),
+            );
+            root.loaders = vec![loader.into()];
+            let mut lib = version("Lib", "LibV", "2026-01-01", json!([]));
+            assert!(
+                run_for_loader(vec![root.clone(), lib.clone()], loader)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("incompatible target metadata")
+            );
+            lib.loaders = vec![loader.into()];
+            assert_eq!(
+                run_for_loader(vec![root, lib], loader).unwrap().mods.len(),
+                2
+            );
+        }
     }
 }

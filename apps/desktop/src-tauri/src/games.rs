@@ -18,6 +18,8 @@ pub struct Game {
     version: String,
     #[serde(default)]
     loader_version: Option<String>,
+    #[serde(default)]
+    loader_kind: Option<String>,
     directory: PathBuf,
     status: String,
     error: Option<String>,
@@ -203,6 +205,11 @@ pub fn create_mrpack_game(
         name: name.trim().into(),
         version: selection.pack.minecraft_version.clone(),
         loader_version: selection.pack.loader_version.clone(),
+        loader_kind: selection
+            .pack
+            .loader_version
+            .as_ref()
+            .map(|_| "fabric".into()),
         status: "installing".into(),
         error: None,
         progress: None,
@@ -352,6 +359,7 @@ pub async fn pick_game_directory(
     Ok(Some(display))
 }
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn create_game(
     app: AppHandle,
     library: State<'_, GameLibrary>,
@@ -360,10 +368,20 @@ pub fn create_game(
     source: DownloadSettings,
     use_default_directory: bool,
     loader_version: Option<String>,
+    loader_kind: Option<String>,
 ) -> Result<Game, String> {
     if name.trim().is_empty() {
         return Err("请填写游戏名称".into());
     }
+    let loader_kind = if loader_version.is_some() {
+        let kind = loader_kind.unwrap_or_else(|| "fabric".into());
+        if !matches!(kind.as_str(), "fabric" | "forge" | "neoforge") {
+            return Err("不支持这个模组加载器".into());
+        }
+        Some(kind)
+    } else {
+        None
+    };
     let resolved_source = source.download_source().map_err(|e| e.to_string())?;
     cobble_minecraft::save_download_settings(&source).map_err(|e| e.to_string())?;
     let mut library = library.0.lock().map_err(|e| e.to_string())?;
@@ -391,6 +409,7 @@ pub fn create_game(
         name: name.trim().into(),
         version,
         loader_version,
+        loader_kind,
         status: "installing".into(),
         error: None,
         progress: None,
@@ -499,16 +518,41 @@ fn start_install(app: AppHandle, game: Game, source: cobble_minecraft::DownloadS
             }
         } else {
             match &game.loader_version {
-                Some(loader) => {
-                    cobble_core::install_fabric(
-                        &game.version,
-                        loader,
-                        &game.directory,
-                        source,
-                        progress,
-                    )
-                    .await
-                }
+                Some(loader) => match game.loader_kind.as_deref().unwrap_or("fabric") {
+                    "fabric" => {
+                        cobble_core::install_fabric(
+                            &game.version,
+                            loader,
+                            &game.directory,
+                            source,
+                            progress,
+                        )
+                        .await
+                    }
+                    "forge" => {
+                        cobble_core::install_forge(
+                            &game.version,
+                            loader,
+                            cobble_core::ForgeKind::Forge,
+                            &game.directory,
+                            source,
+                            progress,
+                        )
+                        .await
+                    }
+                    "neoforge" => {
+                        cobble_core::install_forge(
+                            &game.version,
+                            loader,
+                            cobble_core::ForgeKind::NeoForge,
+                            &game.directory,
+                            source,
+                            progress,
+                        )
+                        .await
+                    }
+                    _ => Err("unsupported mod loader".into()),
+                },
                 None => {
                     cobble_core::install_game(&game.version, &game.directory, source, progress)
                         .await
@@ -775,7 +819,7 @@ pub async fn remove_game_mod(
     .map_err(|e| e.to_string())?
 }
 
-fn modrinth_target(app: &AppHandle, id: &str) -> Result<String, String> {
+fn modrinth_target(app: &AppHandle, id: &str) -> Result<(String, String), String> {
     let state = app.state::<GameLibrary>();
     let library = state.0.lock().map_err(|e| e.to_string())?;
     let game = library
@@ -787,9 +831,12 @@ fn modrinth_target(app: &AppHandle, id: &str) -> Result<String, String> {
         return Err("请先完成游戏安装".into());
     }
     if game.loader_version.is_none() {
-        return Err("请先创建 Fabric 游戏，再安装 Mod".into());
+        return Err("请先创建带模组加载器的游戏，再安装 Mod".into());
     }
-    Ok(game.version.clone())
+    Ok((
+        game.version.clone(),
+        game.loader_kind.clone().unwrap_or_else(|| "fabric".into()),
+    ))
 }
 
 #[tauri::command]
@@ -799,8 +846,8 @@ pub async fn search_game_mods(
     query: String,
     offset: u32,
 ) -> Result<cobble_content::SearchResults, String> {
-    let version = modrinth_target(&app, &id)?;
-    cobble_content::search_modrinth(&query, &version, "fabric", offset)
+    let (version, kind) = modrinth_target(&app, &id)?;
+    cobble_content::search_modrinth(&query, &version, &kind, offset)
         .await
         .map_err(|e| e.to_string())
 }
@@ -827,8 +874,8 @@ pub async fn preview_game_mod_install(
     id: String,
     project_id: String,
 ) -> Result<ModInstallPreview, String> {
-    let version = modrinth_target(&app, &id)?;
-    let plan = cobble_content::resolve_modrinth(&project_id, &version, "fabric")
+    let (version, kind) = modrinth_target(&app, &id)?;
+    let plan = cobble_content::resolve_modrinth(&project_id, &version, &kind)
         .await
         .map_err(|e| e.to_string())?;
     let plan_id = SystemTime::now()
@@ -876,7 +923,7 @@ pub async fn install_game_mod_plan(
             .find(|g| g.id == id)
             .ok_or("找不到这个游戏")?;
         if game.status != "installed" || game.loader_version.is_none() {
-            return Err("请先完成 Fabric 安装".into());
+            return Err("请先完成游戏和模组加载器安装".into());
         }
         if game.launch_state != "idle" || game.content_installing {
             return Err("请先关闭游戏或等待安装完成".into());
@@ -964,4 +1011,21 @@ pub async fn open_game_log(app: AppHandle, id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || open::that(path).map_err(|e| e.to_string()))
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn list_loader_versions(
+    version: String,
+    kind: String,
+    source: DownloadSettings,
+) -> Result<Vec<cobble_core::ForgeVersion>, String> {
+    source.download_source().map_err(|e| e.to_string())?;
+    let kind = match kind.as_str() {
+        "forge" => cobble_core::ForgeKind::Forge,
+        "neoforge" => cobble_core::ForgeKind::NeoForge,
+        _ => return Err("不支持这个模组加载器".into()),
+    };
+    cobble_core::list_forge_versions(&version, kind)
+        .await
+        .map_err(|e| e.to_string())
 }

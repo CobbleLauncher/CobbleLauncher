@@ -1,41 +1,48 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { RadioGroupRoot, RadioGroupItem } from 'reka-ui';
 import { defaultDownloadSettings, readDownloadSettings, validateDownloadSettings } from './download-settings';
-import type { FabricVersion, Game, GameVersion } from './games';
+import { loaderLabel, type FabricVersion, type Game, type GameVersion, type LoaderVersion } from './games';
 
 const emit = defineEmits<{ created: [game: Game] }>();
 const name = ref('我的世界');
 const version = ref('');
 const loader = ref('vanilla');
 const loaderVersion = ref('');
-const fabricVersions = ref<FabricVersion[]>([]);
-const loadingFabric = ref(false);
-const fabricError = ref('');
-let fabricRequest = 0;
-async function loadFabricVersions() {
-  const request = ++fabricRequest;
+const loaderVersions = ref<LoaderVersion[]>([]);
+const selectedLoaderLabel = computed(() => loaderLabel(loader.value));
+const loadingLoader = ref(false);
+const loaderError = ref('');
+let loaderRequest = 0;
+async function loadLoaderVersions() {
+  const request = ++loaderRequest;
   loaderVersion.value = '';
-  fabricVersions.value = [];
-  fabricError.value = '';
-  loadingFabric.value = false;
-  if (loader.value !== 'fabric' || !version.value || !isTauri()) return;
-  loadingFabric.value = true;
+  loaderVersions.value = [];
+  loaderError.value = '';
+  loadingLoader.value = false;
+  if (loader.value === 'vanilla' || !version.value || !isTauri()) return;
+  const sourceError = validateDownloadSettings(source.value);
+  if (sourceError) { loaderError.value = sourceError; return; }
+  const kind = loader.value;
+  const label = loaderLabel(kind);
+  loadingLoader.value = true;
   try {
-    const result = await invoke<FabricVersion[]>('list_fabric_versions', { version: version.value, source: { ...source.value } });
-    if (request !== fabricRequest) return;
-    fabricVersions.value = result;
-    loaderVersion.value = (result.find((item) => item.stable) ?? result[0])?.version ?? '';
-    if (!result.length) fabricError.value = '此 Minecraft 版本暂无可用的 Fabric';
+    const result = kind === 'fabric'
+      ? (await invoke<FabricVersion[]>('list_fabric_versions', { version: version.value, source: { ...source.value } })).map((item) => ({ version: item.version, recommended: item.stable }))
+      : await invoke<LoaderVersion[]>('list_loader_versions', { version: version.value, kind, source: { ...source.value } });
+    if (request !== loaderRequest) return;
+    loaderVersions.value = result;
+    loaderVersion.value = (result.find((item) => item.recommended) ?? result[0])?.version ?? '';
+    if (!result.length) loaderError.value = `此 Minecraft 版本暂无可用的 ${label}`;
   } catch (cause) {
-    if (request === fabricRequest) fabricError.value = `无法获取 Fabric 版本：${String(cause)}`;
-  } finally { if (request === fabricRequest) loadingFabric.value = false; }
+    if (request === loaderRequest) loaderError.value = `无法获取 ${label} 版本：${String(cause)}`;
+  } finally { if (request === loaderRequest) loadingLoader.value = false; }
 }
 const versions = ref<GameVersion[]>([]);
 const source = ref(defaultDownloadSettings());
-watch([loader, version, () => source.value.source, () => source.value.mirror], () => { void loadFabricVersions(); });
+watch([loader, version, () => source.value.source, () => source.value.mirror], () => { void loadLoaderVersions(); });
 const directory = ref('');
 const useDefaultDirectory = ref(true);
 const loading = ref(false);
@@ -102,17 +109,17 @@ async function create() {
   error.value = validateDownloadSettings(source.value) ?? '';
   if (error.value) return;
   if (!name.value.trim() || !version.value) { error.value = '请填写游戏名称并选择版本'; return; }
-  if (loader.value === 'fabric' && (loadingFabric.value || !loaderVersion.value)) { error.value = '请选择可用的 Fabric 版本'; return; }
+  if (loader.value !== 'vanilla' && (loadingLoader.value || !loaderVersion.value)) { error.value = "请选择可用的" + selectedLoaderLabel.value + "版本"; return; }
   submitting.value = true;
   try {
-    const game = await invoke<Game>('create_game', { name: name.value.trim(), version: version.value, loaderVersion: loader.value === 'fabric' ? loaderVersion.value : null, source: { ...source.value }, useDefaultDirectory: useDefaultDirectory.value });
+    const game = await invoke<Game>('create_game', { name: name.value.trim(), version: version.value, loaderKind: loader.value === 'vanilla' ? null : loader.value, loaderVersion: loader.value !== 'vanilla' ? loaderVersion.value : null, source: { ...source.value }, useDefaultDirectory: useDefaultDirectory.value });
     emit('created', game);
   } catch (cause) { error.value = `无法创建游戏：${String(cause)}`; }
   finally { submitting.value = false; }
 }
 
 onMounted(() => { void show(); });
-onUnmounted(() => { ++versionRequest; ++fabricRequest; });
+onUnmounted(() => { ++versionRequest; ++loaderRequest; });
 </script>
 
 <template>
@@ -241,52 +248,64 @@ onUnmounted(() => { ++versionRequest; ++fabricRequest; });
           >
             Fabric
           </RadioGroupItem>
+          <RadioGroupItem
+            value="forge"
+            class="source-option"
+          >
+            Forge
+          </RadioGroupItem>
+          <RadioGroupItem
+            value="neoforge"
+            class="source-option"
+          >
+            NeoForge
+          </RadioGroupItem>
         </RadioGroupRoot>
         <p class="setting-hint">
-          {{ loader === 'fabric' ? '轻量模组加载器，安装后可添加本地 Mod。' : 'Minecraft 原版体验。' }}
+          {{ loader === 'vanilla' ? 'Minecraft 原版体验。' : loader === 'fabric' ? '轻量模组加载器，安装后可添加本地 Mod。' : `${selectedLoaderLabel} 模组加载器，目前支持 Minecraft 1.21.1。安装时会运行官方安装器。` }}
         </p>
       </div>
       <div
-        v-if="loader === 'fabric'"
+        v-if="loader !== 'vanilla'"
         class="form-field"
       >
-        <label for="fabric-version">Fabric 版本</label>
+        <label for="loader-version">{{ selectedLoaderLabel }} 版本</label>
         <div class="version-control">
           <select
-            id="fabric-version"
+            id="loader-version"
             v-model="loaderVersion"
-            :disabled="loadingFabric || submitting || !fabricVersions.length"
+            :disabled="loadingLoader || submitting || !loaderVersions.length"
           >
             <option
-              v-if="!fabricVersions.length"
+              v-if="!loaderVersions.length"
               value=""
             >
-              {{ loadingFabric ? '正在获取版本…' : '暂无可选版本' }}
+              {{ loadingLoader ? '正在获取版本…' : '暂无可选版本' }}
             </option>
             <option
-              v-for="item in fabricVersions"
+              v-for="item in loaderVersions"
               :key="item.version"
               :value="item.version"
             >
-              {{ item.version }}{{ item.stable ? ' · 稳定版' : '' }}
+              {{ item.version }}{{ item.recommended ? (loader === 'fabric' ? ' · 稳定版' : ' · 推荐') : '' }}
             </option>
           </select>
           <button
-            v-if="fabricError"
+            v-if="loaderError"
             type="button"
             class="text-button"
-            :disabled="loadingFabric || submitting"
-            @click="loadFabricVersions"
+            :disabled="loadingLoader || submitting"
+            @click="loadLoaderVersions"
           >
             重试
           </button>
         </div>
         <p
-          v-if="fabricError"
+          v-if="loaderError"
           class="settings-error"
           role="alert"
         >
-          {{ fabricError }}
+          {{ loaderError }}
         </p>
       </div>
       <div class="form-field">
@@ -317,7 +336,7 @@ onUnmounted(() => { ++versionRequest; ++fabricRequest; });
       <button
         class="done-button"
         type="submit"
-        :disabled="loading || submitting || (loader === 'fabric' && (loadingFabric || !loaderVersion))"
+        :disabled="loading || submitting || (loader !== 'vanilla' && (loadingLoader || !loaderVersion))"
       >
         {{ submitting ? '正在创建…' : '创建并安装' }}
       </button>

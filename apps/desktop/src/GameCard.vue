@@ -2,15 +2,17 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { Game } from './games';
+import { gameLoaderLabel } from './games';
 const props = defineProps<{ game: Game; retrying: boolean; hasProfile: boolean; starting: boolean }>();
 defineEmits<{ retry: [id: string]; play: [id: string]; manage: [id: string] }>();
 const phase = computed(() => {
   const current = props.game.progress?.phase ?? 'metadata';
   if (current === 'pack-base-complete') return '准备整合包文件';
   const phase = current.replace(/^pack-base-/, '');
-  const labels: Record<string, string> = { metadata: '获取游戏信息', files: '下载游戏文件', assets: '下载游戏资源', fabric: '安装 Fabric', 'pack-download': '下载整合包文件', 'pack-overrides': '安装整合包配置', 'pack-install': '安装整合包文件', complete: '安装完成' };
+  const labels: Record<string, string> = { metadata: '获取游戏信息', files: '下载游戏文件', assets: '下载游戏资源', fabric: '安装 Fabric', 'forge-installer': '安装 Forge', 'neoforge-installer': '安装 NeoForge', 'pack-download': '下载整合包文件', 'pack-overrides': '安装整合包配置', 'pack-install': '安装整合包文件', complete: '安装完成' };
   return labels[phase] ?? '正在安装';
 });
+const installingLoader = computed(() => props.game.progress?.phase === 'forge-installer' || props.game.progress?.phase === 'neoforge-installer');
 const percent = computed(() => {
   const progress = props.game.progress;
   return progress && progress.total > 0 ? Math.min(100, progress.completed / progress.total * 100) : 0;
@@ -57,7 +59,7 @@ const percent = computed(() => {
         >安装未完成</span>
       </div>
       <p class="game-version">
-        Minecraft {{ game.version }} <span>· {{ game.loader_version ? `Fabric ${game.loader_version}` : '原版' }}</span>
+        Minecraft {{ game.version }} <span>· {{ gameLoaderLabel(game) }}</span>
       </p>
       <p
         v-if="game.pack_name"
@@ -70,9 +72,14 @@ const percent = computed(() => {
           class="install-status"
           role="status"
         >
-          <span>{{ phase }}</span><span v-if="game.progress && game.progress.total > 0">{{ game.progress.completed }} / {{ game.progress.total }}</span>
+          <span class="install-phase"><span
+            v-if="installingLoader"
+            class="busy-spinner"
+            aria-hidden="true"
+          />{{ phase }}</span><span v-if="!installingLoader && game.progress && game.progress.total > 0">{{ game.progress.completed }} / {{ game.progress.total }}</span>
         </div>
         <div
+          v-if="!installingLoader"
           class="install-track"
           role="progressbar"
           :aria-label="phase"

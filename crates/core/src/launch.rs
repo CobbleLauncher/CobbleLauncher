@@ -58,29 +58,34 @@ fn prepare(version: &str, directory: &Path) -> Result<LaunchPreparation, Error> 
     let bytes = fs::read(directory.join(format!("versions/{version}/{version}.json")))?;
     let metadata = VersionMetadata::parse_installed(&bytes, version)?;
     let fabric = crate::fabric::load_overlay(&directory, version)?;
+    let forge = crate::forge::load_overlay(&directory, version)?;
+    if fabric.is_some() && forge.is_some() {
+        return Err("multiple loader overlays exist in this instance".into());
+    }
     let raw: serde_json::Value = serde_json::from_slice(&bytes)?;
-    // Child Maven libraries replace the parent's same group/artifact identity.
-    // Fabric's supported client profiles use ordinary three-part coordinates.
-    let overridden: std::collections::HashSet<&str> = fabric
-        .as_ref()
-        .map(|state| {
-            state
-                .profile
-                .libraries
-                .iter()
-                .map(|library| library.identity())
-                .collect()
-        })
-        .unwrap_or_default();
+    // Keep classifier and extension in the identity: generated client and
+    // universal JARs for the same loader must both remain on the classpath.
+    let mut overridden = std::collections::HashSet::new();
+    if let Some(state) = &fabric {
+        for library in &state.profile.libraries {
+            // Fabric's validated profile supports unclassified JARs only.
+            overridden.insert(format!("{}:@jar", library.identity()));
+        }
+    }
+    if let Some(state) = &forge {
+        for library in &state.profile.libraries {
+            overridden.insert(library.identity()?);
+        }
+    }
     let replaced_paths: std::collections::HashSet<&str> = raw["libraries"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|library| {
             let name = library["name"].as_str()?;
-            let (identity, _) = name.rsplit_once(':')?;
+            let identity = crate::forge::maven_identity(name).ok()?;
             overridden
-                .contains(identity)
+                .contains(&identity)
                 .then(|| library["downloads"]["artifact"]["path"].as_str())
                 .flatten()
         })
@@ -93,7 +98,10 @@ fn prepare(version: &str, directory: &Path) -> Result<LaunchPreparation, Error> 
         .any(|file| file.kind == FileKind::Native || file.path.as_str().contains("-natives-"));
     let mut classpath = match &fabric {
         Some(state) => crate::fabric::overlay_classpath(state, &directory)?,
-        None => Vec::new(),
+        None => match &forge {
+            Some(state) => crate::forge::overlay_classpath(state, &directory)?,
+            None => Vec::new(),
+        },
     };
     let mut native_jars = Vec::new();
     let mut client = None;
@@ -181,18 +189,43 @@ fn prepare(version: &str, directory: &Path) -> Result<LaunchPreparation, Error> 
         );
         jvm_arguments.push(substitute(argument, &placeholders)?);
     }
-    let mut game_arguments =
-        resolve_arguments(&metadata.arguments["game"], &platform, &placeholders)?;
-    let mut main_class = metadata.main_class;
-    if let Some(state) = fabric {
-        main_class = state.profile.main_class;
+    let overlay = fabric
+        .as_ref()
+        .map(|state| {
+            (
+                &state.profile.id,
+                &state.profile.main_class,
+                &state.profile.arguments,
+            )
+        })
+        .or_else(|| {
+            forge.as_ref().map(|state| {
+                (
+                    &state.profile.id,
+                    &state.profile.main_class,
+                    &state.profile.arguments,
+                )
+            })
+        });
+    if let Some((_, _, arguments)) = overlay {
         jvm_arguments.extend(resolve_arguments(
-            &state.profile.arguments["jvm"],
+            &arguments["jvm"],
             &platform,
             &placeholders,
         )?);
+    }
+    // JVM version_name remains the base version for NeoForge's ignoreList.
+    // Game version_name identifies the selected child profile.
+    if let Some((id, _, _)) = overlay {
+        placeholders.insert("version_name".into(), id.clone());
+    }
+    let mut game_arguments =
+        resolve_arguments(&metadata.arguments["game"], &platform, &placeholders)?;
+    let mut main_class = metadata.main_class;
+    if let Some((_, overlay_main, arguments)) = overlay {
+        main_class = overlay_main.clone();
         game_arguments.extend(resolve_arguments(
-            &state.profile.arguments["game"],
+            &arguments["game"],
             &platform,
             &placeholders,
         )?);
@@ -315,6 +348,111 @@ mod tests {
         );
         fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn neoforge_preparation_preserves_module_args_and_separates_version_placeholders() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("cobble-neoforge-launch-{nonce}"));
+        fs::create_dir_all(root.join("versions/1.21.1")).unwrap();
+        fs::create_dir_all(root.join("assets/indexes")).unwrap();
+        fs::write(root.join("versions/1.21.1/1.21.1.jar"), b"synthetic client").unwrap();
+        fs::write(root.join("assets/indexes/synthetic.json"), b"{}").unwrap();
+        fs::write(
+            root.join(".cobble-install.json"),
+            br#"{"version":"1.21.1","complete":true,"client_only":false}"#,
+        )
+        .unwrap();
+        let artifact = serde_json::json!({"url":"https://example.invalid/unused", "sha1":"0".repeat(40), "size":1});
+        let mut old = artifact.clone();
+        old["path"] = "example/asm/1/asm-1.jar".into();
+        let metadata = serde_json::json!({
+            "id":"1.21.1", "type":"release", "mainClass":"example.Vanilla", "javaVersion":{"majorVersion":21},
+            "assetIndex":{"id":"synthetic","url":"https://example.invalid/index", "sha1":"0".repeat(40),"size":2},
+            "downloads":{"client":artifact}, "libraries":[{"name":"example:asm:1", "downloads":{"artifact":old}}],
+            "arguments":{"jvm":["-cp","${classpath}"], "game":["--version","${version_name}"]}
+        });
+        fs::write(
+            root.join("versions/1.21.1/1.21.1.json"),
+            serde_json::to_vec(&metadata).unwrap(),
+        )
+        .unwrap();
+        let mut libraries = Vec::new();
+        for (name, path) in [
+            ("example:asm:2", "example/asm/2/asm-2.jar"),
+            (
+                "example:loader:1:client",
+                "example/loader/1/loader-1-client.jar",
+            ),
+            (
+                "example:loader:1:universal",
+                "example/loader/1/loader-1-universal.jar",
+            ),
+        ] {
+            let disk = root.join("libraries").join(path);
+            fs::create_dir_all(disk.parent().unwrap()).unwrap();
+            fs::write(disk, b"synthetic library").unwrap();
+            libraries.push(serde_json::json!({"name":name,"downloads":{"artifact":{"path":path,"sha1":"0".repeat(40),"size":1,"url":""}}}));
+        }
+        let overlay = serde_json::json!({
+            "kind":"neoforge","mc_version":"1.21.1","loader_version":"21.1.264","complete":true,
+            "profile":{"id":"neoforge-21.1.264","inheritsFrom":"1.21.1","mainClass":"cpw.mods.bootstraplauncher.BootstrapLauncher",
+                "arguments":{"jvm":["-DignoreList=client-extra,${version_name}.jar","-p","${library_directory}/example/loader/1/loader-1-universal.jar","--add-modules","ALL-MODULE-PATH"],"game":["--launchTarget","forgeclient"]},
+                "libraries":libraries}
+        });
+        fs::write(
+            root.join(".cobble-forge.json"),
+            serde_json::to_vec(&overlay).unwrap(),
+        )
+        .unwrap();
+        let plan = prepare("1.21.1", &root).unwrap();
+        assert_eq!(
+            plan.main_class,
+            "cpw.mods.bootstraplauncher.BootstrapLauncher"
+        );
+        assert_eq!(plan.classpath.len(), 4);
+        assert!(plan.classpath[0].ends_with("asm-2.jar"));
+        assert!(
+            plan.classpath
+                .iter()
+                .any(|path| path.ends_with("loader-1-client.jar"))
+        );
+        assert!(
+            plan.classpath
+                .iter()
+                .any(|path| path.ends_with("loader-1-universal.jar"))
+        );
+        assert!(
+            plan.jvm_arguments
+                .iter()
+                .any(|argument| argument == "-DignoreList=client-extra,1.21.1.jar")
+        );
+        assert!(
+            plan.jvm_arguments
+                .windows(2)
+                .any(|pair| pair == ["--add-modules", "ALL-MODULE-PATH"])
+        );
+        let module = plan
+            .jvm_arguments
+            .iter()
+            .position(|argument| argument == "-p")
+            .unwrap();
+        assert!(
+            plan.jvm_arguments[module + 1].ends_with("example/loader/1/loader-1-universal.jar")
+        );
+        assert_eq!(
+            plan.game_arguments,
+            [
+                "--version",
+                "neoforge-21.1.264",
+                "--launchTarget",
+                "forgeclient"
+            ]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn native_jars_extract_only_binaries_and_do_not_replace_existing_files() {
         let nonce = SystemTime::now()

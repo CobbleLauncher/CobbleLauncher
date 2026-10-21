@@ -7,12 +7,14 @@ use cobble_domain::AppInfo;
 
 mod cache;
 mod fabric;
+mod forge;
 mod install;
 mod launch;
 mod modrinth;
 mod mrpack;
 mod runner;
 pub use fabric::{FabricVersion, install_fabric, list_fabric_versions, list_fabric_versions_from};
+pub use forge::{ForgeKind, ForgeVersion, install_forge, list_forge_versions};
 pub use install::{InstallOutcome, InstallProgress, install_game, install_resources};
 pub use launch::{LaunchPreparation, prepare_launch};
 pub use modrinth::{ModrinthInstallOutcome, install_modrinth_plan};

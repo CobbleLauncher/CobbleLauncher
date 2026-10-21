@@ -3,6 +3,7 @@
 import { onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { Game, ModSearchHit, ModSearchPage, ModInstallPreview } from './games';
+import { loaderLabel } from './games';
 const props = defineProps<{ game: Game; locked: boolean }>();
 const emit = defineEmits<{ installing: [value: boolean]; installed: [] }>();
 const query = ref('');
@@ -75,7 +76,7 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
       v-if="!game.loader_version"
       class="content-empty"
     >
-      发现 Mod 适用于 Fabric 游戏。创建 Fabric 游戏后即可浏览和安装。
+      发现 Mod 适用于 Fabric、Forge 或 NeoForge 游戏。创建带模组加载器的游戏后即可浏览和安装。
     </p>
     <template v-else>
       <div class="discover-heading">
@@ -83,7 +84,7 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
           来自 Modrinth
         </p>
         <div class="compatibility-tags">
-          <span>Minecraft {{ game.version }}</span><span>Fabric</span>
+          <span>Minecraft {{ game.version }}</span><span>{{ loaderLabel(game.loader_kind ?? 'fabric') }}</span>
         </div>
       </div>
       <template v-if="selected">

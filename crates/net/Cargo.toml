@@ -17,6 +17,7 @@ hyper-util.workspace = true
 native-tls.workspace = true
 tokio-native-tls.workspace = true
 curl.workspace = true
+sysproxy = "=0.3.0"
 cobble-store.workspace = true
 sha2.workspace = true
 

@@ -3,6 +3,7 @@
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { Game, LocalMod } from './games';
+import { gameLoaderLabel } from './games';
 import DiscoverMods from './DiscoverMods.vue';
 
 const props = defineProps<{ game: Game; starting: boolean; hasProfile: boolean }>();
@@ -96,7 +97,7 @@ onUnmounted(() => { disposed = true; ++request; });
     <div class="details-summary">
       <div>
         <p class="game-version">
-          Minecraft {{ game.version }} · {{ game.loader_version ? `Fabric ${game.loader_version}` : '原版' }}
+          Minecraft {{ game.version }} · {{ gameLoaderLabel(game) }}
         </p>
         <p
           v-if="game.pack_name"

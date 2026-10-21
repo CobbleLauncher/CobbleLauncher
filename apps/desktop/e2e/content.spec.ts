@@ -39,7 +39,11 @@ async function mock(page: Page, stored: Game[] = [], initialMods: LocalMod[] = [
           }
           return args.version === '1.20.6' ? [{ version: '0.15.11', stable: true }] : [{ version: '0.17.0-beta', stable: false }, { version: '0.16.14', stable: true }];
         }
-        if (command === 'create_game') return { ...game, name: args.name, version: args.version, loader_version: args.loaderVersion };
+        if (command === 'list_loader_versions') {
+          if (args.version !== '1.21.1') throw new Error('暂不支持此 Minecraft 版本，目前支持 1.21.1');
+          return args.kind === 'forge' ? [{ version: '52.1.0', recommended: false }, { version: '52.0.28', recommended: true }] : [{ version: '21.1.100', recommended: false }, { version: '21.1.99', recommended: false }];
+        }
+        if (command === 'create_game') return { ...game, name: args.name, version: args.version, loader_kind: args.loaderKind, loader_version: args.loaderVersion };
         if (command === 'list_game_mods') return mods;
         if (command === 'rename_game') {
           if (target.__actionFails) throw new Error('游戏记录暂时不可用');
@@ -72,6 +76,7 @@ test('Fabric chooses stable loader and submits selected version and source', asy
   const calls = await page.evaluate(() => (window as unknown as MockWindow).__calls);
   expect(calls.find((call) => call.command === 'list_fabric_versions')?.args).toEqual({ version: '1.21.1', source: { source: 'bmclapi', mirror: '' } });
   expect(calls.find((call) => call.command === 'create_game')?.args.loaderVersion).toBe('0.16.14');
+  expect(calls.find((call) => call.command === 'create_game')?.args.loaderKind).toBe('fabric');
 });
 
 test('Fabric load failure can retry and return to Vanilla', async ({ page }) => {
@@ -218,4 +223,43 @@ test('pack Mods distinguish included and user-added content without restricting 
   await expect(included.getByRole('switch')).toBeEnabled();
   await expect(included.getByRole('button', { name: '删除 林间地图', exact: true })).toBeEnabled();
   await expect(added.getByRole('switch')).toBeEnabled();
+});
+
+for (const [kind, label, selected] of [['forge', 'Forge', '52.0.28'], ['neoforge', 'NeoForge', '21.1.100']] as const) {
+  test(`${label} creation uses the selected kind and recommended or first available version`, async ({ page }, testInfo) => {
+    await mock(page);
+    await page.goto('/');
+    await page.getByRole('button', { name: '创建游戏', exact: true }).click();
+    await page.getByRole('radio', { name: label, exact: true }).click();
+    await expect(page.getByLabel(`${label} 版本`)).toHaveValue(selected);
+    await expect(page.getByText('安装时会运行官方安装器。', { exact: false })).toBeVisible();
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: testInfo.outputPath(`${kind}-create.png`), fullPage: true });
+    await page.getByRole('button', { name: '创建并安装' }).click();
+    await expect(page.getByRole('article')).toContainText(`${label} ${selected}`);
+    await page.evaluate((game) => (window as unknown as MockWindow).__emitGame(game), { ...game, loader_kind: kind, loader_version: selected, status: 'installing', progress: { phase: kind === 'forge' ? 'forge-installer' : 'neoforge-installer', completed: 0, total: 1, reused: 0 } } satisfies Game);
+    await expect(page.getByRole('status')).toHaveText(`安装 ${label}`);
+    await expect(page.getByRole('progressbar')).toHaveCount(0);
+    const args = await page.evaluate(() => (window as unknown as MockWindow).__calls.find((call) => call.command === 'create_game')?.args);
+    expect(args?.loaderKind).toBe(kind);
+    expect(args?.loaderVersion).toBe(selected);
+    const lookup = await page.evaluate(() => (window as unknown as MockWindow).__calls.find((call) => call.command === 'list_loader_versions')?.args);
+    expect(lookup).toEqual({ version: '1.21.1', kind, source: { source: 'bmclapi', mirror: '' } });
+  });
+}
+
+test('unsupported Forge version shows the host reason and cannot submit an empty loader', async ({ page }) => {
+  await mock(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '创建游戏', exact: true }).click();
+  await page.getByRole('radio', { name: 'Forge', exact: true }).click();
+  await page.getByLabel('Minecraft 版本').selectOption('1.20.6');
+  await expect(page.getByRole('alert')).toContainText('暂不支持此 Minecraft 版本');
+  await expect(page.getByLabel('Forge 版本')).toBeDisabled();
+  await expect(page.getByRole('button', { name: '创建并安装' })).toBeDisabled();
+  await page.getByRole('button', { name: '重试', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('目前支持 1.21.1');
+  await page.getByLabel('Minecraft 版本').selectOption('1.21.1');
+  await expect(page.getByLabel('Forge 版本')).toHaveValue('52.0.28');
+  await expect(page.getByRole('button', { name: '创建并安装' })).toBeEnabled();
 });

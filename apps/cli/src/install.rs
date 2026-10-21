@@ -33,15 +33,16 @@ pub fn run(
     client_only: bool,
     source: DownloadSource,
     fabric: Option<&str>,
+    forge: Option<(cobble_core::ForgeKind, &str)>,
 ) -> Result<(), Error> {
     let runtime = runtime()?;
     println!("Download source: {}", source.attribution());
     let progress = Arc::new(|progress: cobble_core::InstallProgress| {
         let report_every = if progress.total > 256 { 256 } else { 32 };
-        if matches!(progress.phase.as_str(), "files" | "assets" | "fabric")
-            && progress.completed > 0
-            && (progress.completed.is_multiple_of(report_every)
-                || progress.completed == progress.total)
+        if progress.completed == 0
+            || (progress.completed > 0
+                && (progress.completed.is_multiple_of(report_every)
+                    || progress.completed == progress.total))
         {
             eprintln!(
                 "Files ready: {}/{} (reused: {})",
@@ -50,13 +51,17 @@ pub fn run(
         }
     });
     let result = runtime.block_on(async {
-        match fabric {
-            Some(loader) => {
+        match (fabric, forge) {
+            (Some(loader), None) => {
                 cobble_core::install_fabric(version, loader, target, source, progress).await
             }
-            None => {
+            (None, Some((kind, loader))) => {
+                cobble_core::install_forge(version, loader, kind, target, source, progress).await
+            }
+            (None, None) => {
                 cobble_core::install_resources(version, target, client_only, source, progress).await
             }
+            _ => Err("select only one mod loader".into()),
         }
     });
     // Blocking transfer/copy workers must finish before process exit.
@@ -81,6 +86,22 @@ pub fn run(
         {
             println!("Java {} found: {}", java.version, java.executable.display());
         }
+    }
+    Ok(())
+}
+
+pub fn loader_versions(version: &str, kind: cobble_core::ForgeKind) -> Result<(), Error> {
+    let versions = runtime()?.block_on(cobble_core::list_forge_versions(version, kind))?;
+    for loader in versions {
+        println!(
+            "{}{}",
+            loader.version,
+            if loader.recommended {
+                " (recommended)"
+            } else {
+                ""
+            }
+        );
     }
     Ok(())
 }

@@ -5,7 +5,8 @@ import type { Game } from '../src/games';
 type Call = { command: string; args: Record<string, unknown> };
 type Mock = Window & { __calls: Call[]; __fail: string; __running: () => void; __finish: () => void };
 const game: Game = { id: 'forest', name: '林间小屋', version: '1.21.1', loader_version: '0.16.14', directory: 'synthetic', status: 'installed', error: null, progress: null };
-async function setup(page: Page, vanilla = false) {
+async function setup(page: Page, vanilla = false, loaderKind?: Game['loader_kind']) {
+  const selectedGame = loaderKind ? { ...game, loader_kind: loaderKind, loader_version: loaderKind === 'forge' ? '52.0.28' : '21.1.100' } : game;
   await page.addInitScript(({ game, vanilla }) => {
     const target = window as unknown as Mock & { isTauri: boolean; __TAURI_INTERNALS__: unknown; __TAURI_EVENT_PLUGIN_INTERNALS__: unknown };
     target.isTauri = true; target.__calls = []; target.__fail = '';
@@ -43,7 +44,7 @@ async function setup(page: Page, vanilla = false) {
         return null;
       },
     };
-  }, { game, vanilla });
+  }, { game: selectedGame, vanilla });
   await page.goto('/');
   await page.getByRole('button', { name: '管理内容' }).click();
 }
@@ -122,7 +123,7 @@ test('preview retries, rejects stale preview, and running prevents installation'
 test('Vanilla provides a clear empty discovery state without requests', async ({ page }) => {
   await setup(page, true);
   await page.getByRole('tab', { name: '发现 Mod' }).click();
-  await expect(page.getByText('发现 Mod 适用于 Fabric 游戏。创建 Fabric 游戏后即可浏览和安装。')).toBeVisible();
+  await expect(page.getByText('发现 Mod 适用于 Fabric、Forge 或 NeoForge 游戏。创建带模组加载器的游戏后即可浏览和安装。')).toBeVisible();
   expect(await calls(page, 'search_game_mods')).toHaveLength(0);
 });
 
@@ -147,3 +148,17 @@ test('failed installation shows its cause and can retry the same plan', async ({
   await page.evaluate(() => (window as unknown as Mock).__finish());
   await expect(page.getByRole('button', { name: '开始游戏' })).toBeEnabled();
 });
+
+for (const [kind, label] of [['forge', 'Forge'], ['neoforge', 'NeoForge']] as const) {
+  test(`${label} discovery presents the actual loader and keeps search bound to the native game id`, async ({ page }) => {
+    await setup(page, false, kind);
+    await expect(page.getByText(`${label} ${kind === 'forge' ? '52.0.28' : '21.1.100'}`, { exact: false })).toBeVisible();
+    await page.getByRole('tab', { name: '发现 Mod' }).click();
+    await expect(page.locator('.compatibility-tags').getByText(label, { exact: true })).toBeVisible();
+    await expect(page.locator('.compatibility-tags').getByText('Fabric', { exact: true })).toHaveCount(0);
+    await page.getByRole('searchbox', { name: '搜索 Modrinth' }).fill('map');
+    await page.getByRole('button', { name: '搜索', exact: true }).click();
+    const searchCalls = await calls(page, 'search_game_mods');
+    expect(searchCalls.at(-1)?.args).toEqual({ id: game.id, query: 'map', offset: 0 });
+  });
+}
