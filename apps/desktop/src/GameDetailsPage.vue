@@ -63,6 +63,7 @@ async function openLocation(command: 'open_game_directory' | 'open_game_log') {
 const mods = ref<LocalMod[]>([]);
 const tab = ref<'installed' | 'discover' | 'updates'>('installed');
 const updatingMods = ref(false);
+const recognizingMods = ref(false);
 const installingMod = ref(false);
 const contentInstalling = computed(() => installingMod.value || updatingMods.value || !!props.game.content_installing);
 async function installed() { await refresh(); tab.value = 'installed'; }
@@ -160,7 +161,7 @@ onUnmounted(() => { disposed = true; ++request; });
         :disabled="locked || busy || profileBindingBusy"
         @click="$emit('play', game.id)"
       >
-        {{ updatingMods ? '更新 Mod 中' : contentInstalling ? '安装 Mod 中' : game.launch_state === 'running' ? '运行中' : locked ? '启动中…' : profile ? `以 ${profile.name} 开始` : '选择玩家档案' }}
+        {{ recognizingMods ? '识别 Mod 中' : updatingMods ? '更新 Mod 中' : contentInstalling ? '安装 Mod 中' : game.launch_state === 'running' ? '运行中' : locked ? '启动中…' : profile ? `以 ${profile.name} 开始` : '选择玩家档案' }}
       </button>
     </div>
     <div class="game-management-actions">
@@ -416,6 +417,7 @@ onUnmounted(() => { disposed = true; ++request; });
         :game="game"
         :locked="locked || busy || loading"
         @busy="updatingMods = $event"
+        @recognizing="recognizingMods = $event"
         @updated="refresh()"
       />
       <div

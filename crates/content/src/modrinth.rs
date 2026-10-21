@@ -59,6 +59,13 @@ pub struct ModrinthUpdate {
     pub selected: ResolvedMod,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IdentifiedMod {
+    pub project_id: String,
+    pub version_id: String,
+    pub sha1: String,
+}
+
 fn error(message: impl Into<String>) -> BoxError {
     io::Error::other(message.into()).into()
 }
@@ -167,6 +174,11 @@ trait Api {
     ) -> Result<Vec<Version>, BoxError>;
     async fn version(&mut self, version: &str) -> Result<Version, BoxError>;
     async fn project(&mut self, project: &str) -> Result<Project, BoxError>;
+    async fn versions_from_hash(&mut self, _hash: &str) -> Result<Vec<Version>, BoxError> {
+        Err(error(
+            "Hash identification is unavailable for this API adapter",
+        ))
+    }
 }
 struct LiveApi {
     broker: Broker,
@@ -180,6 +192,12 @@ impl LiveApi {
         })
     }
     async fn get<T: DeserializeOwned>(&mut self, url: Url) -> Result<T, BoxError> {
+        self.get_optional(url)
+            .await?
+            .ok_or_else(|| error("Modrinth: project or version not found (HTTP 404)"))
+    }
+
+    async fn get_optional<T: DeserializeOwned>(&mut self, url: Url) -> Result<Option<T>, BoxError> {
         self.requests += 1;
         if self.requests > MAX_REQUESTS {
             return Err(error(
@@ -187,6 +205,9 @@ impl LiveApi {
             ));
         }
         let response = self.broker.get(url.as_str(), None, MAX_METADATA).await?;
+        if response.metadata.status == 404 {
+            return Ok(None);
+        }
         if response.metadata.status != 200 {
             let reason = match response.metadata.status {
                 404 => "project or version not found",
@@ -199,7 +220,7 @@ impl LiveApi {
                 response.metadata.status
             )));
         }
-        Ok(serde_json::from_slice(&response.body)?)
+        Ok(Some(serde_json::from_slice(&response.body)?))
     }
 }
 impl Api for LiveApi {
@@ -226,6 +247,106 @@ impl Api for LiveApi {
         self.get(Url::parse(&format!("{API}project/{project}"))?)
             .await
     }
+    async fn versions_from_hash(&mut self, hash: &str) -> Result<Vec<Version>, BoxError> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Matches {
+            One(Version),
+            Many(Vec<Version>),
+        }
+        let mut url = Url::parse(&format!("{API}version_file/{hash}"))?;
+        url.query_pairs_mut()
+            .append_pair("algorithm", "sha1")
+            .append_pair("multiple", "true");
+        Ok(match self.get_optional::<Matches>(url).await? {
+            None => Vec::new(),
+            Some(Matches::One(version)) => vec![version],
+            Some(Matches::Many(versions)) => versions,
+        })
+    }
+}
+
+/// Match bytes to compatible client-Mod metadata without trusting a local name.
+/// The public API currently returns a single object even with multiple=true;
+/// arrays are accepted defensively and ambiguous returned identities skipped.
+pub async fn identify_modrinth_file(
+    hash: &str,
+    mc: &str,
+    loader: &str,
+) -> Result<Option<IdentifiedMod>, BoxError> {
+    let broker = Broker::new(BrokerConfig::default())?;
+    identify_modrinth_file_with_broker(&broker, hash, mc, loader).await
+}
+
+/// Reuse a broker for bounded concurrent identification of a local collection.
+pub async fn identify_modrinth_file_with_broker(
+    broker: &Broker,
+    hash: &str,
+    mc: &str,
+    loader: &str,
+) -> Result<Option<IdentifiedMod>, BoxError> {
+    target(mc, loader)?;
+    if !valid_hash(hash, 40) {
+        return Err(error("Invalid local Mod SHA-1"));
+    }
+    identify_file(
+        &mut LiveApi {
+            broker: broker.clone(),
+            requests: 0,
+        },
+        hash,
+        mc,
+        loader,
+    )
+    .await
+}
+
+async fn identify_file(
+    api: &mut impl Api,
+    hash: &str,
+    mc: &str,
+    loader: &str,
+) -> Result<Option<IdentifiedMod>, BoxError> {
+    let versions = api.versions_from_hash(hash).await?;
+    let mut matches = BTreeMap::new();
+    for version in versions {
+        if !compatible(&version, mc, loader) {
+            continue;
+        }
+        identifier(&version.id)?;
+        identifier(&version.project_id)?;
+        // Recognition follows the same playable primary-file selection as
+        // updates, avoiding adoption of sources/docs/auxiliary JARs.
+        let Ok(selected) = file(&version) else {
+            continue;
+        };
+        if !selected.sha1.eq_ignore_ascii_case(hash) {
+            continue;
+        }
+        matches.insert((version.project_id.clone(), version.id.clone()), version);
+    }
+    if matches.len() != 1 {
+        return Ok(None);
+    }
+    let (_, version) = matches
+        .into_iter()
+        .next()
+        .ok_or_else(|| error("Missing hash match"))?;
+    let project = api.project(&version.project_id).await?;
+    if project.id != version.project_id
+        || project.project_type != "mod"
+        || !matches!(
+            project.client_side.as_str(),
+            "required" | "optional" | "unknown"
+        )
+    {
+        return Ok(None);
+    }
+    Ok(Some(IdentifiedMod {
+        project_id: version.project_id,
+        version_id: version.id,
+        sha1: hash.to_ascii_lowercase(),
+    }))
 }
 
 /// Select latest compatible releases, then required dependencies. Explicit pins
@@ -628,13 +749,84 @@ mod tests {
             Ok(Project {
                 id: project.to_string(),
                 title: format!("Project {project}"),
-                client_side: "optional".into(),
+                client_side: if project == "Server" {
+                    "unsupported"
+                } else {
+                    "optional"
+                }
+                .into(),
                 project_type: "mod".into(),
             })
+        }
+        async fn versions_from_hash(&mut self, _: &str) -> Result<Vec<Version>, BoxError> {
+            Ok(self.versions.clone())
         }
     }
     fn version(project: &str, id: &str, date: &str, deps: serde_json::Value) -> Version {
         serde_json::from_value(json!({"project_id":project,"id":id,"version_number":id,"version_type":"release","date_published":date,"game_versions":["1.21.1"],"loaders":["fabric"],"dependencies":deps,"files":[{"url":"https://cdn.modrinth.com/data/Example/versions/Example/example.jar","filename":format!("{project}.jar"),"size":100,"primary":true,"hashes":{"sha1":"0123456789012345678901234567890123456789"}}]})).unwrap()
+    }
+
+    #[test]
+    fn hash_recognition_requires_exact_compatible_client_mod_and_skips_ambiguity() {
+        let hash = "0123456789012345678901234567890123456789";
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let root = version("Root", "RootV", "2026-01-01", json!([]));
+        let mut api = Fixture {
+            versions: vec![root.clone()],
+        };
+        let identified = runtime
+            .block_on(identify_file(&mut api, hash, "1.21.1", "fabric"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(identified.project_id, "Root");
+        assert_eq!(identified.version_id, "RootV");
+        assert_eq!(identified.sha1, hash);
+        assert!(
+            runtime
+                .block_on(identify_file(&mut api, &"0".repeat(40), "1.21.1", "fabric"))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            runtime
+                .block_on(identify_file(&mut api, hash, "1.21.1", "forge"))
+                .unwrap()
+                .is_none()
+        );
+        api.versions
+            .push(version("Root", "OtherVersion", "2026-01-02", json!([])));
+        assert!(
+            runtime
+                .block_on(identify_file(&mut api, hash, "1.21.1", "fabric"))
+                .unwrap()
+                .is_none()
+        );
+        api.versions = vec![
+            root,
+            version("OtherProject", "OtherVersion", "2026-01-02", json!([])),
+        ];
+        assert!(
+            runtime
+                .block_on(identify_file(&mut api, hash, "1.21.1", "fabric"))
+                .unwrap()
+                .is_none()
+        );
+        api.versions = vec![version("Server", "ServerV", "2026-01-01", json!([]))];
+        assert!(
+            runtime
+                .block_on(identify_file(&mut api, hash, "1.21.1", "fabric"))
+                .unwrap()
+                .is_none()
+        );
+        api.versions.clear();
+        assert!(
+            runtime
+                .block_on(identify_file(&mut api, hash, "1.21.1", "fabric"))
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

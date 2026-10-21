@@ -2,9 +2,9 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import type { Game, ModUpdateCandidate, ModUpdateCheck, ModUpdatePreview, ModUpdateResult } from './games';
+import type { Game, ModRecognitionResult, ModUpdateCandidate, ModUpdateCheck, ModUpdatePreview, ModUpdateResult } from './games';
 const props = defineProps<{ game: Game; locked: boolean }>();
-const emit = defineEmits<{ busy: [value: boolean]; updated: [] }>();
+const emit = defineEmits<{ busy: [value: boolean]; recognizing: [value: boolean]; updated: [] }>();
 const updates = ref<ModUpdateCandidate[]>([]);
 const selected = ref<string[]>([]);
 const checked = ref(false);
@@ -17,15 +17,32 @@ const preview = ref<ModUpdatePreview | null>(null);
 const planError = ref('');
 const lastRequested = ref<string[]>([]);
 const result = ref<ModUpdateResult | null>(null);
+const recognizing = ref(false);
+const recognitionResult = ref<ModRecognitionResult | null>(null);
+const recognitionError = ref('');
 let request = 0;
 const allSelected = computed(() => updates.value.length > 0 && updates.value.every((update) => selected.value.includes(update.project_id)));
-const working = computed(() => checking.value || preparing.value || applying.value);
+const working = computed(() => checking.value || preparing.value || applying.value || recognizing.value);
 function toggleAll(checked: boolean) { selected.value = checked ? updates.value.map((update) => update.project_id) : []; }
 function toggle(id: string, checked: boolean) { selected.value = checked ? [...new Set([...selected.value, id])] : selected.value.filter((value) => value !== id); }
+async function recognize() {
+  if (working.value || props.locked) return;
+  const current = ++request;
+  recognizing.value = true; recognitionError.value = ''; recognitionResult.value = null;
+  emit('recognizing', true); emit('busy', true);
+  try {
+    const value = await invoke<ModRecognitionResult>('recognize_game_mods', { id: props.game.id });
+    if (current !== request) return;
+    recognitionResult.value = value;
+    updates.value = []; selected.value = []; preview.value = null; checked.value = false;
+    managedCount.value = 0; lastRequested.value = []; checkError.value = ''; planError.value = ''; result.value = null;
+  } catch { if (current === request) recognitionError.value = '未能识别本地 Mod，请重试。'; }
+  finally { recognizing.value = false; emit('recognizing', false); emit('busy', false); }
+}
 async function check() {
   if (working.value || props.locked) return;
   const current = ++request;
-  checking.value = true; checkError.value = ''; planError.value = ''; result.value = null;
+  checking.value = true; checkError.value = ''; planError.value = ''; result.value = null; recognitionResult.value = null;
   try {
     const value = await invoke<ModUpdateCheck>('check_game_mod_updates', { id: props.game.id });
     if (current !== request) return;
@@ -59,7 +76,7 @@ async function apply() {
   finally { applying.value = false; emit('busy', false); }
 }
 function back() { if (!applying.value) { preview.value = null; planError.value = ''; } }
-watch(() => props.game.id, () => { ++request; updates.value = []; selected.value = []; checked.value = false; checking.value = false; preparing.value = false; preview.value = null; checkError.value = ''; planError.value = ''; result.value = null; });
+watch(() => props.game.id, () => { ++request; updates.value = []; selected.value = []; checked.value = false; checking.value = false; preparing.value = false; preview.value = null; checkError.value = ''; planError.value = ''; result.value = null; recognitionResult.value = null; recognitionError.value = ''; });
 onUnmounted(() => { ++request; });
 </script>
 <template>
@@ -119,7 +136,7 @@ onUnmounted(() => { ++request; });
       <div class="content-heading">
         <div>
           <h2>Mod 更新</h2><p class="setting-hint">
-            仅检查由 Modrinth 管理的 Mod。
+            检查已识别的 Modrinth Mod。
           </p>
         </div><button
           class="secondary-button"
@@ -129,6 +146,36 @@ onUnmounted(() => { ++request; });
           {{ checking ? '检查中…' : checked ? '重新检查' : '检查更新' }}
         </button>
       </div>
+      <div class="mod-recognition-tools">
+        <button
+          class="text-button"
+          :disabled="working || locked"
+          @click="recognize"
+        >
+          {{ recognizing ? '识别中…' : recognitionError ? '重试识别' : '识别本地 Mod' }}
+        </button>
+        <p class="mod-meta">
+          用于本地导入和整合包中的 Mod。
+        </p>
+      </div>
+      <p
+        v-if="recognitionResult"
+        class="update-result"
+        role="status"
+      >
+        <template v-if="!recognitionResult.recognized && !recognitionResult.unmatched">
+          没有待识别的 Mod。
+        </template><template v-else>
+          已识别 {{ recognitionResult.recognized }} 个 Mod<span v-if="recognitionResult.unmatched">，{{ recognitionResult.unmatched }} 个未匹配，需自行确认版本</span>。
+        </template>
+      </p>
+      <p
+        v-if="recognitionError"
+        class="settings-error"
+        role="alert"
+      >
+        {{ recognitionError }}
+      </p>
       <p
         v-if="checkError"
         class="settings-error"
@@ -210,7 +257,7 @@ onUnmounted(() => { ++request; });
         {{ !checked ? '手动检查适用于此游戏版本和加载器的更新。' : managedCount ? '已检查的 Modrinth Mod 暂无可用更新。' : '没有可检查更新的 Modrinth Mod。' }}<span
           v-if="checked"
           class="unmanaged-note"
-        >本地导入的 Mod 需自行确认版本。</span>
+        >未识别的 Mod 需自行确认版本。</span>
       </p>
       <p
         v-if="preparing"

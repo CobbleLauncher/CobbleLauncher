@@ -42,6 +42,7 @@
     "allow-preview-game-mod-install",
     "allow-install-game-mod-plan",
     "allow-check-game-mod-updates",
+    "allow-recognize-game-mods",
     "allow-preview-game-mod-updates",
     "allow-apply-game-mod-updates",
     "allow-list-game-mods",

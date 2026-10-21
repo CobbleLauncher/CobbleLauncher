@@ -47,3 +47,4 @@ export type ModUpdateCandidate = { project_id: string; name: string; current_ver
 export type ModUpdateCheck = { updates: ModUpdateCandidate[]; managed_count: number };
 export type ModUpdatePreview = { plan_id: string; changes: { project_id: string; name: string; from_version: string | null; to_version: string; filename: string; enabled: boolean }[] };
 export type ModUpdateResult = { updated: number; added: number };
+export type ModRecognitionResult = { recognized: number; unmatched: number };

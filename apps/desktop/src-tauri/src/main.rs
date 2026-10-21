@@ -60,6 +60,7 @@ fn main() {
             games::preview_game_mod_install,
             games::install_game_mod_plan,
             games::mod_updates::check_game_mod_updates,
+            games::mod_updates::recognize_game_mods,
             games::mod_updates::preview_game_mod_updates,
             games::mod_updates::apply_game_mod_updates,
             games::list_game_mods,

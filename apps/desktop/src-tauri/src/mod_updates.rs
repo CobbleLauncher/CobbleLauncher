@@ -1,6 +1,26 @@
 // SPDX-License-Identifier: MIT
 use super::*;
 
+#[tauri::command]
+pub async fn recognize_game_mods(
+    app: AppHandle,
+    id: String,
+) -> Result<cobble_core::ModRecognitionOutcome, String> {
+    let (version, loader) = modrinth_target(&app, &id)?;
+    let (game, _operation) = management::begin(&app, &id, true)?;
+    update_game(&app, &id, |_| {}, false);
+    let outcome = cobble_core::recognize_modrinth_mods(&game.directory, &version, &loader)
+        .await
+        .map_err(|e| e.to_string())?;
+    if outcome.recognized > 0 {
+        let state = app.state::<GameLibrary>();
+        let mut library = state.0.lock().map_err(|e| e.to_string())?;
+        library.update_plans.remove(&id);
+        library.mod_plans.remove(&id);
+    }
+    Ok(outcome)
+}
+
 #[derive(Serialize)]
 pub struct UpdateCandidate {
     #[serde(flatten)]

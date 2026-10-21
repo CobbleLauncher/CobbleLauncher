@@ -11,6 +11,7 @@ mod forge;
 mod install;
 mod instances;
 mod launch;
+mod modrecognition;
 mod modrinth;
 mod modupdates;
 mod mrpack;
@@ -22,6 +23,7 @@ pub use forge::{
 pub use install::{InstallOutcome, InstallProgress, install_game, install_resources};
 pub use instances::{copy_instance, export_instance_mrpack};
 pub use launch::{LaunchPreparation, prepare_launch};
+pub use modrecognition::{ModRecognitionOutcome, recognize_modrinth_mods};
 pub use modrinth::{ModrinthInstallOutcome, install_modrinth_plan};
 pub use modupdates::{
     ModUpdateCandidate, ModUpdateChange, ModUpdateOutcome, ModUpdatePlan, apply_modrinth_updates,

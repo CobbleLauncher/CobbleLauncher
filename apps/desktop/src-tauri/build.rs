@@ -38,6 +38,7 @@ fn main() {
             "preview_game_mod_install",
             "install_game_mod_plan",
             "check_game_mod_updates",
+            "recognize_game_mods",
             "preview_game_mod_updates",
             "apply_game_mod_updates",
             "list_game_mods",
