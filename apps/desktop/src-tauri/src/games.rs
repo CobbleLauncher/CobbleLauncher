@@ -7,6 +7,8 @@ pub mod management;
 pub mod marketplace;
 #[path = "mod_updates.rs"]
 pub mod mod_updates;
+#[path = "worlds.rs"]
+pub mod worlds;
 use cobble_core::InstallProgress;
 use cobble_minecraft::{DownloadSettings, VersionCatalog, VersionKind};
 use serde::{Deserialize, Serialize};

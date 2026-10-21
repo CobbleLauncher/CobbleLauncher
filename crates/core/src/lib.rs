@@ -17,6 +17,7 @@ mod modupdates;
 mod mrpack;
 mod pack_download;
 mod runner;
+mod worlds;
 pub use fabric::{FabricVersion, install_fabric, list_fabric_versions, list_fabric_versions_from};
 pub use forge::{
     ForgeKind, ForgeVersion, install_forge, list_forge_versions, list_forge_versions_from,
@@ -35,6 +36,7 @@ pub use pack_download::download_modrinth_pack;
 pub use runner::{
     RunningGame, prepare_offline_arguments, start_offline_game, start_offline_game_with_options,
 };
+pub use worlds::export_world_backup;
 
 /// Local, side-effect-free information shared by desktop and CLI adapters.
 pub fn app_info() -> AppInfo {

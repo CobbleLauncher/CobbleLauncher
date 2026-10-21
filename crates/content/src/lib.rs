@@ -6,8 +6,10 @@ mod local_packs;
 mod modrinth;
 mod modrinth_packs;
 mod mrpack;
+mod worlds;
 
 pub use mrpack::{Mrpack, MrpackFile, PackOverride, read_mrpack, read_mrpack_file};
+pub use worlds::{LocalWorld, list_local_worlds, world_directory};
 
 pub use local_mods::{BoxError, LocalMod, import_mods, list_mods, remove_mod, set_mod_enabled};
 pub use local_packs::{

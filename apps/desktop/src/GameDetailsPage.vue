@@ -9,10 +9,14 @@ import DiscoverMods from './DiscoverMods.vue';
 import ModUpdates from './ModUpdates.vue';
 import GameRuntimeSettings from './GameRuntimeSettings.vue';
 import LocalPacks from './LocalPacks.vue';
+import GameWorlds from './GameWorlds.vue';
 
 const props = defineProps<{ game: Game; starting: boolean; profile: PlayerProfile | null; library: ProfileLibrary }>();
 const emit = defineEmits<{ play: [id: string]; renamed: [game: Game]; profileChanged: [game: Game]; action: [action: GameAction]; contentBusy: [value: boolean] }>();
-const pageTab = ref<'content' | 'runtime'>('content');
+const pageTab = ref<'content' | 'runtime' | 'worlds'>('content');
+const worldsVisited = ref(false);
+const worldExportBusy = ref(false);
+watch(pageTab, (tab) => { if (tab === 'worlds') worldsVisited.value = true; });
 const profileBindingBusy = ref(false);
 const profileBindingError = ref('');
 async function bindProfile(event: Event) {
@@ -79,8 +83,8 @@ const error = ref('');
 const deleting = ref<string | null>(null);
 const selectedMods = ref<string[]>([]);
 const batchDeleting = ref(false);
-const contentBusy = computed(() => busy.value || installingMod.value || updatingMods.value || packMutationBusy.value);
-watch(() => busy.value || updatingMods.value || packMutationBusy.value, (value) => emit('contentBusy', value));
+const contentBusy = computed(() => busy.value || installingMod.value || updatingMods.value || packMutationBusy.value || worldExportBusy.value);
+watch(() => busy.value || updatingMods.value || packMutationBusy.value || worldExportBusy.value, (value) => emit('contentBusy', value));
 watch(mods, (value) => { selectedMods.value = selectedMods.value.filter((file) => value.some((mod) => mod.file_name === file)); });
 const allVisibleSelected = computed(() => filtered.value.length > 0 && filtered.value.every((mod) => selectedMods.value.includes(mod.file_name)));
 function selectMod(file: string, checked: boolean) { selectedMods.value = checked ? [...new Set([...selectedMods.value, file])] : selectedMods.value.filter((value) => value !== file); batchDeleting.value = false; }
@@ -104,7 +108,7 @@ async function batch(command: 'set_game_mod_enabled' | 'remove_game_mod', enable
   finally { await refresh(true); busy.value = false; }
 }
 let request = 0;
-const locked = computed(() => contentInstalling.value || packMutationBusy.value || props.starting || props.game.launch_state === 'preparing' || props.game.launch_state === 'running');
+const locked = computed(() => contentInstalling.value || packMutationBusy.value || worldExportBusy.value || props.starting || props.game.launch_state === 'preparing' || props.game.launch_state === 'running');
 const filtered = computed(() => {
   const search = query.value.trim().toLocaleLowerCase();
   return mods.value.filter((mod) => [mod.name, mod.file_name, mod.version, mod.loader, ...mod.authors].some((value) => value?.toLocaleLowerCase().includes(search)));
@@ -136,7 +140,7 @@ function remove(mod: LocalMod) {
   void mutate('remove_game_mod', { fileName: mod.file_name });
 }
 watch(locked, (value) => { if (value) { deleting.value = null; batchDeleting.value = false; } });
-watch(() => props.game.id, () => { contentType.value = 'mod'; visitedPacks.value = []; mods.value = []; selectedMods.value = []; batchDeleting.value = false; busy.value = false; query.value = ''; void refresh(); }, { immediate: true });
+watch(() => props.game.id, () => { pageTab.value = 'content'; worldsVisited.value = false; contentType.value = 'mod'; visitedPacks.value = []; mods.value = []; selectedMods.value = []; batchDeleting.value = false; busy.value = false; query.value = ''; void refresh(); }, { immediate: true });
 onUnmounted(() => { disposed = true; ++request; });
 </script>
 
@@ -166,7 +170,7 @@ onUnmounted(() => { disposed = true; ++request; });
         :disabled="locked || busy || profileBindingBusy"
         @click="$emit('play', game.id)"
       >
-        {{ packMutationBusy ? '处理内容中…' : recognizingMods ? '识别 Mod 中' : updatingMods ? '更新 Mod 中' : contentInstalling ? '安装 Mod 中' : game.launch_state === 'running' ? '运行中' : locked ? '启动中…' : profile ? `以 ${profile.name} 开始` : '选择玩家档案' }}
+        {{ worldExportBusy ? '导出备份中…' : packMutationBusy ? '处理内容中…' : recognizingMods ? '识别 Mod 中' : updatingMods ? '更新 Mod 中' : contentInstalling ? '安装 Mod 中' : game.launch_state === 'running' ? '运行中' : locked ? '启动中…' : profile ? `以 ${profile.name} 开始` : '选择玩家档案' }}
       </button>
     </div>
     <div class="game-management-actions">
@@ -311,6 +315,16 @@ onUnmounted(() => { disposed = true; ++request; });
       >
         运行设置
       </button>
+      <button
+        id="game-worlds-tab"
+        role="tab"
+        :aria-selected="pageTab === 'worlds'"
+        aria-controls="game-worlds-panel"
+        :disabled="contentBusy"
+        @click="pageTab = 'worlds'"
+      >
+        世界
+      </button>
     </div>
     <section
       v-if="pageTab === 'runtime'"
@@ -359,6 +373,19 @@ onUnmounted(() => { disposed = true; ++request; });
       <GameRuntimeSettings
         :game="game"
         @updated="$emit('profileChanged', $event)"
+      />
+    </section>
+    <section
+      v-if="worldsVisited"
+      v-show="pageTab === 'worlds'"
+      id="game-worlds-panel"
+      role="tabpanel"
+      aria-labelledby="game-worlds-tab"
+    >
+      <GameWorlds
+        :game-id="game.id"
+        :locked="locked || busy"
+        @busy="worldExportBusy = $event"
       />
     </section>
     <section

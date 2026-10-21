@@ -16,6 +16,8 @@ url.workspace = true
 cobble-store.workspace = true
 unicode-normalization.workspace = true
 caseless.workspace = true
+fastnbt = "=2.6.3"
+flate2.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
