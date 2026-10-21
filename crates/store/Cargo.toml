@@ -1,0 +1,26 @@
+[package]
+name = "cobble-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rusqlite.workspace = true
+cap-std.workspace = true
+cap-fs-ext.workspace = true
+unicode-normalization.workspace = true
+caseless.workspace = true
+zip.workspace = true
+flate2.workspace = true
+crc32fast.workspace = true
+sha2.workspace = true
+sha1.workspace = true
+getrandom.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

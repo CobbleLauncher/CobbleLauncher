@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "task_id": "task_demo",
+  "sequence": 3,
+  "status": "running",
+  "phase": "download",
+  "completed_bytes": 0,
+  "total_bytes": 469,
+  "error_code": null
+}

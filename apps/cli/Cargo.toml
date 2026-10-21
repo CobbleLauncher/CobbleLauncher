@@ -1,0 +1,17 @@
+[package]
+name = "cobble-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cobble-core.workspace = true
+
+[[bin]]
+name = "cobble"
+path = "src/main.rs"
+
+[lints]
+workspace = true

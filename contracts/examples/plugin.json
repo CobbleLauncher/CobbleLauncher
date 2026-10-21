@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "dev.example.catalog",
+  "publisher": "dev.example",
+  "name": "Fixture Catalog",
+  "version": "1.0.0",
+  "api_version": "1.0",
+  "entry": "component.wasm",
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "contributes": [
+    "catalog"
+  ],
+  "permissions": {
+    "https_hosts": [
+      "api.example.invalid"
+    ],
+    "instance_metadata": true,
+    "archive_metadata": false,
+    "sanitized_diagnostics": false
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "identifier": "main",
+  "description": "Local main window: public app information and standard window controls only.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "allow-get-app-info",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-is-maximized",
+    "core:window:allow-start-dragging"
+  ]
+}

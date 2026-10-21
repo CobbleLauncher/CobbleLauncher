@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "instance_id": "instance_demo",
+  "name": "我的生存世界",
+  "minecraft_version": "1.21.1",
+  "loader": {
+    "kind": "fabric",
+    "version": "0.16.0"
+  },
+  "account_id": null,
+  "memory_mib": 4096,
+  "active_revision": null,
+  "root_handle": "root_demo"
+}

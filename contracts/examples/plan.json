@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "plan_id": "plan_demo",
+  "instance_id": "instance_demo",
+  "base_revision": null,
+  "next_revision": "revision_1",
+  "artifacts": [
+    {
+      "artifact_id": "artifact_demo",
+      "size": 469,
+      "expected_hashes": {
+        "sha1": "7cba87cdf134a9905aaa645e8a87410dd3aa6a39",
+        "sha256": "f53565287834515937789a1fcdd076668739385fb624a28a0aaf1705f3042d33",
+        "sha512": "98add5379813e5af8e852bb4738f87c43922cadd7bd472ee5070a7404a8d5062d2a6d66648ae6a70f22a24db03707ce57b576f5df85b09c94538a0880291b14d"
+      },
+      "sources": [
+        {
+          "provider": "modrinth",
+          "project_id": "fixture-demo",
+          "version_id": "fixture-v1",
+          "url": "https://cdn.example.invalid/demo-mod.jar",
+          "authorization": "public"
+        }
+      ]
+    }
+  ],
+  "operations": [
+    {
+      "kind": "write",
+      "path": "mods/demo-mod.jar",
+      "artifact_id": "artifact_demo",
+      "before_sha256": null
+    }
+  ],
+  "risks": [],
+  "blocked_reasons": [],
+  "approval_digest": "1fbf2d6dcf0fea0095bbe8257d6163ff6972fab45ad178edae142dd46f98e04f"
+}

@@ -1,0 +1,97 @@
+[
+  {
+    "path": "mods/demo.jar",
+    "allowed": true,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "config/配置.toml",
+    "allowed": true,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "resourcepacks/pack.zip",
+    "allowed": true,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "../secret",
+    "allowed": false,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "mods/../../secret",
+    "allowed": false,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "/etc/passwd",
+    "allowed": false,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "C:/Users/name",
+    "allowed": false,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "..\\secret",
+    "allowed": false,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "\\\\server\\share",
+    "allowed": false,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "mods/a.jar:stream",
+    "allowed": false,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "mods/NUL.jar",
+    "allowed": false,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "mods/CON",
+    "allowed": false,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "config/COM1.txt",
+    "allowed": false,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "mods/a. ",
+    "allowed": false,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "mods//x.jar",
+    "allowed": false,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "mods/./x.jar",
+    "allowed": false,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "",
+    "allowed": false,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "x\u0000y",
+    "allowed": false,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  },
+  {
+    "path": "mods/A.jar",
+    "allowed": true,
+    "note": "ASCII structural and platform policy; filesystem race tests remain separate"
+  }
+]

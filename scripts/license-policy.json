@@ -1,0 +1,27 @@
+{
+  "allowed": [
+    "MIT", "MIT-0", "BlueOak-1.0.0", "Apache-2.0", "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause", "BSD-3-Clause", "0BSD", "ISC", "Zlib",
+    "CC0-1.0", "Unlicense", "BSL-1.0", "Unicode-3.0"
+  ],
+  "developmentOnlyExceptions": [
+    {
+      "name": "lightningcss",
+      "version": "1.33.0",
+      "license": "MPL-2.0",
+      "reason": "Unmodified Vite build-time CSS transformer; absent from the pnpm production dependency graph. Distribution of tooling or upstream modifications requires renewed review."
+    },
+    {
+      "name": "lightningcss-*",
+      "version": "1.33.0",
+      "license": "MPL-2.0",
+      "reason": "Platform binaries for the same build-only CSS transformer; never a launcher runtime component."
+    },
+    {
+      "name": "spdx-exceptions",
+      "version": "2.5.0",
+      "license": "CC-BY-3.0",
+      "reason": "Unmodified Linux Foundation SPDX exception-name data used only by this license-check tool. Attribution and source links retained in THIRD_PARTY_NOTICES.md."
+    }
+  ]
+}

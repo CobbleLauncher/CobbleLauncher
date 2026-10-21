@@ -1,0 +1,25 @@
+{
+  "name": "cobble-launcher-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": ">=24.19.0 <25",
+    "pnpm": "11.25.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @cobble/desktop dev",
+    "desktop": "pnpm --filter @cobble/desktop tauri dev",
+    "desktop:build": "pnpm --filter @cobble/desktop tauri build --no-bundle -- --locked",
+    "build": "pnpm --filter @cobble/desktop build",
+    "lint": "pnpm --filter @cobble/desktop lint",
+    "typecheck": "pnpm --filter @cobble/desktop typecheck",
+    "test": "node --test scripts/licenses.test.mjs && pnpm --filter @cobble/desktop test",
+    "licenses:check": "node scripts/check_node_licenses.mjs",
+    "test:e2e": "pnpm --filter @cobble/desktop test:e2e"
+  },
+  "devDependencies": {
+    "spdx-expression-parse": "5.0.0"
+  }
+}

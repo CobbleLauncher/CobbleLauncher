@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "instance_id": "instance_demo",
+  "revision_id": "revision_1",
+  "parent_revision": null,
+  "minecraft_version": "1.21.1",
+  "loader": {
+    "kind": "fabric",
+    "version": "0.16.0"
+  },
+  "files": [
+    {
+      "path": "mods/demo-mod.jar",
+      "sha256": "f53565287834515937789a1fcdd076668739385fb624a28a0aaf1705f3042d33",
+      "size": 469,
+      "role": "mod",
+      "origin": {
+        "provider": "modrinth",
+        "project_id": "fixture-demo",
+        "version_id": "fixture-v1",
+        "url": "https://cdn.example.invalid/demo-mod.jar",
+        "authorization": "public"
+      },
+      "enabled": true,
+      "ownership": "pack"
+    }
+  ],
+  "pack_baseline_revision": "revision_1"
+}

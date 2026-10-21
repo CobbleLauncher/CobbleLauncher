@@ -1,0 +1,62 @@
+package launcher:extensions@1.0.0;
+
+interface types {
+  record plugin-error { code: string, message: string }
+  record digest { algorithm: string, value: string }
+  record game-context { minecraft-version: string, loader: option<string>, loader-version: option<string> }
+  record project { id: string, title: string, description: string }
+  record search-request { query: string, context: game-context, cursor: option<string> }
+  record search-result { projects: list<project>, next-cursor: option<string> }
+  enum dependency-kind { required, optional, incompatible, embedded }
+  record dependency { project-id: option<string>, version-id: option<string>, kind: dependency-kind }
+  record content-proposal {
+    project-id: string,
+    version-id: string,
+    path: string,
+    size: u64,
+    hashes: list<digest>,
+    download-urls: list<string>,
+    dependencies: list<dependency>,
+  }
+}
+
+interface host {
+  use types.{plugin-error};
+  record response { status: u16, body: list<u8> }
+  // HTTPS GET only. Permissions and redirects validated by main-process broker.
+  http-get: func(url: string) -> result<response, plugin-error>;
+  log: func(level: string, message: string);
+  cancelled: func() -> bool;
+}
+
+interface archive {
+  use types.{plugin-error};
+  // Opaque scoped handle, never an OS file descriptor or arbitrary path.
+  list-entries: func(handle: u64) -> result<list<string>, plugin-error>;
+  read-metadata: func(handle: u64, entry: string, maximum-bytes: u32) -> result<list<u8>, plugin-error>;
+}
+
+interface catalog {
+  use types.{search-request, search-result, content-proposal, game-context, plugin-error};
+  search: func(request: search-request) -> result<search-result, plugin-error>;
+  resolve: func(project-id: string, version-id: option<string>, context: game-context) -> result<list<content-proposal>, plugin-error>;
+}
+
+interface importer {
+  use types.{content-proposal, game-context, plugin-error};
+  enum override-layer { common, client }
+  record archive-file-proposal { entry: string, target-path: string, layer: override-layer }
+  record pack-proposal { name: string, context: game-context, files: list<content-proposal>, overrides: list<archive-file-proposal>, warnings: list<string> }
+  inspect: func(archive-handle: u64) -> result<pack-proposal, plugin-error>;
+}
+
+world catalog-plugin {
+  import host;
+  export catalog;
+}
+
+world pack-plugin {
+  import host;
+  import archive;
+  export importer;
+}
