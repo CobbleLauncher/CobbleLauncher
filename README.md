@@ -43,7 +43,7 @@ Requirements:
 - The native [Tauri development prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform, including Windows C++ build tools and WebView2 on Windows.
 
 ```sh
-git clone https://github.com/bkmashiro/CobbleLauncher.git
+git clone https://github.com/CobbleLauncher/CobbleLauncher.git
 cd CobbleLauncher
 pnpm install --frozen-lockfile
 pnpm desktop
@@ -117,4 +117,4 @@ The network tests use a publicly known, synthetic TLS identity trusted only in t
 
 Project code is licensed under [MIT](LICENSE). Dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
-For project questions and bug reports, use [GitHub Issues](https://github.com/bkmashiro/CobbleLauncher/issues).
+For project questions and bug reports, use [GitHub Issues](https://github.com/CobbleLauncher/CobbleLauncher/issues).
