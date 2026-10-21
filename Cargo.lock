@@ -447,6 +447,7 @@ version = "0.1.0"
 dependencies = [
  "cap-fs-ext",
  "cap-std",
+ "cobble-auth",
  "cobble-domain",
  "cobble-minecraft",
  "cobble-net",
@@ -456,6 +457,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "tokio",
+ "zip",
 ]
 
 [[package]]
@@ -5423,6 +5425,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e04976da629d3b04204ba8105b396a193af8ad2583b2c79bfb3ab8af580a11e"
 dependencies = [
  "crc32fast",
+ "flate2",
  "indexmap 2.14.2",
  "memchr",
  "nix",

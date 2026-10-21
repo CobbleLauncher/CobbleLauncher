@@ -158,6 +158,7 @@ pub fn create_game(
         return Err("请填写游戏名称".into());
     }
     let resolved_source = source.download_source().map_err(|e| e.to_string())?;
+    cobble_minecraft::save_download_settings(&source).map_err(|e| e.to_string())?;
     let mut library = library.0.lock().map_err(|e| e.to_string())?;
     if let Some(error) = &library.load_error {
         return Err(error.clone());
@@ -284,4 +285,43 @@ fn start_install(app: AppHandle, game: Game, source: cobble_minecraft::DownloadS
             true,
         );
     });
+}
+
+#[derive(Serialize)]
+pub struct LaunchReadiness {
+    java: crate::java::JavaRuntimeInfo,
+    required_java: u32,
+    main_class: String,
+    classpath_entries: usize,
+}
+
+#[tauri::command]
+pub async fn prepare_game_launch(
+    id: String,
+    library: State<'_, GameLibrary>,
+) -> Result<LaunchReadiness, String> {
+    let (version, directory) = {
+        let library = library.0.lock().map_err(|e| e.to_string())?;
+        let game = library
+            .games
+            .iter()
+            .find(|game| game.id == id)
+            .ok_or("找不到这个游戏")?;
+        if game.status != "installed" {
+            return Err("请先完成游戏安装".into());
+        }
+        (game.version.clone(), game.directory.clone())
+    };
+    let launch = cobble_core::prepare_launch(&version, &directory)
+        .await
+        .map_err(|e| e.to_string())?;
+    let java = cobble_minecraft::resolve_java(launch.required_java)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(LaunchReadiness {
+        java: java.into(),
+        required_java: launch.required_java,
+        main_class: launch.main_class,
+        classpath_entries: launch.classpath_entries,
+    })
 }

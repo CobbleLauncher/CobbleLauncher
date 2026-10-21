@@ -88,7 +88,7 @@ fn runtime() -> io::Result<tokio::runtime::Runtime> {
 }
 
 pub fn show_java(major: u32) -> Result<(), Error> {
-    let java = runtime()?.block_on(cobble_minecraft::find_java(major))?;
+    let java = runtime()?.block_on(cobble_minecraft::resolve_java(major))?;
     println!("Java {} · {} · {}", java.version, java.vendor, java.arch);
     println!("{}", java.executable.display());
     Ok(())

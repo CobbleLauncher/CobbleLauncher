@@ -12,7 +12,7 @@ fn main() -> ExitCode {
     match args.next().as_deref() {
         None | Some("--help" | "-h") => {
             println!(
-                "Cobble Launcher\n\nUsage:\n  cobble versions          List the latest 20 releases\n  cobble versions --all    List all versions, including snapshots\n  cobble info <version>    Show Java requirements and download size\n  cobble install <version> --dir <folder> [--client-only] [--source official|bmclapi | --mirror <https-base>]\n  cobble java <major>      Find a matching installed Java runtime\n  cobble --version\n\nInstall downloads game files. Sign-in and launching follow separately."
+                "Cobble Launcher\n\nUsage:\n  cobble versions          List the latest 20 releases\n  cobble versions --all    List all versions, including snapshots\n  cobble info <version>    Show Java requirements and download size\n  cobble install <version> --dir <folder> [--client-only] [--source official|bmclapi | --mirror <https-base>]\n  cobble java <major>      Find a matching installed Java runtime\n  cobble launch-info <version> --dir <folder>  Prepare installed Vanilla without launching\n  cobble --version\n\nInstall downloads game files. Sign-in and launching follow separately."
             );
             ExitCode::SUCCESS
         }
@@ -58,6 +58,24 @@ fn main() -> ExitCode {
                 return ExitCode::from(2);
             };
             match install::show_java(major) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("{error}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Some("launch-info") => {
+            let version = args.next();
+            let option = args.next();
+            let directory = args.next();
+            let (Some(version), Some("--dir"), Some(directory), None) =
+                (version, option.as_deref(), directory, args.next())
+            else {
+                eprintln!("Usage: cobble launch-info <version> --dir <folder>");
+                return ExitCode::from(2);
+            };
+            match launch_info(&version, std::path::Path::new(&directory)) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(error) => {
                     eprintln!("{error}");
@@ -187,4 +205,33 @@ fn list_versions(all: bool) -> Result<(), Box<dyn std::error::Error>> {
     }
     out.flush()?;
     Ok(())
+}
+
+fn launch_info(
+    version: &str,
+    directory: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(async {
+        let plan = cobble_core::prepare_launch(version, directory).await?;
+        let java = cobble_minecraft::resolve_java(plan.required_java).await?;
+        println!("Java {} · {} · {}", java.version, java.vendor, java.arch);
+        println!("Executable: {}", java.executable.display());
+        println!("Main class: {}", plan.main_class);
+        println!("Classpath: {} entries", plan.classpath_entries);
+        println!(
+            "Arguments: {} JVM, {} game",
+            plan.jvm_arguments.len(),
+            plan.game_arguments.len()
+        );
+        println!(
+            "Natives: {} files in {}",
+            plan.native_files,
+            plan.natives_directory.display()
+        );
+        println!("Launch preparation complete. Sign-in and game execution are not implemented.");
+        Ok(())
+    })
 }

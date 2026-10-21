@@ -1,6 +1,6 @@
 {
   "identifier": "main",
-  "description": "Local main window: public app information and standard window controls only.",
+  "description": "Main window: game installation, preferences, Java selection and window controls.",
   "windows": [
     "main"
   ],
@@ -8,12 +8,16 @@
     "allow-get-app-info",
     "allow-get-download-settings",
     "allow-set-download-settings",
+    "allow-get-java-settings",
+    "allow-pick-java-executable",
+    "allow-use-automatic-java",
     "allow-list-game-versions",
     "allow-list-games",
     "allow-default-game-directory",
     "allow-pick-game-directory",
     "allow-create-game",
     "allow-retry-game",
+    "allow-prepare-game-launch",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "core:window:allow-minimize",

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
-//! OAuth state machine and credential vault integration.
+//! Microsoft application configuration for Cobble Launcher.
 //!
-//! Reserved module boundary; implementation has not started.
+//! Public desktop application ID; no client secret is shipped.
+
+pub const MICROSOFT_CLIENT_ID: &str = "237f1625-ed8a-421c-ab8e-20448c0eb448";

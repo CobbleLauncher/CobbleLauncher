@@ -5,12 +5,16 @@ fn main() {
             "get_app_info",
             "get_download_settings",
             "set_download_settings",
+            "get_java_settings",
+            "pick_java_executable",
+            "use_automatic_java",
             "list_game_versions",
             "list_games",
             "default_game_directory",
             "pick_game_directory",
             "create_game",
             "retry_game",
+            "prepare_game_launch",
         ]),
     ))
     .expect("failed to prepare desktop application");

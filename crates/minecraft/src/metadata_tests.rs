@@ -50,6 +50,7 @@ fn modern_plan_selects_ordered_rules_native_logging_and_index() {
             "libraries/fixture/common.jar",
             "libraries/fixture/windows.jar",
             "libraries/fixture/native64.jar",
+            "libraries/fixture/feature.jar",
             "assets/log_configs/fixture.xml",
             "assets/indexes/fixture-assets.json"
         ]

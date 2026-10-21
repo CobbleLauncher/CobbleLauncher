@@ -81,6 +81,7 @@ struct Logging {
 }
 #[derive(Debug, Deserialize)]
 struct ClientLogging {
+    argument: Option<String>,
     file: LoggingFile,
 }
 #[derive(Debug, Deserialize)]
@@ -92,7 +93,7 @@ struct LoggingFile {
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Rule {
+pub(crate) struct Rule {
     action: Action,
     os: Option<OsRule>,
     #[serde(default)]
@@ -205,6 +206,10 @@ impl VersionMetadata {
         if Sha1::digest(bytes).as_slice() != parse_sha1(expected_sha1)? {
             return Err(MetadataError::DigestMismatch);
         }
+        Self::parse_installed(bytes, expected_id)
+    }
+    /// Read metadata already verified and persisted by the installer.
+    pub fn parse_installed(bytes: &[u8], expected_id: &str) -> Result<Self, MetadataError> {
         let raw: serde_json::Value =
             serde_json::from_slice(bytes).map_err(|_| MetadataError::InvalidMetadata)?;
         if raw.get("inheritsFrom").is_some() {
@@ -228,6 +233,10 @@ impl VersionMetadata {
     }
     pub fn source_bytes(&self) -> &[u8] {
         &self.source_bytes
+    }
+    pub fn logging_argument(&self) -> Option<(&str, &str)> {
+        let client = self.logging.client.as_ref()?;
+        Some((client.argument.as_deref()?, &client.file.id))
     }
     pub fn download_plan(&self, platform: &PlatformContext) -> Result<DownloadPlan, MetadataError> {
         if self.inherits_from.is_some() {
@@ -335,7 +344,10 @@ impl VersionMetadata {
         })
     }
 }
-fn allowed(rules: Option<&[Rule]>, platform: &PlatformContext) -> Result<bool, MetadataError> {
+pub(crate) fn allowed(
+    rules: Option<&[Rule]>,
+    platform: &PlatformContext,
+) -> Result<bool, MetadataError> {
     let Some(rules) = rules else {
         return Ok(true);
     };
@@ -359,11 +371,9 @@ fn allowed(rules: Option<&[Rule]>, platform: &PlatformContext) -> Result<bool, M
                 }
             }
         }
-        if rule
-            .features
-            .iter()
-            .any(|(name, expected)| platform.features.get(name) != Some(expected))
-        {
+        if rule.features.iter().any(|(name, expected)| {
+            platform.features.get(name).copied().unwrap_or(false) != *expected
+        }) {
             continue;
         }
         allowed = matches!(rule.action, Action::Allow);

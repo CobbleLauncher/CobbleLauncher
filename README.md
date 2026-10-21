@@ -10,7 +10,7 @@ CobbleLauncher is an open-source launcher for Minecraft: Java Edition. It aims t
 - Create Vanilla installations from the desktop or command line.
 - Follow download progress and retry interrupted installations.
 - Choose the official download source, BMCLAPI, or a custom BMCLAPI-compatible source.
-- Detect Java installations on your computer.
+- Choose Java automatically or select an installed runtime yourself.
 
 Fabric, Forge, NeoForge, and modpack support are planned.
 
@@ -39,6 +39,8 @@ To use BMCLAPI, add `--source bmclapi`. Java installation, sign-in, and game lau
 ## License
 
 The project is licensed under the [MIT License](LICENSE).
+
+Thanks to [CmlLib.Core](https://github.com/CmlLib/CmlLib.Core) and [XMCL](https://github.com/Voxelum/x-minecraft-launcher) for their open-source launcher references.
 
 CobbleLauncher is an unofficial community project. It is not affiliated with, endorsed by, or associated with Mojang or Microsoft. Minecraft and related marks belong to their respective owners.
 

@@ -7,7 +7,9 @@ use cobble_domain::AppInfo;
 
 mod cache;
 mod install;
+mod launch;
 pub use install::{InstallOutcome, InstallProgress, install_game, install_resources};
+pub use launch::{LaunchPreparation, prepare_launch};
 
 /// Local, side-effect-free information shared by desktop and CLI adapters.
 pub fn app_info() -> AppInfo {
