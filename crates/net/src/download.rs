@@ -33,8 +33,9 @@ const HARD_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const CHECKPOINT_BYTES: u64 = 16 * 1024 * 1024;
 const CHECKPOINT_TIME: Duration = Duration::from_secs(5);
 
-/// Trusted Core assertions, not proof of provider permission. Only same-origin
-/// redirects are granted by this slice. Labels are bounded nonsecret record IDs;
+/// Trusted Core assertions, not proof of provider permission. Redirects default
+/// to same-origin; anonymous mirrors need the explicit request opt-in below.
+/// Labels are bounded nonsecret record IDs;
 /// never place credentials, signed URLs or user-facing personal data in them.
 pub struct DownloadAuthority {
     provider: String,
@@ -73,8 +74,48 @@ pub struct DownloadRequest {
     expectation: ArtifactExpectation,
     identity: StageIdentity,
     partition: Option<CredentialPartition>,
+    mirror_redirects: bool,
 }
 impl DownloadRequest {
+    /// Opt in for a selected anonymous BMCL-compatible source's HTTPS CDN routes.
+    /// The provider may delegate through redirects subject to the broker's
+    /// per-hop destination/TLS checks and existing redirect/body/time limits.
+    /// Redirects cannot change the expected digest supplied by the caller.
+    pub fn with_mirror_redirects(
+        mut self,
+        original_official_url: &str,
+    ) -> Result<Self, DownloadError> {
+        if self.credential.is_some() || self.partition.is_some() || self.mirror_redirects {
+            return Err(DownloadError::InvalidRequest);
+        }
+        self.expectation
+            .digests
+            .sha1
+            .ok_or(DownloadError::InvalidRequest)?;
+        let official = Endpoint::parse(original_official_url).map_err(DownloadError::Policy)?;
+        let path = official.url.path();
+        let supported = match official.url.host_str() {
+            Some("resources.download.minecraft.net" | "libraries.minecraft.net") => true,
+            Some("piston-meta.mojang.com" | "launchermeta.mojang.com") => {
+                path.starts_with("/v1/packages/") || path.starts_with("/mc/game/")
+            }
+            Some("piston-data.mojang.com" | "launcher.mojang.com") => {
+                path.starts_with("/v1/objects/") || path.starts_with("/mc/game/")
+            }
+            _ => false,
+        };
+        if !supported || official.url.query().is_some() {
+            return Err(DownloadError::InvalidRequest);
+        }
+        let official_url = official.url.to_string();
+        let mut hash = Sha256::new();
+        hash.update(b"CobbleLauncher anonymous provider-delegated mirror redirects v2\0");
+        hash.update(self.identity.request_key);
+        hash_field(&mut hash, official_url.as_bytes());
+        self.identity.request_key = hash.finalize().into();
+        self.mirror_redirects = true;
+        Ok(self)
+    }
     pub(crate) fn key(&self) -> [u8; 32] {
         self.identity.request_key
     }
@@ -137,6 +178,7 @@ impl DownloadRequest {
             expectation,
             identity,
             partition: authority.partition,
+            mirror_redirects: false,
         })
     }
 }
@@ -361,7 +403,7 @@ impl ArtifactDownloader {
                     transfer,
                     file,
                     cancel.clone(),
-                    SameOriginGrant::new(&request.endpoint),
+                    SameOriginGrant::new(&request.endpoint).with_mirror(request.mirror_redirects),
                 )
                 .await;
             if let Some(error) = status.lock().map_err(|_| DownloadError::Worker)?.take() {

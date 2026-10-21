@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+use crate::{DownloadSource, MetadataError, SourceError, VersionMetadata};
 use cobble_net::{Broker, NetError};
 use serde::Deserialize;
 use std::fmt;
@@ -24,6 +25,8 @@ pub struct VersionSummary {
     pub kind: VersionKind,
     #[serde(rename = "releaseTime")]
     pub release_time: String,
+    pub url: String,
+    pub sha1: String,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -54,6 +57,9 @@ pub enum CatalogError {
     Network(NetError),
     HttpStatus(u16),
     InvalidResponse,
+    UnknownVersion,
+    Metadata(MetadataError),
+    Source(SourceError),
 }
 
 impl fmt::Display for CatalogError {
@@ -64,17 +70,64 @@ impl fmt::Display for CatalogError {
                 write!(f, "Minecraft version service returned HTTP {status}")
             }
             Self::InvalidResponse => f.write_str("could not read the Minecraft version catalog"),
+            Self::UnknownVersion => {
+                f.write_str("Minecraft version is absent from the selected catalog")
+            }
+            Self::Metadata(error) => error.fmt(f),
+            Self::Source(error) => error.fmt(f),
         }
     }
 }
 impl std::error::Error for CatalogError {}
 
 impl VersionCatalog {
+    pub async fn fetch_version(
+        &self,
+        broker: &Broker,
+        id: &str,
+    ) -> Result<VersionMetadata, CatalogError> {
+        self.fetch_version_from(broker, id, &DownloadSource::Official)
+            .await
+    }
+    /// Fetch from the selected provider, checking the version bytes against this
+    /// catalog's SHA-1 record. A mirror catalog is explicitly trusted by its user;
+    /// that is not an independent fetch of the official catalog.
+    pub async fn fetch_version_from(
+        &self,
+        broker: &Broker,
+        id: &str,
+        source: &DownloadSource,
+    ) -> Result<VersionMetadata, CatalogError> {
+        let summary = self
+            .versions
+            .iter()
+            .find(|version| version.id == id)
+            .ok_or(CatalogError::UnknownVersion)?;
+        let url = source.resolve(&summary.url).map_err(CatalogError::Source)?;
+        let response = broker
+            .get(&url, None, 8 * 1024 * 1024)
+            .await
+            .map_err(CatalogError::Network)?;
+        if response.metadata.status != 200 {
+            return Err(CatalogError::HttpStatus(response.metadata.status));
+        }
+        VersionMetadata::parse_verified(&response.body, id, &summary.sha1)
+            .map_err(CatalogError::Metadata)
+    }
     /// Explicit user operation; never called during application bootstrap.
     /// Catalog entries are display data, not verified installation plans.
     pub async fn fetch(broker: &Broker) -> Result<Self, CatalogError> {
+        Self::fetch_from(broker, &DownloadSource::Official).await
+    }
+    /// Uses the explicitly selected HTTPS provider for the catalog too, so a
+    /// mirror selection does not require connectivity to Mojang metadata hosts.
+    pub async fn fetch_from(
+        broker: &Broker,
+        source: &DownloadSource,
+    ) -> Result<Self, CatalogError> {
+        let url = source.resolve(MANIFEST_URL).map_err(CatalogError::Source)?;
         let response = broker
-            .get(MANIFEST_URL, None, 4 * 1024 * 1024)
+            .get(&url, None, 4 * 1024 * 1024)
             .await
             .map_err(CatalogError::Network)?;
         if response.metadata.status != 200 {
@@ -97,14 +150,45 @@ impl VersionCatalog {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn selected_source_errors_are_reported_before_catalog_or_version_network_requests() {
+        let broker = Broker::new(cobble_net::BrokerConfig::default()).unwrap();
+        let source = DownloadSource::CustomBmclapi(
+            url::Url::parse("http://mirror.example.invalid/").unwrap(),
+        );
+        assert!(matches!(
+            VersionCatalog::fetch_from(&broker, &source).await,
+            Err(CatalogError::Source(_))
+        ));
+        let catalog = VersionCatalog {
+            latest: LatestVersions {
+                release: "fixture".into(),
+                snapshot: "fixture".into(),
+            },
+            versions: vec![VersionSummary {
+                id: "fixture".into(),
+                kind: VersionKind::Release,
+                release_time: "2026-01-01T00:00:00Z".into(),
+                url: "https://piston-meta.mojang.com/v1/packages/fixture/fixture.json".into(),
+                sha1: "0".repeat(40),
+            }],
+        };
+        assert!(matches!(
+            catalog
+                .fetch_version_from(&broker, "fixture", &source)
+                .await,
+            Err(CatalogError::Source(_))
+        ));
+    }
+
     #[test]
     fn reads_catalog_without_treating_display_entries_as_install_metadata() {
         let catalog = VersionCatalog::parse(br#"{
             "latest":{"release":"demo-release","snapshot":"demo-snapshot"},
             "versions":[
-                {"id":"demo-snapshot","type":"snapshot","releaseTime":"2026-01-02T12:00:00Z","url":"https://example.invalid/snapshot.json"},
-                {"id":"demo-release","type":"release","releaseTime":"2026-01-01T12:00:00Z","complianceLevel":1},
-                {"id":"future","type":"future_kind","releaseTime":"2026-01-03T12:00:00Z"}
+                {"id":"demo-snapshot","type":"snapshot","releaseTime":"2026-01-02T12:00:00Z","url":"https://example.invalid/snapshot.json","sha1":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+                {"id":"demo-release","type":"release","releaseTime":"2026-01-01T12:00:00Z","url":"https://example.invalid/release.json","sha1":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","complianceLevel":1},
+                {"id":"future","type":"future_kind","releaseTime":"2026-01-03T12:00:00Z","url":"https://example.invalid/future.json","sha1":"cccccccccccccccccccccccccccccccccccccccc"}
             ]
         }"#).unwrap();
         assert_eq!(catalog.latest.release, "demo-release");

@@ -408,8 +408,10 @@ impl Broker {
     ) -> Result<tokio_native_tls::TlsStream<TcpStream>, NetError> {
         let mut connected = None;
         for address in addresses {
+            // Some CDN handshakes need over a second; the outer connection
+            // deadline still bounds all address attempts together.
             if let Ok(Ok(stream)) = timeout(
-                Duration::from_secs(1).min(self.inner.config.connect_timeout),
+                Duration::from_secs(3).min(self.inner.config.connect_timeout),
                 TcpStream::connect(address),
             )
             .await

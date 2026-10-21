@@ -14,6 +14,7 @@ tauri-build = { version = "=2.7.3", features = [] }
 tauri = { version = "=2.12.4", features = [] }
 cobble-core.workspace = true
 cobble-domain.workspace = true
+cobble-minecraft.workspace = true
 
 [features]
 default = ["custom-protocol"]

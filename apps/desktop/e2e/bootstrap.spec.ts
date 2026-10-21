@@ -72,8 +72,41 @@ test('minimum window and 200 percent CSS zoom preserve settings access', async (
   await page.locator('html').evaluate((element) => { element.style.zoom = '2'; });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole('button', { name: '打开设置' }).click();
+  await page.getByRole('button', { name: '完成' }).scrollIntoViewIfNeeded();
   await expect(page.getByRole('button', { name: '完成' })).toBeInViewport();
   await page.getByRole('radio', { name: '深色', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.getByRole('button', { name: '完成' }).click();
+});
+
+test('download source selection persists and custom mirrors are validated', async ({ page }, testInfo) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: '打开设置' }).click();
+  await page.getByRole('radio', { name: 'BMCLAPI', exact: true }).click();
+  await expect(page.getByText('BMCLAPI 由 bangbang93', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: '完成' }).click();
+  await page.reload();
+  await page.getByRole('button', { name: '打开设置' }).click();
+  await expect(page.getByRole('radio', { name: 'BMCLAPI', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('radio', { name: '自定义镜像', exact: true }).click();
+  await page.getByLabel('镜像地址', { exact: true }).fill('http://mirror.example.invalid/');
+  await page.getByRole('button', { name: '完成' }).click();
+  await expect(page.getByRole('alert')).toContainText('HTTPS');
+  await page.getByLabel('镜像地址', { exact: true }).fill('https://mirror.example.invalid/minecraft/');
+  await page.getByRole('button', { name: '完成' }).click();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: '打开设置' }).click();
+  await expect(page.getByLabel('镜像地址', { exact: true })).toHaveValue('https://mirror.example.invalid/minecraft/');
+  for (const theme of ['浅色', '深色']) {
+    await page.getByRole('radio', { name: theme, exact: true }).click();
+    await page.screenshot({ path: testInfo.outputPath(theme === '浅色' ? 'settings-light.png' : 'settings-dark.png'), animations: 'disabled' });
+  }
+  await page.setViewportSize({ width: 560, height: 420 });
+  await page.getByRole('button', { name: '完成' }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole('button', { name: '完成' })).toBeInViewport();
+  expect(await page.getByRole('dialog').evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return bounds.top >= 0 && bounds.bottom <= innerHeight;
+  })).toBe(true);
 });

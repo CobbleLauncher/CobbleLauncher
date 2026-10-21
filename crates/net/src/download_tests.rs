@@ -13,6 +13,128 @@ use std::{
 const URL: &str = "https://one.fixture.invalid/file";
 const BODY: &[u8] = b"abcdef";
 
+const MIRROR_SHA1: &str = "1f8ac10f23c5b5bc1167bda84b833e5c057a77d2";
+const MIRROR_ORIGINAL: &str = "https://piston-data.mojang.com/v1/objects/fixture/client.jar";
+fn mirror_request() -> DownloadRequest {
+    let mut expected = expected();
+    let mut sha1 = [0; 20];
+    for (index, byte) in sha1.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&MIRROR_SHA1[index * 2..index * 2 + 2], 16).unwrap();
+    }
+    expected.digests.sha1 = Some(sha1);
+    DownloadRequest::new(
+        URL,
+        expected,
+        DownloadAuthority::same_origin("fixture-mirror", "artifact", "mirror-v1", None).unwrap(),
+        None,
+    )
+    .unwrap()
+}
+
+#[tokio::test]
+async fn mirror_download_follows_provider_cdn_and_storage_routes_and_verifies_all_digests() {
+    let server = Server::new(|input| {
+        if input.starts_with("GET /file ") {
+            raw(format!("HTTP/1.1 302 Found\r\nLocation: https://two.fixture.invalid/download/{MIRROR_SHA1}?signature=synthetic\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))
+        } else if input.to_ascii_lowercase().contains("host: two.fixture.invalid") {
+            raw(format!("HTTP/1.1 302 Found\r\nLocation: https://one.fixture.invalid/bmclapi/1f/{MIRROR_SHA1}?signature=storage\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))
+        } else { raw(full()) }
+    }).await;
+    let temp = Temp::new();
+    let plain = mirror_request();
+    let granted = plain
+        .clone()
+        .with_mirror_redirects(MIRROR_ORIGINAL)
+        .unwrap();
+    assert_ne!(plain.key(), granted.key());
+    let result = temp
+        .downloader(server.broker(config()))
+        .download(granted, TransferCancellation::default())
+        .await
+        .unwrap();
+    assert_eq!(result.artifact.size_bytes(), 6);
+    assert_eq!(server.captured().len(), 3);
+}
+
+#[tokio::test]
+async fn mirror_download_rejects_incorrect_bytes_after_provider_redirect() {
+    let server = Server::new(|input| if input.to_ascii_lowercase().contains("host: one.fixture.invalid") {
+        raw(b"HTTP/1.1 302 Found\r\nLocation: https://two.fixture.invalid/storage/file.jar\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+    } else { raw(b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nwrong!") }).await;
+    let temp = Temp::new();
+    assert!(matches!(
+        temp.downloader(server.broker(config()))
+            .download(
+                mirror_request()
+                    .with_mirror_redirects(MIRROR_ORIGINAL)
+                    .unwrap(),
+                TransferCancellation::default()
+            )
+            .await,
+        Err(DownloadError::Integrity(CasError::DigestMismatch(_)))
+    ));
+    assert_eq!(server.captured().len(), 2);
+}
+
+#[tokio::test]
+async fn mirror_redirects_still_reject_non_public_destinations() {
+    let server = Server::new(|_| raw(b"HTTP/1.1 302 Found\r\nLocation: https://127.0.0.1/storage/file.jar\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")).await;
+    let temp = Temp::new();
+    assert!(matches!(
+        temp.downloader(server.broker(config()))
+            .download(
+                mirror_request()
+                    .with_mirror_redirects(MIRROR_ORIGINAL)
+                    .unwrap(),
+                TransferCancellation::default()
+            )
+            .await,
+        Err(DownloadError::Transfer(TransferError::Network(
+            NetError::ForbiddenDestination
+        )))
+    ));
+    assert_eq!(server.captured().len(), 1);
+}
+
+#[tokio::test]
+async fn mirror_redirect_policy_requires_anonymous_sha1_and_official_original() {
+    assert!(request().with_mirror_redirects(MIRROR_ORIGINAL).is_err());
+    assert!(
+        mirror_request()
+            .with_mirror_redirects("https://third-party.invalid/file")
+            .is_err()
+    );
+    let server = Server::new(|_| raw(full())).await;
+    let broker = server.broker(config());
+    let partition = CredentialPartition::new("fixture:mirror-auth").unwrap();
+    let credential = broker
+        .register_download_credentials(
+            CredentialScope::new("https://one.fixture.invalid", "/").unwrap(),
+            ProviderCredentials {
+                bearer: Some("synthetic".into()),
+                api_key: None,
+                cookie: None,
+            },
+            partition,
+        )
+        .unwrap();
+    let anonymous = mirror_request();
+    let authenticated = DownloadRequest::new(
+        URL,
+        anonymous.expectation,
+        DownloadAuthority::same_origin("fixture-mirror", "artifact", "mirror-v1", Some(partition))
+            .unwrap(),
+        Some(credential),
+    )
+    .unwrap();
+    assert!(
+        authenticated
+            .with_mirror_redirects(MIRROR_ORIGINAL)
+            .is_err()
+    );
+    assert!(server.captured().is_empty());
+}
+
 #[cfg(test)]
 mod managed {
     use super::*;

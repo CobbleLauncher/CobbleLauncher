@@ -189,14 +189,37 @@ pub struct TransferReceipt<S> {
 }
 /// Internal typed grant, constructed from the same validated request endpoint.
 /// Public-IP safety and provider/source authority are separate checks.
-pub(crate) struct SameOriginGrant(Origin);
+pub(crate) struct SameOriginGrant {
+    origin: Origin,
+    mirror_redirects: bool,
+}
 impl SameOriginGrant {
     pub(crate) fn new(endpoint: &Endpoint) -> Self {
-        Self(endpoint.origin())
+        Self {
+            origin: endpoint.origin(),
+            mirror_redirects: false,
+        }
+    }
+    pub(crate) fn with_mirror(mut self, mirror_redirects: bool) -> Self {
+        self.mirror_redirects = mirror_redirects;
+        self
     }
     fn permits(&self, endpoint: &Endpoint) -> bool {
-        self.0 == endpoint.origin()
+        // The selected anonymous mirror delegates CDN routing. Every hop still
+        // passes the broker's HTTPS/public-IP/TLS limits and final digest checks.
+        self.mirror_redirects || self.origin == endpoint.origin()
     }
+}
+
+#[cfg(test)]
+#[test]
+fn mirror_opt_in_does_not_change_default_same_origin_grant() {
+    let start = Endpoint::parse("https://mirror.fixture.invalid/maven/file.jar").unwrap();
+    let other = Endpoint::parse("https://storage.fixture.invalid/bmclapi/ab/fixture").unwrap();
+    let grant = SameOriginGrant::new(&start);
+    assert!(grant.permits(&start));
+    assert!(!grant.permits(&other));
+    assert!(grant.with_mirror(true).permits(&other));
 }
 
 impl Broker {

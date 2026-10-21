@@ -7,7 +7,7 @@ Cobble Launcher is an independently developed, open-source desktop project built
 
 ## Development status
 
-**Early development — not yet ready to install or launch Minecraft.** No stable release is available.
+**Early development — resource installation is available through the CLI; game launching is not implemented yet.** No stable release is available.
 
 Implemented:
 
@@ -19,10 +19,12 @@ Implemented:
 - Resumable artifact downloads with durable checkpoints and whole-file digest verification before storage.
 - Shared in-process downloads with independent cancellation and bounded retries.
 - A live Minecraft version catalog available through the CLI.
+- Modern Vanilla resource installation, verified cache reuse and installed Java detection through the CLI.
+- Official, BMCLAPI and custom BMCLAPI-compatible download sources for game resources.
 
 The current implementation has been tested on Windows. macOS and Linux are target platforms; they have not yet been validated on physical devices.
 
-Next: version metadata and installation, Java management, Microsoft sign-in and actual game launching. Fabric, Forge/NeoForge and modpack workflows are planned, not currently supported features.
+Next: desktop installation controls, automatic Java installation, Microsoft sign-in and actual game launching. Fabric, Forge/NeoForge and modpack workflows are planned, not currently supported features.
 
 ## Microsoft / Minecraft integration
 
@@ -63,6 +65,21 @@ cargo run -p cobble-cli --locked -- versions --all
 ```
 
 The default lists the latest 20 releases. `--all` includes snapshots and historical versions; listing a version does not imply that installation or launch is supported yet.
+
+Inspect and download modern Vanilla game resources into an empty folder:
+
+```sh
+cargo run -p cobble-cli --locked -- info 1.21.1
+cargo run -p cobble-cli --locked -- install 1.21.1 --dir ./game
+cargo run -p cobble-cli --locked -- install 1.21.1 --dir ./game --source bmclapi
+cargo run -p cobble-cli --locked -- java 21
+```
+
+Select a source in the desktop settings; the CLI uses the same saved preference. The default is official. An explicit `--source` or `--mirror` overrides it for one command. `--mirror <https-base>` selects a custom BMCLAPI-compatible mirror, including a privately configured overseas endpoint. It cannot be combined with `--source`. Source selection applies to the version catalog, version metadata and game resources during installation. Files are checked against the hashes in the selected catalog and version metadata. Choose a mirror you trust. Repeating the command reuses verified files and cached content. Existing unrelated game folders are not overwritten. Java installation, sign-in and launching are separate unfinished features.
+
+[BMCLAPI](https://bmclapidoc.bangbang93.com/) is provided by bangbang93 and its contributors. Mirrored files retain their upstream copyright. No particular overseas mirror is bundled or endorsed.
+
+A redirected mirror request currently restarts an interrupted file from the beginning; already verified files remain reusable.
 
 ## Tests
 

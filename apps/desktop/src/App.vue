@@ -5,11 +5,41 @@ import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { DialogRoot, DialogTrigger, DialogPortal, DialogOverlay, DialogContent, DialogTitle, DialogDescription, DialogClose, RadioGroupRoot, RadioGroupItem } from 'reka-ui';
 import { applyTheme, readTheme, type Theme } from './theme';
+import { defaultDownloadSettings, readDownloadSettings, saveDownloadSettings, validateDownloadSettings } from './download-settings';
 const theme = ref<Theme>(readTheme());
 const native = isTauri();
 const maximized = ref(false);
 const error = ref('');
 const options = [{ value: 'system', label: '跟随系统' }, { value: 'light', label: '浅色' }, { value: 'dark', label: '深色' }];
+const settingsOpen = ref(false);
+const downloadSettings = ref(defaultDownloadSettings());
+const settingsError = ref('');
+const settingsReady = ref(false);
+const savingSettings = ref(false);
+const sourceOptions = [{ value: 'official', label: '官方' }, { value: 'bmclapi', label: 'BMCLAPI' }, { value: 'custom', label: '自定义镜像' }];
+async function openSettings(open: boolean) {
+  settingsOpen.value = open;
+  if (!open) return;
+  settingsError.value = '';
+  settingsReady.value = false;
+  try { downloadSettings.value = await readDownloadSettings(); settingsReady.value = true; }
+  catch { settingsError.value = '无法读取下载源设置，请关闭后重试'; }
+}
+function changeSource(value: unknown) {
+  if (value === 'official' || value === 'bmclapi' || value === 'custom') {
+    downloadSettings.value.source = value;
+    settingsError.value = '';
+  }
+}
+async function finishSettings() {
+  if (!settingsReady.value || savingSettings.value) return;
+  settingsError.value = validateDownloadSettings(downloadSettings.value) ?? '';
+  if (settingsError.value) return;
+  savingSettings.value = true;
+  try { await saveDownloadSettings(downloadSettings.value); settingsOpen.value = false; }
+  catch { settingsError.value = '下载源设置保存失败，请重试'; }
+  finally { savingSettings.value = false; }
+}
 function changeTheme(value: unknown) {
   if (value === 'system' || value === 'light' || value === 'dark') { theme.value = value; applyTheme(value); }
 }
@@ -77,7 +107,10 @@ onUnmounted(() => window.removeEventListener('resize', syncWindow));
             MINECRAFT JAVA
           </p><h1>游戏库<span class="count">0</span></h1>
         </div>
-        <DialogRoot>
+        <DialogRoot
+          :open="settingsOpen"
+          @update:open="openSettings"
+        >
           <DialogTrigger
             class="settings-button"
             aria-label="打开设置"
@@ -121,11 +154,80 @@ onUnmounted(() => window.removeEventListener('resize', syncWindow));
                     :class="option.value"
                   ><i /><i /><i /></span>{{ option.label }}
                 </RadioGroupItem>
-              </RadioGroupRoot><div class="about">
+              </RadioGroupRoot>
+              <section
+                class="download-section"
+                aria-labelledby="download-label"
+              >
+                <h3
+                  id="download-label"
+                  class="setting-label"
+                >
+                  下载源
+                </h3>
+                <RadioGroupRoot
+                  class="source-options"
+                  :model-value="downloadSettings.source"
+                  :disabled="!settingsReady || savingSettings"
+                  aria-label="下载源"
+                  @update:model-value="changeSource"
+                >
+                  <RadioGroupItem
+                    v-for="option in sourceOptions"
+                    :key="option.value"
+                    :value="option.value"
+                    class="source-option"
+                  >
+                    {{ option.label }}
+                  </RadioGroupItem>
+                </RadioGroupRoot>
+                <div
+                  v-if="downloadSettings.source === 'custom'"
+                  class="mirror-field"
+                >
+                  <label for="mirror-url">镜像地址</label>
+                  <input
+                    id="mirror-url"
+                    v-model="downloadSettings.mirror"
+                    type="url"
+                    placeholder="https://mirror.example.com/"
+                    spellcheck="false"
+                    autocomplete="off"
+                    :disabled="savingSettings"
+                    :aria-invalid="!!settingsError"
+                    aria-describedby="mirror-help"
+                    @input="settingsError = ''"
+                  >
+                  <p
+                    id="mirror-help"
+                    class="setting-hint"
+                  >
+                    填写 BMCLAPI 兼容镜像地址。
+                  </p>
+                </div>
+                <p
+                  v-if="downloadSettings.source === 'bmclapi'"
+                  class="setting-hint"
+                >
+                  BMCLAPI 由 bangbang93 及贡献者提供，镜像文件版权归原作者所有。
+                </p>
+                <p
+                  v-if="settingsError"
+                  class="settings-error"
+                  role="alert"
+                >
+                  {{ settingsError }}
+                </p>
+              </section>
+              <div class="about">
                 <span>Cobble Launcher</span><span>0.1.0</span>
-              </div><DialogClose class="done-button">
-                完成
-              </DialogClose>
+              </div><button
+                class="done-button"
+                :disabled="!settingsReady || savingSettings"
+                @click="finishSettings"
+              >
+                {{ savingSettings ? '保存中…' : '完成' }}
+              </button>
             </DialogContent>
           </DialogPortal>
         </DialogRoot>
