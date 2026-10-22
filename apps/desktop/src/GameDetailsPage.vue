@@ -177,7 +177,7 @@ onUnmounted(() => { disposed = true; ++request; });
         :disabled="locked || busy || profileBindingBusy"
         @click="$emit('play', game.id)"
       >
-        {{ worldExportBusy ? '导出备份中…' : packMutationBusy ? '处理内容中…' : recognizingMods ? '识别 Mod 中' : updatingMods ? '更新 Mod 中' : installingMod ? '安装 Mod 中' : contentInstalling ? '处理内容中…' : game.launch_state === 'running' ? '运行中' : locked ? '启动中…' : profile ? `以 ${profile.name} 开始` : '选择玩家档案' }}
+        {{ worldExportBusy ? '处理世界中…' : packMutationBusy ? '处理内容中…' : recognizingMods ? '识别 Mod 中' : updatingMods ? '更新 Mod 中' : installingMod ? '安装 Mod 中' : contentInstalling ? '处理内容中…' : game.launch_state === 'running' ? '运行中' : locked ? '启动中…' : profile ? `以 ${profile.name} 开始` : '选择玩家档案' }}
       </button>
     </div>
     <div class="game-management-actions">
@@ -392,6 +392,7 @@ onUnmounted(() => { disposed = true; ++request; });
       <GameWorlds
         :game-id="game.id"
         :locked="locked || busy"
+        :revision="contentRevision"
         @busy="worldExportBusy = $event"
       />
     </section>

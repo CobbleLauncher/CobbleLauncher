@@ -44,6 +44,7 @@ pub(super) fn begin(
     };
     if game.directory.is_dir() {
         cobble_core::recover_modrinth_update(&game.directory).map_err(|e| e.to_string())?;
+        cobble_core::recover_world_operations(&game.directory).map_err(|e| e.to_string())?;
     }
     Ok((game, operation))
 }

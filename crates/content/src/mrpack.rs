@@ -328,13 +328,18 @@ fn validate_download(value: &str) -> Result<(), BoxError> {
 }
 
 #[derive(Default)]
-struct Namespace {
+pub(crate) struct Namespace {
     nodes: HashMap<String, (String, bool)>,
     explicit: HashSet<(String, u8)>,
 }
 
 impl Namespace {
-    fn insert(&mut self, path: &str, directory: bool, layer: Option<u8>) -> Result<(), BoxError> {
+    pub(crate) fn insert(
+        &mut self,
+        path: &str,
+        directory: bool,
+        layer: Option<u8>,
+    ) -> Result<(), BoxError> {
         let mut parent = String::new();
         let components: Vec<_> = path.split('/').collect();
         for (position, part) in components.iter().enumerate() {
@@ -352,7 +357,7 @@ impl Namespace {
             if let Some((original, previous_directory)) = self.nodes.get(&parent) {
                 if original != part || *previous_directory != is_directory {
                     return Err(invalid(
-                        "MRPACK has conflicting file/directory paths or case aliases",
+                        "Archive has conflicting file/directory paths or case aliases",
                     )
                     .into());
                 }
@@ -364,7 +369,7 @@ impl Namespace {
                 && let Some(layer) = layer
                 && !self.explicit.insert((parent.clone(), layer))
             {
-                return Err(invalid("Duplicate MRPACK path within one layer").into());
+                return Err(invalid("Duplicate archive path within one layer").into());
             }
         }
         Ok(())

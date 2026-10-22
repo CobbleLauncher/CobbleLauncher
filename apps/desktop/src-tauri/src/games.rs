@@ -288,6 +288,7 @@ struct Library {
     update_plans: HashMap<String, (String, cobble_core::ModUpdatePlan)>,
     picked_pack: Option<PackSelection>,
     picked_import: Option<launcher_import::ImportSelection>,
+    world_previews: HashMap<String, worlds::WorldSelection>,
 }
 #[derive(Default)]
 pub struct GameLibrary(Mutex<Library>);
@@ -636,7 +637,8 @@ pub fn start_game(
         let result = async {
             let directory = launch.directory.clone();
             tauri::async_runtime::spawn_blocking(move || {
-                cobble_core::recover_modrinth_update(&directory).map_err(|e| e.to_string())
+                cobble_core::recover_modrinth_update(&directory).map_err(|e| e.to_string())?;
+                cobble_core::recover_world_operations(&directory).map_err(|e| e.to_string())
             })
             .await
             .map_err(|e| e.to_string())??;

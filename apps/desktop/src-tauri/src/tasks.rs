@@ -61,6 +61,18 @@ pub(super) enum TaskRequest {
         project_id: String,
         version_id: String,
     },
+    WorldImport {
+        game_id: String,
+        source: worlds::WorldArchiveSource,
+        folder_name: String,
+        replace_existing: bool,
+        operation_id: String,
+    },
+    WorldRollback {
+        game_id: String,
+        backup_id: String,
+        operation_id: String,
+    },
 }
 impl TaskRequest {
     fn game_id(&self) -> Option<&str> {
@@ -68,7 +80,9 @@ impl TaskRequest {
             Self::GameInstall { game_id }
             | Self::ModInstall { game_id, .. }
             | Self::ModUpdate { game_id, .. }
-            | Self::ContentPack { game_id, .. } => Some(game_id),
+            | Self::ContentPack { game_id, .. }
+            | Self::WorldImport { game_id, .. }
+            | Self::WorldRollback { game_id, .. } => Some(game_id),
             Self::ModpackDownload { .. } => None,
         }
     }
@@ -83,6 +97,7 @@ impl TaskRequest {
             } => "resource_pack",
             Self::ContentPack { .. } => "shader_pack",
             Self::ModpackDownload { .. } => "modpack_download",
+            Self::WorldImport { .. } | Self::WorldRollback { .. } => "world_restore",
         }
     }
 }
@@ -278,6 +293,7 @@ pub(super) enum TaskResult {
     ModUpdate(cobble_core::ModUpdateOutcome),
     Packs(Vec<cobble_content::LocalPack>),
     Pack(PackPreview),
+    Worlds(worlds::WorldRestoreResult),
 }
 
 pub(super) async fn run(
@@ -573,6 +589,53 @@ async fn perform(
             .await
             .map_err(|e| e.to_string())?;
             store_pack_preview(app, archive_id.clone(), pack).map(TaskResult::Pack)
+        }
+        TaskRequest::WorldImport {
+            game_id,
+            source,
+            folder_name,
+            replace_existing,
+            operation_id,
+        } => {
+            let (game, _operation) = management::begin(app, game_id, true)?;
+            update_game(app, game_id, |_| {}, false);
+            if !cobble_core::world_operation_is_complete(&game.directory, operation_id)
+                .map_err(|e| e.to_string())?
+            {
+                source.checked_path()?;
+            }
+            let outcome = cobble_core::import_world_archive(
+                &source.path,
+                &game.directory,
+                folder_name,
+                *replace_existing,
+                operation_id,
+                control,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            worlds::restore_result(game.directory, outcome)
+                .await
+                .map(TaskResult::Worlds)
+        }
+        TaskRequest::WorldRollback {
+            game_id,
+            backup_id,
+            operation_id,
+        } => {
+            let (game, _operation) = management::begin(app, game_id, true)?;
+            update_game(app, game_id, |_| {}, false);
+            let outcome = cobble_core::restore_world_replacement_backup(
+                &game.directory,
+                backup_id,
+                operation_id,
+                control,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            worlds::restore_result(game.directory, outcome)
+                .await
+                .map(TaskResult::Worlds)
         }
     }
 }

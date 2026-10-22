@@ -99,8 +99,8 @@ pub fn world_directory(game_dir: &Path, folder_name: &str) -> Result<PathBuf, Bo
     Ok(fs::canonicalize(path)?)
 }
 
-fn read_level(path: &Path) -> Result<WorldData, BoxError> {
-    let compressed = File::open(path)?.take(MAX_METADATA + 1);
+fn read_level(input: impl Read) -> Result<WorldData, BoxError> {
+    let compressed = input.take(MAX_METADATA + 1);
     let mut bytes = Vec::new();
     GzDecoder::new(compressed)
         .take(MAX_METADATA + 1)
@@ -109,6 +109,32 @@ fn read_level(path: &Path) -> Result<WorldData, BoxError> {
         return Err(invalid("World metadata exceeds 8 MiB").into());
     }
     Ok(fastnbt::from_bytes::<Level>(&bytes)?.data)
+}
+
+/// Bounded gzip/NBT metadata shared by local folders and ZIP previews.
+pub fn read_world_metadata(input: impl Read, folder_name: &str) -> LocalWorld {
+    let mut world = LocalWorld {
+        folder_name: folder_name.into(),
+        name: folder_name.into(),
+        minecraft_version: None,
+        game_mode: None,
+        hardcore: false,
+        last_played: None,
+        metadata_error: false,
+    };
+    match read_level(input) {
+        Ok(data) => {
+            if let Some(name) = data.level_name.filter(|name| !name.trim().is_empty()) {
+                world.name = name;
+            }
+            world.minecraft_version = data.version.and_then(|version| version.name);
+            world.game_mode = data.game_type;
+            world.hardcore = data.hardcore;
+            world.last_played = data.last_played;
+        }
+        Err(_) => world.metadata_error = true,
+    }
+    world
 }
 
 /// Metadata only: no recursive sizing, icons, network requests or world writes.
@@ -136,27 +162,18 @@ pub fn list_local_worlds(game_dir: &Path) -> Result<Vec<LocalWorld>, BoxError> {
             Err(error) => return Err(error.into()),
             _ => {}
         }
-        let mut world = LocalWorld {
-            folder_name: folder_name.clone(),
-            name: folder_name,
-            minecraft_version: None,
-            game_mode: None,
-            hardcore: false,
-            last_played: None,
-            metadata_error: false,
+        let world = match File::open(&level) {
+            Ok(file) => read_world_metadata(file, &folder_name),
+            Err(_) => LocalWorld {
+                folder_name: folder_name.clone(),
+                name: folder_name,
+                minecraft_version: None,
+                game_mode: None,
+                hardcore: false,
+                last_played: None,
+                metadata_error: true,
+            },
         };
-        match read_level(&level) {
-            Ok(data) => {
-                if let Some(name) = data.level_name.filter(|name| !name.trim().is_empty()) {
-                    world.name = name;
-                }
-                world.minecraft_version = data.version.and_then(|version| version.name);
-                world.game_mode = data.game_type;
-                world.hardcore = data.hardcore;
-                world.last_played = data.last_played;
-            }
-            Err(_) => world.metadata_error = true,
-        }
         worlds.push(world);
     }
     worlds.sort_by(|a, b| {

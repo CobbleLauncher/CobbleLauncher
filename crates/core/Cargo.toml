@@ -24,5 +24,8 @@ dirs = "=7.0.0"
 dunce = "=1.0.5"
 zip = { workspace = true, features = ["deflate-flate2-zlib-rs"] }
 
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "=1.1.5", features = ["fs"] }
+
 [lints]
 workspace = true

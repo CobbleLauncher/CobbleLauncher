@@ -52,6 +52,7 @@ fn prepare(version: &str, directory: &Path) -> Result<LaunchPreparation, Error> 
     crate::foreign_import::ensure_import_complete(&directory)?;
     crate::modupdates::ensure_update_complete(&directory)?;
     crate::modrinth::ensure_mod_install_complete(&directory)?;
+    crate::world_restore::ensure_world_operations_complete(&directory)?;
     crate::mrpack::ensure_pack_complete(&directory)?;
     let state: InstallState =
         serde_json::from_reader(File::open(directory.join(".cobble-install.json"))?)?;

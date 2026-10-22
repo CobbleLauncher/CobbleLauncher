@@ -7,10 +7,15 @@ mod modrinth;
 mod modrinth_content_packs;
 mod modrinth_packs;
 mod mrpack;
+mod world_archives;
 mod worlds;
 
 pub use mrpack::{Mrpack, MrpackFile, PackOverride, read_mrpack, read_mrpack_file};
-pub use worlds::{LocalWorld, list_local_worlds, world_directory};
+pub use world_archives::{
+    MAX_WORLD_ARCHIVE_BYTES, WorldArchiveEntry, WorldArchivePlan, WorldArchivePreview,
+    inspect_world_archive, preview_world_archive,
+};
+pub use worlds::{LocalWorld, list_local_worlds, read_world_metadata, world_directory};
 
 pub use local_mods::{BoxError, LocalMod, import_mods, list_mods, remove_mod, set_mod_enabled};
 pub use local_packs::{

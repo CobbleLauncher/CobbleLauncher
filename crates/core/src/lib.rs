@@ -20,6 +20,7 @@ mod modupdates;
 mod mrpack;
 mod pack_download;
 mod runner;
+mod world_restore;
 mod worlds;
 pub use content_pack_install::{
     install_modrinth_content_pack, install_modrinth_content_pack_controlled,
@@ -59,6 +60,11 @@ pub use pack_download::{download_modrinth_pack, download_modrinth_pack_controlle
 pub use runner::{
     RunningGame, prepare_identity_arguments, prepare_offline_arguments, start_game_with_identity,
     start_offline_game, start_offline_game_with_options,
+};
+pub use world_restore::{
+    WorldImportOutcome, WorldReplacementBackup, import_world_archive,
+    list_world_replacement_backups, recover_world_operations, restore_world_replacement_backup,
+    world_operation_is_complete,
 };
 pub use worlds::export_world_backup;
 
