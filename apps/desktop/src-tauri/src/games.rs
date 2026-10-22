@@ -282,6 +282,7 @@ struct Library {
     picked_directory: Option<PathBuf>,
     load_error: Option<String>,
     mod_plans: HashMap<String, (String, cobble_content::ModrinthPlan)>,
+    mod_preview_ids: HashMap<String, String>,
     update_plans: HashMap<String, (String, cobble_core::ModUpdatePlan)>,
     picked_pack: Option<PackSelection>,
     picked_import: Option<launcher_import::ImportSelection>,
@@ -949,16 +950,35 @@ pub async fn preview_game_mod_install(
     app: AppHandle,
     id: String,
     project_id: String,
+    version_id: Option<String>,
 ) -> Result<ModInstallPreview, String> {
     let (version, kind) = modrinth_target(&app, &id)?;
-    let plan = cobble_content::resolve_modrinth(&project_id, &version, &kind)
-        .await
-        .map_err(|e| e.to_string())?;
     let plan_id = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_nanos()
         .to_string();
+    {
+        let state = app.state::<GameLibrary>();
+        let mut library = state.0.lock().map_err(|e| e.to_string())?;
+        library.mod_preview_ids.insert(id.clone(), plan_id.clone());
+        library.mod_plans.remove(&id);
+    }
+    let plan = match version_id {
+        Some(version_id) => {
+            cobble_content::resolve_modrinth_selected(
+                &[cobble_content::ModVersionSelection {
+                    project_id,
+                    version_id,
+                }],
+                &version,
+                &kind,
+            )
+            .await
+        }
+        None => cobble_content::resolve_modrinth(&project_id, &version, &kind).await,
+    }
+    .map_err(|e| e.to_string())?;
     let preview = ModInstallPreview {
         plan_id: plan_id.clone(),
         project_id: plan.project_id.clone(),
@@ -975,13 +995,78 @@ pub async fn preview_game_mod_install(
             })
             .collect(),
     };
-    app.state::<GameLibrary>()
-        .0
-        .lock()
-        .map_err(|e| e.to_string())?
-        .mod_plans
-        .insert(id, (plan_id, plan));
+    let state = app.state::<GameLibrary>();
+    let mut library = state.0.lock().map_err(|e| e.to_string())?;
+    save_mod_preview(&mut library, id, plan_id, plan)?;
     Ok(preview)
+}
+
+fn save_mod_preview(
+    library: &mut Library,
+    id: String,
+    plan_id: String,
+    plan: cobble_content::ModrinthPlan,
+) -> Result<(), String> {
+    if library.mod_preview_ids.get(&id) != Some(&plan_id)
+        || !library.games.iter().any(|game| game.id == id)
+    {
+        return Err("版本选择已变更，请使用当前安装预览".into());
+    }
+    library.mod_plans.insert(id, (plan_id, plan));
+    Ok(())
+}
+
+#[cfg(test)]
+mod mod_preview_tests {
+    use super::*;
+
+    #[test]
+    fn slow_previous_resolution_cannot_replace_current_version_plan() {
+        let game = serde_json::from_value(serde_json::json!({
+            "id":"game", "name":"Fixture", "version":"1.21.1",
+            "directory":"synthetic", "status":"installed", "error":null
+        }))
+        .unwrap();
+        let mut library = Library {
+            games: vec![game],
+            ..Library::default()
+        };
+        library
+            .mod_preview_ids
+            .insert("game".into(), "new-request".into());
+        let plan = |version: &str| cobble_content::ModrinthPlan {
+            project_id: "project".into(),
+            version_id: version.into(),
+            mods: Vec::new(),
+        };
+        save_mod_preview(
+            &mut library,
+            "game".into(),
+            "new-request".into(),
+            plan("new-version"),
+        )
+        .unwrap();
+        assert!(
+            save_mod_preview(
+                &mut library,
+                "game".into(),
+                "old-request".into(),
+                plan("old-version")
+            )
+            .is_err()
+        );
+        assert_eq!(library.mod_plans["game"].1.version_id, "new-version");
+        library.games.clear();
+        assert!(
+            save_mod_preview(
+                &mut library,
+                "game".into(),
+                "new-request".into(),
+                plan("new-version")
+            )
+            .is_err()
+        );
+    }
 }
 
 #[tauri::command]

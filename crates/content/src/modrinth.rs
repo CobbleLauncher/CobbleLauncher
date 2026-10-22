@@ -59,6 +59,31 @@ pub struct ModrinthUpdate {
     pub selected: ResolvedMod,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct ModVersion {
+    pub version_id: String,
+    pub name: String,
+    pub version_number: String,
+    pub version_type: String,
+    pub date_published: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ModVersionDetails {
+    pub version_id: String,
+    pub name: String,
+    pub version_number: String,
+    pub version_type: String,
+    pub date_published: String,
+    pub changelog: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ModVersionSelection {
+    pub project_id: String,
+    pub version_id: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IdentifiedMod {
     pub project_id: String,
@@ -143,6 +168,8 @@ pub(super) struct Version {
     pub loaders: Vec<String>,
     #[serde(default)]
     pub name: String,
+    #[serde(default)]
+    changelog: Option<String>,
     dependencies: Vec<Dependency>,
     files: Vec<ApiFile>,
 }
@@ -379,6 +406,129 @@ pub async fn resolve_modrinth_many(
     resolve_many(&mut api, project_ids, mc, loader).await
 }
 
+/// Resolve user-selected roots exactly, including explicitly selected prereleases.
+/// Unpinned dependencies continue to select compatible stable releases.
+pub async fn resolve_modrinth_selected(
+    selections: &[ModVersionSelection],
+    mc: &str,
+    loader: &str,
+) -> Result<ModrinthPlan, BoxError> {
+    target(mc, loader)?;
+    let mut api = LiveApi::new()?;
+    resolve_selected(&mut api, selections, mc, loader).await
+}
+
+pub async fn list_modrinth_versions(
+    project_id: &str,
+    mc: &str,
+    loader: &str,
+) -> Result<Vec<ModVersion>, BoxError> {
+    target(mc, loader)?;
+    identifier(project_id)?;
+    let mut api = LiveApi::new()?;
+    list_versions(&mut api, project_id, mc, loader).await
+}
+
+pub async fn modrinth_version_details(
+    project_id: &str,
+    version_id: &str,
+    mc: &str,
+    loader: &str,
+) -> Result<ModVersionDetails, BoxError> {
+    target(mc, loader)?;
+    identifier(project_id)?;
+    identifier(version_id)?;
+    let mut api = LiveApi::new()?;
+    version_details(&mut api, project_id, version_id, mc, loader).await
+}
+
+fn supported_client_project(project: &Project) -> Result<(), BoxError> {
+    identifier(&project.id)?;
+    if project.project_type != "mod"
+        || !matches!(
+            project.client_side.as_str(),
+            "required" | "optional" | "unknown"
+        )
+    {
+        return Err(error("Project is not a supported client mod"));
+    }
+    Ok(())
+}
+
+fn version_summary(
+    version: &Version,
+    project: &str,
+    mc: &str,
+    loader: &str,
+) -> Result<ModVersion, BoxError> {
+    identifier(&version.id)?;
+    if version.project_id != project
+        || !compatible(version, mc, loader)
+        || !matches!(version.version_type.as_str(), "release" | "beta" | "alpha")
+    {
+        return Err(error(
+            "Selected Mod version is incompatible or belongs to another project",
+        ));
+    }
+    file(version)?;
+    Ok(ModVersion {
+        version_id: version.id.clone(),
+        name: if version.name.is_empty() {
+            version.version_number.clone()
+        } else {
+            version.name.clone()
+        },
+        version_number: version.version_number.clone(),
+        version_type: version.version_type.clone(),
+        date_published: version.date_published.clone(),
+    })
+}
+
+async fn list_versions(
+    api: &mut impl Api,
+    requested: &str,
+    mc: &str,
+    loader: &str,
+) -> Result<Vec<ModVersion>, BoxError> {
+    let project = api.project(requested).await?;
+    supported_client_project(&project)?;
+    let versions = api.versions(&project.id, mc, loader).await?;
+    let mut versions: Vec<_> = versions
+        .iter()
+        .filter_map(|version| version_summary(version, &project.id, mc, loader).ok())
+        .collect();
+    versions.sort_by(|a, b| {
+        b.date_published
+            .cmp(&a.date_published)
+            .then(b.version_id.cmp(&a.version_id))
+    });
+    Ok(versions)
+}
+
+async fn version_details(
+    api: &mut impl Api,
+    requested: &str,
+    version_id: &str,
+    mc: &str,
+    loader: &str,
+) -> Result<ModVersionDetails, BoxError> {
+    let project = api.project(requested).await?;
+    supported_client_project(&project)?;
+    let version = api.version(version_id).await?;
+    if version.id != version_id {
+        return Err(error("Modrinth returned a different selected version"));
+    }
+    let summary = version_summary(&version, &project.id, mc, loader)?;
+    Ok(ModVersionDetails {
+        version_id: summary.version_id,
+        name: summary.name,
+        version_number: summary.version_number,
+        version_type: summary.version_type,
+        date_published: summary.date_published,
+        changelog: version.changelog.unwrap_or_default(),
+    })
+}
+
 pub async fn find_modrinth_update(
     project_id: &str,
     current_version: &str,
@@ -550,6 +700,41 @@ async fn resolve_many(
     mc: &str,
     loader: &str,
 ) -> Result<ModrinthPlan, BoxError> {
+    resolve_roots(api, roots, None, mc, loader).await
+}
+
+async fn resolve_selected(
+    api: &mut impl Api,
+    selections: &[ModVersionSelection],
+    mc: &str,
+    loader: &str,
+) -> Result<ModrinthPlan, BoxError> {
+    if selections.is_empty() || selections.len() > MAX_PROJECTS {
+        return Err(error("Select between 1 and 128 Modrinth projects"));
+    }
+    let mut pins = BTreeMap::new();
+    let mut roots = Vec::new();
+    for selection in selections {
+        identifier(&selection.project_id)?;
+        identifier(&selection.version_id)?;
+        if pins
+            .insert(selection.project_id.clone(), selection.version_id.clone())
+            .is_some()
+        {
+            return Err(error("Duplicate selected Modrinth project"));
+        }
+        roots.push(selection.project_id.clone());
+    }
+    resolve_roots(api, &roots, Some(&pins), mc, loader).await
+}
+
+async fn resolve_roots(
+    api: &mut impl Api,
+    roots: &[String],
+    selected_pins: Option<&BTreeMap<String, String>>,
+    mc: &str,
+    loader: &str,
+) -> Result<ModrinthPlan, BoxError> {
     if roots.is_empty() || roots.len() > MAX_PROJECTS {
         return Err(error("Select between 1 and 128 Modrinth projects"));
     }
@@ -563,17 +748,30 @@ async fn resolve_many(
         if root_pins.contains_key(root) {
             return Err(error("Duplicate selected Modrinth project"));
         }
-        let choices = api.versions(root, mc, loader).await?;
-        let chosen = latest_release(&choices, root, mc, loader)
-            .ok_or_else(|| {
-                error(format!(
-                    "No compatible release for project {root} on Minecraft {mc} / {loader}"
-                ))
-            })?
-            .clone();
+        let chosen = if let Some(pins) = selected_pins {
+            let pin = pins
+                .get(root)
+                .ok_or_else(|| error("Missing selected root pin"))?;
+            let version = api.version(pin).await?;
+            if version.id != *pin {
+                return Err(error("Modrinth returned a different selected version"));
+            }
+            version_summary(&version, root, mc, loader)?;
+            version
+        } else {
+            let choices = api.versions(root, mc, loader).await?;
+            let chosen = latest_release(&choices, root, mc, loader)
+                .ok_or_else(|| {
+                    error(format!(
+                        "No compatible release for project {root} on Minecraft {mc} / {loader}"
+                    ))
+                })?
+                .clone();
+            versions.insert(root.clone(), choices);
+            chosen
+        };
         root_pins.insert(root.clone(), chosen.id.clone());
         exact.insert(chosen.id.clone(), chosen);
-        versions.insert(root.clone(), choices);
     }
     let mut pins = root_pins.clone();
     for _ in 0..MAX_PROJECTS {
@@ -772,7 +970,178 @@ mod tests {
         }
     }
     fn version(project: &str, id: &str, date: &str, deps: serde_json::Value) -> Version {
-        serde_json::from_value(json!({"project_id":project,"id":id,"version_number":id,"version_type":"release","date_published":date,"game_versions":["1.21.1"],"loaders":["fabric"],"dependencies":deps,"files":[{"url":"https://cdn.modrinth.com/data/Example/versions/Example/example.jar","filename":format!("{project}.jar"),"size":100,"primary":true,"hashes":{"sha1":"0123456789012345678901234567890123456789"}}]})).unwrap()
+        serde_json::from_value(json!({"project_id":project,"id":id,"version_number":id,"version_type":"release","date_published":date,"game_versions":["1.21.1"],"loaders":["fabric"],"changelog":null,"dependencies":deps,"files":[{"url":"https://cdn.modrinth.com/data/Example/versions/Example/example.jar","filename":format!("{project}.jar"),"size":100,"primary":true,"hashes":{"sha1":"0123456789012345678901234567890123456789"}}]})).unwrap()
+    }
+
+    fn selection(project: &str, version: &str) -> ModVersionSelection {
+        ModVersionSelection {
+            project_id: project.into(),
+            version_id: version.into(),
+        }
+    }
+
+    #[test]
+    fn explicit_alpha_root_stays_pinned_and_unpinned_dependency_stays_stable() {
+        let mut alpha = version(
+            "Root",
+            "Alpha",
+            "2026-01-01",
+            json!([{"project_id":"Lib","dependency_type":"required"}]),
+        );
+        alpha.version_type = "alpha".into();
+        let stable = version("Root", "Latest", "2026-04-01", json!([]));
+        let lib = version("Lib", "LibStable", "2026-02-01", json!([]));
+        let mut beta = version("Lib", "LibBeta", "2026-05-01", json!([]));
+        beta.version_type = "beta".into();
+        let mut api = Fixture {
+            versions: vec![alpha, stable, lib, beta],
+        };
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let plan = runtime
+            .block_on(resolve_selected(
+                &mut api,
+                &[selection("Root", "Alpha")],
+                "1.21.1",
+                "fabric",
+            ))
+            .unwrap();
+        assert_eq!(plan.version_id, "Alpha");
+        assert_eq!(
+            plan.mods
+                .iter()
+                .find(|item| item.project_id == "Lib")
+                .unwrap()
+                .version_id,
+            "LibStable"
+        );
+        let latest = runtime
+            .block_on(resolve_many(&mut api, &["Root".into()], "1.21.1", "fabric"))
+            .unwrap();
+        assert_eq!(latest.version_id, "Latest");
+        api.versions[0].dependencies = serde_json::from_value(
+            json!([{"project_id":"Lib","version_id":"LibStable","dependency_type":"required"}]),
+        )
+        .unwrap();
+        let error = runtime
+            .block_on(resolve_selected(
+                &mut api,
+                &[selection("Root", "Alpha"), selection("Lib", "LibBeta")],
+                "1.21.1",
+                "fabric",
+            ))
+            .unwrap_err();
+        assert!(error.to_string().contains("Conflicting required pins"));
+    }
+
+    #[test]
+    fn listed_versions_and_changelog_validate_project_game_loader_and_nullable_metadata() {
+        let mut root = version("Root", "Beta", "2026-02-01", json!([]));
+        root.version_type = "beta".into();
+        root.changelog = Some("## Changes\nFixed an issue".into());
+        let mut incompatible = version("Root", "WrongLoader", "2026-03-01", json!([]));
+        incompatible.loaders = vec!["forge".into()];
+        let older = version("Root", "Release", "2026-01-01", json!([]));
+        let mut api = Fixture {
+            versions: vec![root, incompatible, older],
+        };
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let listed = runtime
+            .block_on(list_versions(&mut api, "Root", "1.21.1", "fabric"))
+            .unwrap();
+        assert_eq!(
+            listed
+                .iter()
+                .map(|item| item.version_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Beta", "Release"]
+        );
+        let details = runtime
+            .block_on(version_details(
+                &mut api, "Root", "Beta", "1.21.1", "fabric",
+            ))
+            .unwrap();
+        assert_eq!(details.changelog, "## Changes\nFixed an issue");
+        assert_eq!(
+            serde_json::to_value(details).unwrap()["version_type"],
+            "beta"
+        );
+        let details = runtime
+            .block_on(version_details(
+                &mut api, "Root", "Release", "1.21.1", "fabric",
+            ))
+            .unwrap();
+        assert!(details.changelog.is_empty());
+        for (project, mc, loader) in [
+            ("Other", "1.21.1", "fabric"),
+            ("Root", "1.21", "fabric"),
+            ("Root", "1.21.1", "forge"),
+            ("Server", "1.21.1", "fabric"),
+        ] {
+            assert!(
+                runtime
+                    .block_on(version_details(&mut api, project, "Beta", mc, loader))
+                    .is_err()
+            );
+        }
+        let resource: Project = serde_json::from_value(json!({"id":"Root","project_type":"resourcepack","client_side":"required","title":"Pack"})).unwrap();
+        assert!(supported_client_project(&resource).is_err());
+    }
+
+    #[test]
+    fn selected_roots_never_substitute_a_foreign_or_incompatible_version() {
+        let mut api = Fixture {
+            versions: vec![version("Root", "RootVersion", "2026-01-01", json!([]))],
+        };
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        assert!(
+            runtime
+                .block_on(resolve_selected(
+                    &mut api,
+                    &[selection("Other", "RootVersion")],
+                    "1.21.1",
+                    "fabric"
+                ))
+                .is_err()
+        );
+        assert!(
+            runtime
+                .block_on(resolve_selected(
+                    &mut api,
+                    &[selection("Root", "RootVersion")],
+                    "1.20.1",
+                    "fabric"
+                ))
+                .is_err()
+        );
+        assert!(
+            runtime
+                .block_on(resolve_selected(
+                    &mut api,
+                    &[selection("Root", "RootVersion")],
+                    "1.21.1",
+                    "forge"
+                ))
+                .is_err()
+        );
+        assert!(
+            runtime
+                .block_on(resolve_selected(
+                    &mut api,
+                    &[
+                        selection("Root", "RootVersion"),
+                        selection("Root", "RootVersion")
+                    ],
+                    "1.21.1",
+                    "fabric"
+                ))
+                .is_err()
+        );
     }
 
     #[test]

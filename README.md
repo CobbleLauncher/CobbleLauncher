@@ -16,6 +16,7 @@ CobbleLauncher is an open-source launcher for Minecraft: Java Edition. It aims t
 - Add Microsoft accounts through browser sign-in, with credentials stored in the OS credential vault.
 - Import local Mods, view their details, and enable, disable, or remove them individually or in batches.
 - Search Modrinth for compatible Mods and install their required dependencies together.
+- Choose compatible Mod versions, read their changelogs, and preview dependencies before installing or changing an installed version.
 - Check for updates to Mods installed through Modrinth, review version changes and required dependencies, and update selected Mods together.
 - Identify local and modpack Mods on Modrinth so they can use the same update workflow.
 - Import, search, and remove resource pack and shader pack ZIPs for each game.

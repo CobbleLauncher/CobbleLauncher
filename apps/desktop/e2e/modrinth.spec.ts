@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Synthetic IPC boundary; no external requests or game execution.
 import { test, expect, type Page } from '@playwright/test';
-import type { Game } from '../src/games';
+import type { Game, ModVersion } from '../src/games';
 type Call = { command: string; args: Record<string, unknown> };
 type Mock = Window & { __calls: Call[]; __fail: string; __running: () => void; __finish: () => void };
 const game: Game = { id: 'forest', name: '林间小屋', version: '1.21.1', loader_version: '0.16.14', directory: 'synthetic', status: 'installed', error: null, progress: null };
@@ -31,9 +31,17 @@ async function setup(page: Page, vanilla = false, loaderKind?: Game['loader_kind
           if (args.query === 'slow') await new Promise((resolve) => setTimeout(resolve, 400));
           return { hits: [{ project_id: args.offset ? 'second' : String(args.query || 'map'), slug: 'map', title: args.offset ? 'Second Mod' : String(args.query || 'Forest Map'), description: '<img src=x onerror=alert(1)> A useful map', author: 'Forest', downloads: 120000 }], offset: args.offset, total_hits: 2 };
         }
+        if (command === 'list_game_mod_versions') {
+          if (args.projectId === 'slow') await new Promise((resolve) => setTimeout(resolve, 400));
+          return [
+            { version_id: 'beta-v2', name: 'Mod', version_number: '2.0-beta', version_type: 'beta', date_published: '2026-10-20' },
+            { version_id: 'release-v1', name: 'Mod', version_number: '1.0', version_type: 'release', date_published: '2026-10-19' },
+          ] satisfies ModVersion[];
+        }
+        if (command === 'get_game_mod_version_details') return { version_id: args.versionId, name: 'Mod', version_number: '1.0', version_type: 'release', date_published: '2026-10-19', changelog: '' };
         if (command === 'preview_game_mod_install') {
           if (args.projectId === 'slow') await new Promise((resolve) => setTimeout(resolve, 400));
-          return { plan_id: `plan-${String(args.projectId)}`, project_id: args.projectId, version_id: 'v1', mods: [{ project_id: args.projectId, version_id: 'v1', name: String(args.projectId), version_number: '2.0', required_by: null }, { project_id: 'api', version_id: 'api1', name: 'Fabric API', version_number: '0.100', required_by: String(args.projectId) }] };
+          return { plan_id: `plan-${String(args.projectId)}-${String(args.versionId)}`, project_id: args.projectId, version_id: args.versionId, mods: [{ project_id: args.projectId, version_id: args.versionId, name: String(args.projectId), version_number: String(args.versionId), required_by: null }, { project_id: 'api', version_id: 'api1', name: 'Fabric API', version_number: '0.100', required_by: String(args.projectId) }] };
         }
         if (command === 'install_game_mod_plan') {
           emit({ ...game, content_installing: true });
@@ -64,6 +72,7 @@ test('discovery is on demand, resolves dependencies and installs with a host pla
   expect((await calls(page, 'search_game_mods'))[0].args).toEqual({ id: game.id, query: 'map', offset: 0 });
   await expect(page.locator('.discover-list img')).toHaveCount(0);
   await page.getByRole('button', { name: '查看 map' }).click();
+  await expect(page.getByLabel('Mod 版本')).toHaveValue('release-v1');
   await expect(page.getByText('map 的必需依赖')).toBeVisible();
   await page.screenshot({ path: info.outputPath('modrinth-plan-light.png'), fullPage: true });
   await page.emulateMedia({ colorScheme: 'dark' });
@@ -72,7 +81,8 @@ test('discovery is on demand, resolves dependencies and installs with a host pla
   await expect(page.getByRole('button', { name: '正在安装…' })).toBeDisabled();
   await expect(page.getByRole('button', { name: '安装 Mod 中', exact: true })).toBeDisabled();
   await expect(page.getByRole('tab', { name: '已安装' })).toBeDisabled();
-  expect((await calls(page, 'install_game_mod_plan'))[0].args).toEqual({ id: game.id, planId: 'plan-map' });
+  expect((await calls(page, 'preview_game_mod_install'))[0].args).toEqual({ id: game.id, projectId: 'map', versionId: 'release-v1' });
+  expect((await calls(page, 'install_game_mod_plan'))[0].args).toEqual({ id: game.id, planId: 'plan-map-release-v1' });
   await page.evaluate(() => (window as unknown as Mock).__finish());
   await expect(page.getByRole('tab', { name: '已安装' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('heading', { name: 'Forest Map' })).toBeVisible();
@@ -112,7 +122,7 @@ test('preview retries, rejects stale preview, and running prevents installation'
   await page.getByRole('button', { name: '查看 fast' }).click();
   await expect(page.getByRole('alert')).toContainText('Fabric API 与已安装的 Map API 版本冲突');
   await page.evaluate(() => { (window as unknown as Mock).__fail = ''; });
-  await page.getByRole('button', { name: '重试', exact: true }).click();
+  await page.getByRole('button', { name: '重试预览安装', exact: true }).click();
   await page.waitForTimeout(450);
   await expect(page.getByText('fast 的必需依赖')).toBeVisible();
   await expect(page.getByText('slow 的必需依赖')).toHaveCount(0);
@@ -133,6 +143,8 @@ test('failed installation shows its cause and can retry the same plan', async ({
   await page.getByRole('tab', { name: '发现 Mod' }).click();
   await page.getByRole('button', { name: '搜索', exact: true }).click();
   await page.getByRole('button', { name: '查看 Forest Map' }).click();
+  await expect(page.getByLabel('Mod 版本')).toHaveValue('release-v1');
+  await expect(page.getByText('map 的必需依赖')).toBeVisible();
   await page.evaluate(() => { (window as unknown as Mock).__fail = 'install_game_mod_plan'; });
   await page.getByRole('button', { name: '安装 2 个 Mod' }).click();
   await expect(page.getByRole('alert')).toContainText('安装未完成：Error: synthetic unavailable');

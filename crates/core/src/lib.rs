@@ -35,8 +35,9 @@ pub use launch::{LaunchPreparation, prepare_launch};
 pub use modrecognition::{ModRecognitionOutcome, recognize_modrinth_mods};
 pub use modrinth::{ModrinthInstallOutcome, install_modrinth_plan};
 pub use modupdates::{
-    ModUpdateCandidate, ModUpdateChange, ModUpdateOutcome, ModUpdatePlan, apply_modrinth_updates,
-    check_modrinth_updates, managed_mod_count, prepare_modrinth_updates,
+    ManagedModSummary, ModUpdateCandidate, ModUpdateChange, ModUpdateOutcome, ModUpdatePlan,
+    apply_modrinth_updates, check_modrinth_updates, list_managed_modrinth_mods, managed_mod_count,
+    prepare_modrinth_updates, prepare_modrinth_version_changes,
 };
 pub use mrpack::{MrpackInstallOutcome, install_mrpack};
 pub use pack_download::download_modrinth_pack;

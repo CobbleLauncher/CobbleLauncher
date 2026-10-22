@@ -46,6 +46,9 @@ export function loaderLabel(kind: string): string { return ({ fabric: 'Fabric', 
 export type ModSearchHit = { project_id: string; slug: string; title: string; description: string; author: string; downloads: number };
 export type ModSearchPage = { hits: ModSearchHit[]; offset: number; total_hits: number };
 export type ModInstallPreview = { plan_id: string; project_id: string; version_id: string; mods: { project_id: string; version_id: string; name: string; version_number: string; required_by: string | null }[] };
+export type ModVersion = { version_id: string; name: string; version_number: string; version_type: string; date_published: string };
+export type ModVersionDetails = ModVersion & { changelog: string };
+export type ManagedGameMod = { project_id: string; version_id: string; filename: string; enabled: boolean; name?: string };
 export type ModUpdateCandidate = { project_id: string; name: string; current_version: string; version_number: string; version_id: string; filename: string; enabled: boolean; pack_owned: boolean };
 export type ModUpdateCheck = { updates: ModUpdateCandidate[]; managed_count: number };
 export type ModUpdatePreview = { plan_id: string; changes: { project_id: string; name: string; from_version: string | null; to_version: string; filename: string; enabled: boolean }[] };

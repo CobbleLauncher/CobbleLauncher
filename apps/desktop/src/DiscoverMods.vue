@@ -2,8 +2,9 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import type { Game, ModSearchHit, ModSearchPage, ModInstallPreview } from './games';
+import type { Game, ModSearchHit, ModSearchPage, ModInstallPreview, ModVersion } from './games';
 import { loaderLabel } from './games';
+import ModVersionPicker from './ModVersionPicker.vue';
 const props = defineProps<{ game: Game; locked: boolean }>();
 const emit = defineEmits<{ installing: [value: boolean]; installed: [] }>();
 const query = ref('');
@@ -14,6 +15,7 @@ const searching = ref(false);
 const searched = ref(false);
 const searchError = ref('');
 const selected = ref<ModSearchHit | null>(null);
+const version = ref<ModVersion | null>(null);
 const preview = ref<ModInstallPreview | null>(null);
 const resolving = ref(false);
 const installing = ref(false);
@@ -39,15 +41,22 @@ async function search(offset = 0, retry = false) {
   } catch { if (current === searchRequest) searchError.value = '暂时无法获取 Mod，请稍后重试。'; }
   finally { if (current === searchRequest) searching.value = false; }
 }
-async function select(hit: ModSearchHit) {
+function select(hit: ModSearchHit) {
   if (installing.value) return;
+  ++previewRequest; selected.value = hit; version.value = null; preview.value = null; planError.value = ''; resolving.value = false;
+}
+function chooseVersion(value: ModVersion | null) {
+  ++previewRequest; version.value = value; preview.value = null; planError.value = ''; resolving.value = false;
+  if (value) void prepare();
+}
+async function prepare() {
+  if (!selected.value || !version.value || resolving.value || installing.value) return;
   const current = ++previewRequest;
-  selected.value = hit;
   preview.value = null;
   planError.value = '';
   resolving.value = true;
   try {
-    const result = await invoke<ModInstallPreview>('preview_game_mod_install', { id: props.game.id, projectId: hit.project_id });
+    const result = await invoke<ModInstallPreview>('preview_game_mod_install', { id: props.game.id, projectId: selected.value.project_id, versionId: version.value.version_id });
     if (current === previewRequest) preview.value = result;
   } catch (cause) { if (current === previewRequest) planError.value = "无法准备安装：" + String(cause); }
   finally { if (current === previewRequest) resolving.value = false; }
@@ -109,6 +118,21 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
         <p class="preview-description">
           {{ selected.description }}
         </p>
+        <ModVersionPicker
+          :key="selected.project_id"
+          :game-id="game.id"
+          :project-id="selected.project_id"
+          :disabled="installing"
+          @selected="chooseVersion"
+        />
+        <button
+          v-if="version && !preview && planError"
+          class="secondary-button mod-version-preview-button"
+          :disabled="resolving || installing"
+          @click="prepare"
+        >
+          {{ resolving ? '准备中…' : '重试预览安装' }}
+        </button>
         <p
           v-if="resolving"
           class="content-empty"
@@ -174,14 +198,7 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
           class="inline-error"
           role="alert"
         >
-          <p>{{ planError }}</p><button
-            v-if="!preview"
-            class="text-button"
-            :disabled="resolving"
-            @click="select(selected)"
-          >
-            重试
-          </button>
+          <p>{{ planError }}</p>
         </div>
       </template>
       <template v-else>

@@ -17,10 +17,11 @@ pub use local_packs::{
     LocalPack, LocalPackKind, import_local_packs, list_local_packs, remove_local_pack,
 };
 pub use modrinth::{
-    IdentifiedMod, ModProject, ModrinthFile, ModrinthPlan, ModrinthUpdate, ResolvedMod,
-    SearchResults, find_modrinth_update, identify_modrinth_file,
-    identify_modrinth_file_with_broker, modrinth_version_number, resolve_modrinth,
-    resolve_modrinth_many, search_modrinth,
+    IdentifiedMod, ModProject, ModVersion, ModVersionDetails, ModVersionSelection, ModrinthFile,
+    ModrinthPlan, ModrinthUpdate, ResolvedMod, SearchResults, find_modrinth_update,
+    identify_modrinth_file, identify_modrinth_file_with_broker, list_modrinth_versions,
+    modrinth_version_details, modrinth_version_number, resolve_modrinth, resolve_modrinth_many,
+    resolve_modrinth_selected, search_modrinth,
 };
 pub use modrinth_content_packs::{
     ContentPackVersion, ModrinthContentPackDownload, list_modrinth_content_pack_versions,

@@ -2,6 +2,101 @@
 use super::*;
 
 #[tauri::command]
+pub async fn list_game_mod_versions(
+    app: AppHandle,
+    id: String,
+    project_id: String,
+) -> Result<Vec<cobble_content::ModVersion>, String> {
+    let (version, loader) = modrinth_target(&app, &id)?;
+    cobble_content::list_modrinth_versions(&project_id, &version, &loader)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_game_mod_version_details(
+    app: AppHandle,
+    id: String,
+    project_id: String,
+    version_id: String,
+) -> Result<cobble_content::ModVersionDetails, String> {
+    let (version, loader) = modrinth_target(&app, &id)?;
+    cobble_content::modrinth_version_details(&project_id, &version_id, &version, &loader)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_managed_game_mods(
+    app: AppHandle,
+    id: String,
+) -> Result<Vec<ManagedGameMod>, String> {
+    modrinth_target(&app, &id)?;
+    let directory = game_directory(&app, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let managed =
+            cobble_core::list_managed_modrinth_mods(&directory).map_err(|e| e.to_string())?;
+        let local = cobble_content::list_mods(&directory).map_err(|e| e.to_string())?;
+        Ok(managed
+            .into_iter()
+            .map(|item| {
+                let name = local
+                    .iter()
+                    .find(|entry| {
+                        entry
+                            .file_name
+                            .strip_suffix(".disabled")
+                            .unwrap_or(&entry.file_name)
+                            == item.filename
+                    })
+                    .map(|entry| entry.name.clone())
+                    .unwrap_or_else(|| item.filename.clone());
+                ManagedGameMod { item, name }
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(Serialize)]
+pub struct ManagedGameMod {
+    #[serde(flatten)]
+    item: cobble_core::ManagedModSummary,
+    name: String,
+}
+
+#[tauri::command]
+pub async fn preview_game_mod_version_changes(
+    app: AppHandle,
+    id: String,
+    selections: Vec<cobble_content::ModVersionSelection>,
+) -> Result<UpdatePreview, String> {
+    let (version, loader) = modrinth_target(&app, &id)?;
+    let directory = game_directory(&app, &id)?;
+    let plan =
+        cobble_core::prepare_modrinth_version_changes(&directory, &version, &loader, &selections)
+            .await
+            .map_err(|e| e.to_string())?;
+    let plan_id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos()
+        .to_string();
+    let preview = UpdatePreview {
+        plan_id: plan_id.clone(),
+        changes: plan.changes.clone(),
+    };
+    let state = app.state::<GameLibrary>();
+    let mut library = state.0.lock().map_err(|e| e.to_string())?;
+    if !library.games.iter().any(|game| game.id == id) {
+        return Err("找不到这个游戏".into());
+    }
+    library.update_plans.insert(id, (plan_id, plan));
+    Ok(preview)
+}
+
+#[tauri::command]
 pub async fn recognize_game_mods(
     app: AppHandle,
     id: String,

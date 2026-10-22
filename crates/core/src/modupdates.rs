@@ -11,7 +11,8 @@ use crate::{
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::fs::{Dir, OpenOptions};
 use cobble_content::{
-    ModrinthPlan, ResolvedMod, find_modrinth_update, modrinth_version_number, resolve_modrinth_many,
+    ModVersionSelection, ModrinthPlan, ResolvedMod, find_modrinth_update, modrinth_version_number,
+    resolve_modrinth_many, resolve_modrinth_selected,
 };
 use cobble_store::SafeRelativePath;
 use serde::Serialize;
@@ -32,6 +33,14 @@ pub struct ModUpdateCandidate {
     pub name: String,
     pub current_version: String,
     pub version_number: String,
+    pub version_id: String,
+    pub filename: String,
+    pub enabled: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ManagedModSummary {
+    pub project_id: String,
     pub version_id: String,
     pub filename: String,
     pub enabled: bool,
@@ -148,6 +157,85 @@ fn present_mods(
 pub fn managed_mod_count(directory: &Path) -> Result<usize, Error> {
     let root = open_root(directory)?;
     Ok(present_mods(&root, &read_provenance(&root)?)?.len())
+}
+
+pub fn list_managed_modrinth_mods(directory: &Path) -> Result<Vec<ManagedModSummary>, Error> {
+    let root = open_root(directory)?;
+    Ok(present_mods(&root, &read_provenance(&root)?)?
+        .into_iter()
+        .map(|(project_id, present)| ManagedModSummary {
+            project_id,
+            version_id: present.recorded.version_id,
+            filename: present.recorded.filename,
+            enabled: present.enabled,
+        })
+        .collect())
+}
+
+fn validate_selections(
+    present: &BTreeMap<String, PresentMod>,
+    selections: &[ModVersionSelection],
+) -> Result<bool, Error> {
+    if selections.is_empty() || selections.len() > 128 {
+        return Err("请选择 1–128 个已管理的 Mod".into());
+    }
+    let mut ids = BTreeSet::new();
+    let mut changed = false;
+    for selection in selections {
+        if !ids.insert(&selection.project_id) {
+            return Err("重复选择了同一个 Mod".into());
+        }
+        let old = present
+            .get(&selection.project_id)
+            .ok_or("只能更改实际存在且已识别的 Modrinth Mod 版本")?;
+        changed |= old.recorded.version_id != selection.version_id;
+    }
+    Ok(changed)
+}
+
+/// Explicit compatible version changes, including downgrades and prereleases.
+/// Only present managed roots may be replaced; apply uses the same backup flow.
+pub async fn prepare_modrinth_version_changes(
+    directory: &Path,
+    mc: &str,
+    loader: &str,
+    selections: &[ModVersionSelection],
+) -> Result<ModUpdatePlan, Error> {
+    let root = open_root(directory)?;
+    let provenance = read_provenance(&root)?;
+    let present = present_mods(&root, &provenance)?;
+    if !validate_selections(&present, selections)? {
+        return Ok(ModUpdatePlan {
+            changes: Vec::new(),
+            directory: dunce::canonicalize(directory)?,
+            provenance,
+            originals: BTreeMap::new(),
+            graph: ModrinthPlan {
+                project_id: selections[0].project_id.clone(),
+                version_id: selections[0].version_id.clone(),
+                mods: Vec::new(),
+            },
+        });
+    }
+    let mut graph = resolve_modrinth_selected(selections, mc, loader).await?;
+    let mut labels = BTreeMap::new();
+    for item in &mut graph.mods {
+        if let Some(old) = present.get(&item.project_id) {
+            // Recognized local JARs may have user-chosen basenames. Selecting
+            // their existing version must not rename an otherwise equal file.
+            if old.recorded.version_id == item.version_id
+                && old.recorded.sha1.eq_ignore_ascii_case(&item.file.sha1)
+            {
+                item.file.filename = old.recorded.filename.clone();
+            } else {
+                labels.insert(
+                    item.project_id.clone(),
+                    modrinth_version_number(&item.project_id, &old.recorded.version_id).await?,
+                );
+            }
+        }
+    }
+    build_plan(directory, provenance, present, graph, &labels)
 }
 
 pub async fn check_modrinth_updates(
@@ -365,6 +453,18 @@ pub async fn apply_modrinth_updates(
     }
     let root = open_root(directory)?;
     preflight(&root, plan)?;
+    if plan.changes.is_empty() {
+        on_progress(InstallProgress {
+            phase: "complete".into(),
+            completed: 0,
+            total: 0,
+            reused: 0,
+        });
+        return Ok(ModUpdateOutcome {
+            updated: 0,
+            added: 0,
+        });
+    }
     let downloads = ModDownloads::open()?;
     let mut artifacts = Vec::new();
     for (index, change) in plan.changes.iter().enumerate() {
@@ -644,6 +744,124 @@ mod tests {
             b"old-one"
         );
         assert_eq!(managed_mod_count(&fixture.0).unwrap(), 2);
+    }
+
+    #[test]
+    fn managed_summary_is_local_and_explicit_older_version_reuses_disabled_backup_flow() {
+        let fixture = Fixture::new();
+        let old_plan = fixture_plan(&fixture, true);
+        let root = fixture.root();
+        let mut provenance = old_plan.provenance.clone();
+        provenance.insert(
+            "Missing".into(),
+            ManagedMod {
+                version_id: "gone".into(),
+                filename: "gone.jar".into(),
+                sha1: "0".repeat(40),
+            },
+        );
+        write_provenance(&root, &provenance).unwrap();
+        let listed = list_managed_modrinth_mods(&fixture.0).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].project_id, "Root");
+        assert_eq!(listed[0].version_id, "Root-old");
+        assert_eq!(listed[0].filename, "root-old.jar");
+        assert!(!listed[0].enabled);
+        let mut older = selected("Root", "older.jar", b"new-one");
+        older.version_id = "Root-older".into();
+        older.version_number = "0.5-beta".into();
+        let graph = ModrinthPlan {
+            project_id: "Root".into(),
+            version_id: "Root-older".into(),
+            mods: vec![older],
+        };
+        let present = present_mods(&root, &provenance).unwrap();
+        let plan = build_plan(
+            &fixture.0,
+            provenance,
+            present,
+            graph,
+            &BTreeMap::from([("Root".into(), "1.0".into())]),
+        )
+        .unwrap();
+        assert_eq!(plan.changes[0].to_version, "0.5-beta");
+        assert!(!plan.changes[0].enabled);
+        let outcome = publish_updates(&root, &plan, stage).unwrap();
+        assert_eq!((outcome.updated, outcome.added), (1, 0));
+        assert_eq!(root.read("mods/older.jar.disabled").unwrap(), b"new-one");
+        assert_eq!(
+            root.read("config/settings.txt").unwrap(),
+            b"keep configuration"
+        );
+        assert_eq!(
+            read_provenance(&root).unwrap()["Root"].version_id,
+            "Root-older"
+        );
+        let backups = root.open_dir_nofollow(".cobble-mod-backups").unwrap();
+        let entry = backups.entries().unwrap().next().unwrap().unwrap();
+        assert_eq!(
+            backups
+                .open_dir_nofollow(entry.file_name())
+                .unwrap()
+                .read("old/root-old.jar.disabled")
+                .unwrap(),
+            b"old-one"
+        );
+    }
+
+    #[test]
+    fn selecting_installed_version_is_noop_without_network_or_empty_backups() {
+        let fixture = Fixture::new();
+        fixture_plan(&fixture, true);
+        let selection = ModVersionSelection {
+            project_id: "Root".into(),
+            version_id: "Root-old".into(),
+        };
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let plan = runtime
+            .block_on(prepare_modrinth_version_changes(
+                &fixture.0,
+                "1.21.1",
+                "fabric",
+                std::slice::from_ref(&selection),
+            ))
+            .unwrap();
+        assert!(plan.changes.is_empty());
+        let outcome = runtime
+            .block_on(apply_modrinth_updates(&fixture.0, &plan, Arc::new(|_| {})))
+            .unwrap();
+        assert_eq!((outcome.updated, outcome.added), (0, 0));
+        assert!(!fixture.0.join(".cobble-mod-backups").exists());
+        assert_eq!(
+            fixture.root().read("mods/root-old.jar.disabled").unwrap(),
+            b"old-one"
+        );
+        let missing = ModVersionSelection {
+            project_id: "unmanaged".into(),
+            version_id: "any".into(),
+        };
+        assert!(
+            runtime
+                .block_on(prepare_modrinth_version_changes(
+                    &fixture.0,
+                    "1.21.1",
+                    "fabric",
+                    &[missing]
+                ))
+                .is_err()
+        );
+        assert!(
+            runtime
+                .block_on(prepare_modrinth_version_changes(
+                    &fixture.0,
+                    "1.21.1",
+                    "fabric",
+                    &[selection.clone(), selection]
+                ))
+                .is_err()
+        );
     }
 
     #[test]
