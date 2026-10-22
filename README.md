@@ -21,6 +21,7 @@ CobbleLauncher is an open-source launcher for Minecraft: Java Edition. It aims t
 - Import, search, and remove resource pack and shader pack ZIPs for each game.
 - Import `.mrpack` files for supported loaders, with optional client content and pack configurations.
 - Find modpacks on Modrinth, choose a compatible release, and review its contents before installing.
+- Import existing Minecraft, Prism, or MultiMC games into independent installations, with optional saves.
 - Rename or copy games, export a local `.mrpack`, and remove games while choosing whether to keep their files.
 - Open game folders or logs from the details page.
 - Browse local worlds, view their basic details, and export ZIP backups while the game is closed.

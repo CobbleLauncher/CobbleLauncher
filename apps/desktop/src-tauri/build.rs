@@ -53,6 +53,8 @@ fn main() {
             "list_game_worlds",
             "open_game_world_directory",
             "export_game_world",
+            "preview_launcher_import",
+            "create_launcher_import",
             "preview_game_mod_updates",
             "apply_game_mod_updates",
             "list_game_mods",

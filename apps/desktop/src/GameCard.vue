@@ -9,7 +9,7 @@ const phase = computed(() => {
   const current = props.game.progress?.phase ?? 'metadata';
   if (current === 'pack-base-complete') return '准备整合包文件';
   const phase = current.replace(/^pack-base-/, '');
-  const labels: Record<string, string> = { metadata: '获取游戏信息', files: '下载游戏文件', assets: '下载游戏资源', fabric: '安装 Fabric', 'forge-installer': '安装 Forge', 'neoforge-installer': '安装 NeoForge', 'pack-download': '下载整合包文件', 'pack-overrides': '安装整合包配置', 'pack-install': '安装整合包文件', complete: '安装完成' };
+  const labels: Record<string, string> = { metadata: '获取游戏信息', files: '下载游戏文件', assets: '下载游戏资源', fabric: '安装 Fabric', 'forge-installer': '安装 Forge', 'neoforge-installer': '安装 NeoForge', 'pack-download': '下载整合包文件', 'pack-overrides': '安装整合包配置', 'pack-install': '安装整合包文件', 'import-copy': '复制游戏内容', complete: '安装完成' };
   return labels[phase] ?? '正在安装';
 });
 const installingLoader = computed(() => {

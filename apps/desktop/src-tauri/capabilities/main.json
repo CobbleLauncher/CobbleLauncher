@@ -57,6 +57,8 @@
     "allow-list-game-worlds",
     "allow-open-game-world-directory",
     "allow-export-game-world",
+    "allow-preview-launcher-import",
+    "allow-create-launcher-import",
     "allow-preview-game-mod-updates",
     "allow-apply-game-mod-updates",
     "allow-list-game-mods",

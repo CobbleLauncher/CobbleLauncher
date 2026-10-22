@@ -22,7 +22,7 @@ export type Game = {
   directory: string;
   status: 'installing' | 'installed' | 'failed';
   error: string | null;
-  progress: { phase: 'metadata' | 'files' | 'assets' | 'fabric' | 'forge-installer' | 'neoforge-installer' | 'pack-base-metadata' | 'pack-base-files' | 'pack-base-assets' | 'pack-base-fabric' | 'pack-base-forge-installer' | 'pack-base-neoforge-installer' | 'pack-base-complete' | 'pack-download' | 'pack-overrides' | 'pack-install' | 'complete'; completed: number; total: number; reused: number } | null;
+  progress: { phase: 'metadata' | 'files' | 'assets' | 'fabric' | 'forge-installer' | 'neoforge-installer' | 'pack-base-metadata' | 'pack-base-files' | 'pack-base-assets' | 'pack-base-fabric' | 'pack-base-forge-installer' | 'pack-base-neoforge-installer' | 'pack-base-complete' | 'pack-download' | 'pack-overrides' | 'pack-install' | 'import-copy' | 'complete'; completed: number; total: number; reused: number } | null;
   content_installing?: boolean;
   launch_state?: 'idle' | 'preparing' | 'running';
   launch_error?: string | null;
@@ -55,3 +55,6 @@ export type LocalPackKind = 'resource_pack' | 'shader_pack';
 export type LocalPack = { file_name: string; name: string; description: string | null; size_bytes: number; pack_format: number | null };
 export type ModrinthPackVersion = { version_id: string; name: string; version_number: string; minecraft_versions: string[]; loaders: string[]; version_type: string; date_published: string };
 export type LocalWorld = { folder_name: string; name: string; minecraft_version: string | null; game_mode: number | null; hardcore: boolean; last_played: number | null; metadata_error: boolean };
+export type LauncherImportContentRoot = { content_id: string; label: string; has_saves: boolean };
+export type LauncherImportCandidate = { candidate_id: string; name: string; minecraft_version: string | null; loader_kind: LoaderKind | null; loader_version: string | null; supported: boolean; unsupported_reason: string | null; content_roots: LauncherImportContentRoot[]; warnings: string[] };
+export type LauncherImportPreview = { preview_id: string; source_display: string; candidates: LauncherImportCandidate[] };

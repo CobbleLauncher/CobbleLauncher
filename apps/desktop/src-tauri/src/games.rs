@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+#[path = "launcher_import.rs"]
+pub mod launcher_import;
 #[path = "local_packs.rs"]
 pub mod local_packs;
 #[path = "management.rs"]
@@ -59,6 +61,8 @@ pub struct Game {
     pack_optional_files: Vec<String>,
     #[serde(default)]
     pack_mod_files: Vec<String>,
+    #[serde(default)]
+    launcher_import_id: Option<String>,
 }
 
 fn idle() -> String {
@@ -260,6 +264,7 @@ pub fn create_mrpack_game(
         pack_source_id: Some(selection.id.clone()),
         pack_optional_files: optional_files,
         pack_mod_files: Vec::new(),
+        launcher_import_id: None,
     };
     library.games.push(game.clone());
     if let Err(error) = save(&library.games) {
@@ -279,6 +284,7 @@ struct Library {
     mod_plans: HashMap<String, (String, cobble_content::ModrinthPlan)>,
     update_plans: HashMap<String, (String, cobble_core::ModUpdatePlan)>,
     picked_pack: Option<PackSelection>,
+    picked_import: Option<launcher_import::ImportSelection>,
 }
 #[derive(Default)]
 pub struct GameLibrary(Mutex<Library>);
@@ -470,6 +476,7 @@ pub fn create_game(
         pack_source_id: None,
         pack_optional_files: Vec::new(),
         pack_mod_files: Vec::new(),
+        launcher_import_id: None,
     };
     library.games.push(game.clone());
     if let Err(error) = save(&library.games) {
@@ -553,7 +560,9 @@ fn start_install(app: AppHandle, game: Game, source: cobble_minecraft::DownloadS
                 );
             }
         });
-        let result = if let Some(source_id) = &game.pack_source_id {
+        let result = if game.launcher_import_id.is_some() {
+            launcher_import::install(&game, source, progress).await
+        } else if let Some(source_id) = &game.pack_source_id {
             match pack_archive_path(source_id) {
                 Ok(archive) => cobble_core::install_mrpack(
                     &archive,

@@ -7,6 +7,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { applyTheme, readTheme } from './theme';
 import CreateGamePage from './CreateGamePage.vue';
 import ImportPackPage from './ImportPackPage.vue';
+import ImportLauncherPage from './ImportLauncherPage.vue';
 import DiscoverPacksPage from './DiscoverPacksPage.vue';
 import SettingsPage from './SettingsPage.vue';
 import GameCard from './GameCard.vue';
@@ -134,7 +135,8 @@ async function retryGame(id: string) {
   catch (cause) { error.value = `无法重试安装：${String(cause)}`; }
   finally { retrying.value = retrying.value.filter((item) => item !== id); }
 }
-const view = ref<'library' | 'create' | 'import' | 'settings' | 'details' | 'profiles' | 'add-profile' | 'game-action' | 'discover-packs'>('library');
+const view = ref<'library' | 'create' | 'import' | 'import-launcher' | 'settings' | 'details' | 'profiles' | 'add-profile' | 'game-action' | 'discover-packs'>('library');
+const launcherImportBusy = ref(false);
 const discoverPacksVisited = ref(false);
 const packPreviewBusy = ref(false);
 const importOrigin = ref<'library' | 'discover-packs'>('library');
@@ -167,7 +169,7 @@ function removeFromLibrary(id: string) {
   view.value = 'library';
 }
 function goBack() {
-  if (profileBusy.value || authBusy.value || gameActionBusy.value || contentBusy.value || packPreviewBusy.value) return;
+  if (profileBusy.value || authBusy.value || gameActionBusy.value || contentBusy.value || packPreviewBusy.value || launcherImportBusy.value) return;
   if (view.value === 'import') view.value = importOrigin.value;
   else if (view.value === 'game-action') view.value = 'details';
   else if (view.value === 'profiles' || view.value === 'add-profile') leaveProfiles();
@@ -351,7 +353,7 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
           <h2 id="empty-title">
             还没有游戏
           </h2><p class="empty-description">
-            创建一个新游戏，或导入你喜欢的整合包。
+            创建新游戏，或导入已有的游戏与整合包。
           </p>
           <div class="start-actions">
             <button
@@ -370,6 +372,12 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
               @click="openDiscoverPacks"
             >
               发现整合包
+            </button>
+            <button
+              class="secondary-button"
+              @click="view = 'import-launcher'"
+            >
+              导入已有游戏
             </button>
           </div>
         </section>
@@ -407,6 +415,12 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
           >
             发现整合包
           </button>
+          <button
+            class="add-game-button"
+            @click="view = 'import-launcher'"
+          >
+            导入已有游戏
+          </button>
         </section>
       </template>
       <template v-else>
@@ -414,13 +428,13 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
           <button
             class="back-button"
             :aria-label="view === 'import' && importOrigin === 'discover-packs' ? '返回发现整合包' : view === 'game-action' ? '返回游戏详情' : view === 'profiles' || view === 'add-profile' ? '返回' : '返回游戏库'"
-            :disabled="profileBusy || authBusy || gameActionBusy || contentBusy || packPreviewBusy"
+            :disabled="profileBusy || authBusy || gameActionBusy || contentBusy || packPreviewBusy || launcherImportBusy"
             @click="goBack"
           >
             <svg viewBox="0 0 20 20"><path d="m11 4-6 6 6 6M5 10h11" /></svg>{{ view === 'import' && importOrigin === 'discover-packs' ? '发现整合包' : view === 'game-action' ? '游戏详情' : view === 'profiles' || view === 'add-profile' ? '返回' : '游戏库' }}
           </button>
           <h1 tabindex="-1">
-            {{ view === 'create' ? '创建游戏' : view === 'import' ? '导入整合包' : view === 'discover-packs' ? '发现整合包' : view === 'details' ? selectedGame?.name : view === 'game-action' ? gameActionTitle : view === 'profiles' ? '玩家档案' : view === 'add-profile' ? '添加玩家档案' : '设置' }}
+            {{ view === 'create' ? '创建游戏' : view === 'import' ? '导入整合包' : view === 'import-launcher' ? '导入已有游戏' : view === 'discover-packs' ? '发现整合包' : view === 'details' ? selectedGame?.name : view === 'game-action' ? gameActionTitle : view === 'profiles' ? '玩家档案' : view === 'add-profile' ? '添加玩家档案' : '设置' }}
           </h1>
         </div>
         <CreateGamePage
@@ -431,6 +445,11 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
           v-else-if="view === 'import'"
           :initial-preview="initialPackPreview"
           @created="addCreatedGame"
+        />
+        <ImportLauncherPage
+          v-else-if="view === 'import-launcher'"
+          @created="addCreatedGame"
+          @busy="launcherImportBusy = $event"
         />
         <GameDetailsPage
           v-else-if="view === 'details' && selectedGame"

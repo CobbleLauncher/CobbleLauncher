@@ -76,6 +76,8 @@ fn main() {
             games::worlds::list_game_worlds,
             games::worlds::open_game_world_directory,
             games::worlds::export_game_world,
+            games::launcher_import::preview_launcher_import,
+            games::launcher_import::create_launcher_import,
             games::mod_updates::preview_game_mod_updates,
             games::mod_updates::apply_game_mod_updates,
             games::list_game_mods,

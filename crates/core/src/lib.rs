@@ -7,6 +7,7 @@ use cobble_domain::AppInfo;
 
 mod cache;
 mod fabric;
+mod foreign_import;
 mod forge;
 mod install;
 mod instances;
@@ -19,6 +20,10 @@ mod pack_download;
 mod runner;
 mod worlds;
 pub use fabric::{FabricVersion, install_fabric, list_fabric_versions, list_fabric_versions_from};
+pub use foreign_import::{
+    LauncherContentRoot, LauncherImportCandidate, import_launcher_game, inspect_launcher_import,
+    resume_launcher_import,
+};
 pub use forge::{
     ForgeKind, ForgeVersion, install_forge, list_forge_versions, list_forge_versions_from,
 };
