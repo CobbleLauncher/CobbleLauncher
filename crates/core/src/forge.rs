@@ -321,12 +321,9 @@ pub async fn install_forge_controlled(
         .env_remove("JDK_JAVA_OPTIONS")
         .stdin(Stdio::null())
         .stdout(Stdio::from(output.try_clone()?))
-        .stderr(Stdio::from(output))
-        .kill_on_drop(true);
-    #[cfg(windows)]
-    command.creation_flags(0x0800_0000);
+        .stderr(Stdio::from(output));
     control.check_cancelled()?;
-    let mut child = command.spawn()?;
+    let mut child = spawn_installer(command)?;
     let status = wait_installer(&mut child, &control, &log).await?;
     if !status.success() {
         return Err(format!("installer exited with {status}; see {}", log.display()).into());
@@ -351,8 +348,27 @@ pub async fn install_forge_controlled(
     Ok(outcome)
 }
 
+#[cfg(windows)]
+type InstallerChild = Box<dyn process_wrap::tokio::ChildWrapper>;
+#[cfg(not(windows))]
+type InstallerChild = tokio::process::Child;
+
+#[cfg(windows)]
+fn spawn_installer(command: tokio::process::Command) -> Result<InstallerChild, Error> {
+    use process_wrap::tokio::{CommandWrap, CreationFlags, JobObject, KillOnDrop};
+    let mut command = CommandWrap::from(command);
+    let mut flags = CreationFlags(Default::default());
+    flags.0.0 = 0x0800_0000; // CREATE_NO_WINDOW, preserved by the job wrapper.
+    command.wrap(KillOnDrop).wrap(flags).wrap(JobObject);
+    Ok(command.spawn()?)
+}
+#[cfg(not(windows))]
+fn spawn_installer(mut command: tokio::process::Command) -> Result<InstallerChild, Error> {
+    Ok(command.kill_on_drop(true).spawn()?)
+}
+
 async fn wait_installer(
-    child: &mut tokio::process::Child,
+    child: &mut InstallerChild,
     control: &crate::OperationControl,
     log: &Path,
 ) -> Result<std::process::ExitStatus, Error> {
@@ -671,6 +687,112 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn owned_installer_parent_fixture() {
+        let Some(path) = std::env::var_os("COBBLE_TEST_INSTALLER_OWNER") else {
+            return;
+        };
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["--exact", "forge::tests::owned_installer_fixture"])
+                .env("COBBLE_TEST_INSTALLER_WAIT", "1")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            let mut child = spawn_installer(command).unwrap();
+            fs::write(path, child.id().unwrap().to_string()).unwrap();
+            child.wait().await.unwrap();
+        });
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn forcibly_ending_installer_owner_closes_job_and_ends_exact_child() {
+        use std::{
+            os::windows::process::CommandExt,
+            time::{Instant, SystemTime, UNIX_EPOCH},
+        };
+        use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+        let directory = std::env::temp_dir().join(format!(
+            "cobble-installer-owner-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&directory).unwrap();
+        let record = directory.join("child.pid");
+        let mut owner = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "forge::tests::owned_installer_parent_fixture"])
+            .env("COBBLE_TEST_INSTALLER_OWNER", &record)
+            .creation_flags(0x0800_0000)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        // Always terminate/wait our exact helper even if an assertion fails.
+        struct Owned(std::process::Child, PathBuf);
+        impl Drop for Owned {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+                let _ = fs::remove_dir_all(&self.1);
+            }
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !record.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if !record.exists() {
+            let _ = owner.kill();
+            let _ = owner.wait();
+            panic!("owned installer helper did not publish PID");
+        }
+        let mut owner = Owned(owner, directory);
+        let pid = Pid::from_u32(fs::read_to_string(record).unwrap().parse().unwrap());
+        let mut system = System::new();
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[pid]),
+            true,
+            ProcessRefreshKind::nothing(),
+        );
+        let started = system
+            .process(pid)
+            .expect("owned installer child is alive")
+            .start_time();
+        owner.0.kill().unwrap();
+        owner.0.wait().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            system.refresh_processes_specifics(
+                ProcessesToUpdate::Some(&[pid]),
+                true,
+                ProcessRefreshKind::nothing(),
+            );
+            if system
+                .process(pid)
+                .is_none_or(|child| child.start_time() != started)
+            {
+                break;
+            }
+            if Instant::now() >= deadline {
+                // This PID still has the exact fixture creation identity; cleanup
+                // only this owned process if the job behavior regresses.
+                system.process(pid).unwrap().kill();
+                panic!("owned installer survived forced owner termination");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
     #[test]
     fn cancelling_owned_installer_waits_until_its_process_has_exited() {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -684,11 +806,8 @@ mod tests {
                 .env("COBBLE_TEST_INSTALLER_WAIT", "1")
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .kill_on_drop(true);
-            #[cfg(windows)]
-            command.creation_flags(0x0800_0000);
-            let mut child = command.spawn().unwrap();
+                .stderr(Stdio::null());
+            let mut child = spawn_installer(command).unwrap();
             assert!(child.id().is_some());
             let control = crate::OperationControl::new(Arc::new(|_| {}));
             control.cancel();

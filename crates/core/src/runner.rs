@@ -63,6 +63,10 @@ pub async fn start_game_with_identity(
     let output = fs::File::create(&log_path)?;
     let mut command = Command::new(java.executable);
     command
+        .arg(format!(
+            "-Dcobble.launcher.session={}",
+            plan.natives_directory.display()
+        ))
         .args(arguments)
         .current_dir(directory)
         .env_remove("JAVA_TOOL_OPTIONS")

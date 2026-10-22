@@ -5,6 +5,7 @@ mod java;
 mod microsoft;
 mod offline;
 mod preferences;
+use tauri::Manager;
 
 #[tauri::command]
 fn get_app_info() -> cobble_domain::AppInfo {
@@ -23,8 +24,19 @@ fn set_download_settings(settings: cobble_minecraft::DownloadSettings) -> Result
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .manage(games::GameLibrary::load())
         .manage(games::tasks::TaskLibrary::load())
+        .setup(|app| {
+            games::sessions::watch_recovered(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_app_info,
             games::tasks::list_tasks,

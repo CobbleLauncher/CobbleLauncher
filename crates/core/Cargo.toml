@@ -27,5 +27,11 @@ zip = { workspace = true, features = ["deflate-flate2-zlib-rs"] }
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "=1.1.5", features = ["fs"] }
 
+[target.'cfg(windows)'.dependencies]
+process-wrap = { version = "=10.0.0", default-features = false, features = ["tokio1", "job-object", "kill-on-drop", "creation-flags"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+sysinfo = { version = "=0.39.6", default-features = false, features = ["system"] }
+
 [lints]
 workspace = true

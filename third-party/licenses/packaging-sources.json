@@ -1,0 +1,65 @@
+[
+  {
+    "package": "alloc-stdlib-0.3.0",
+    "file": "rust/alloc-stdlib-0.3.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/dropbox/rust-alloc-no-stdlib/0a81fd6928ea3b33c8cd484aa4575d50ffb98012/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original license omitted from published crate; retained from its .cargo_vcs_info.json repository revision."
+  },
+  {
+    "package": "jsonschema-regex-0.59.0",
+    "file": "rust/jsonschema-regex-0.59.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/Stranger6667/jsonschema/d59ab79cb6eab73bb2d3caa6d1b4e538ca81567f/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original license omitted from published crate; retained from its .cargo_vcs_info.json repository revision."
+  },
+  {
+    "package": "jsonschema-value-0.59.0",
+    "file": "rust/jsonschema-value-0.59.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/Stranger6667/jsonschema/d59ab79cb6eab73bb2d3caa6d1b4e538ca81567f/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original license omitted from published crate; retained from its .cargo_vcs_info.json repository revision."
+  },
+  {
+    "package": "uuid-simd-0.8.0",
+    "file": "rust/uuid-simd-0.8.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/Nugine/simd/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original license omitted from published crate; retained from its .cargo_vcs_info.json repository revision."
+  },
+  {
+    "package": "vsimd-0.8.0",
+    "file": "rust/vsimd-0.8.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/Nugine/simd/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original license omitted from published crate; retained from its .cargo_vcs_info.json repository revision."
+  },
+  {
+    "package": "webview2-com-0.39.1",
+    "file": "rust/webview2-com-0.39.1/LICENSE",
+    "source": "https://raw.githubusercontent.com/wravery/webview2-rs/edc2caf886175ccaebe86078c9cfe1ae2a187328/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original license omitted from published crate; retained from its .cargo_vcs_info.json repository revision."
+  },
+  {
+    "package": "webview2-com-macros-0.8.1",
+    "file": "rust/webview2-com-macros-0.8.1/LICENSE",
+    "source": "https://raw.githubusercontent.com/wravery/webview2-rs/dffa41a8a46d3f5565eefbff2de57d38d399f158/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original license omitted from published crate; retained from its .cargo_vcs_info.json repository revision."
+  },
+  {
+    "package": "webview2-com-sys-0.39.1",
+    "file": "rust/webview2-com-sys-0.39.1/LICENSE",
+    "source": "https://raw.githubusercontent.com/wravery/webview2-rs/edc2caf886175ccaebe86078c9cfe1ae2a187328/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original license omitted from published crate; retained from its .cargo_vcs_info.json repository revision."
+  },
+  {
+    "package": "Microsoft.Web.WebView2 1.0.3800.47",
+    "file": "webview2-loader-1.0.3800.47/LICENSE.txt",
+    "source": "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.3800.47/microsoft.web.webview2.1.0.3800.47.nupkg",
+    "retrieved": "2026-10-22",
+    "note": "Original package LICENSE.txt. NuGet x64 WebView2LoaderStatic.lib bytes match the static library in webview2-com-sys 0.39.1."
+  }
+]

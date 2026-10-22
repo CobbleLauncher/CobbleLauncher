@@ -312,9 +312,7 @@ onUnmounted(() => { disposed = true; unlisten?.(); unlistenTasks?.(); window.rem
       <template v-if="view === 'library'">
         <div class="library-header">
           <div>
-            <p class="overline">
-              MINECRAFT JAVA
-            </p><h1 tabindex="-1">
+            <h1 tabindex="-1">
               游戏库<span class="count">{{ games.length }}</span>
             </h1>
           </div>

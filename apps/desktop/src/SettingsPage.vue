@@ -163,9 +163,6 @@ onMounted(() => { void loadSettings(); });
       aria-labelledby="settings-tab-0"
       tabindex="0"
     >
-      <h2 class="setting-label">
-        外观
-      </h2>
       <RadioGroupRoot
         class="theme-options"
         :model-value="theme"

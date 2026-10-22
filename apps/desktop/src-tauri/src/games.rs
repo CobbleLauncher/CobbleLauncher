@@ -9,6 +9,8 @@ pub mod management;
 pub mod marketplace;
 #[path = "mod_updates.rs"]
 pub mod mod_updates;
+#[path = "sessions.rs"]
+pub mod sessions;
 #[path = "tasks.rs"]
 pub mod tasks;
 #[path = "worlds.rs"]
@@ -281,6 +283,7 @@ pub fn create_mrpack_game(
 #[derive(Default)]
 struct Library {
     games: Vec<Game>,
+    recovered_sessions: Vec<sessions::Session>,
     picked_directory: Option<PathBuf>,
     load_error: Option<String>,
     mod_plans: HashMap<String, (String, cobble_content::ModrinthPlan)>,
@@ -315,7 +318,9 @@ impl GameLibrary {
         let result = (|| {
             let bytes = match fs::read(library_file()?) {
                 Ok(bytes) => bytes,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    return Ok((Vec::new(), Vec::new()));
+                }
                 Err(e) => return Err(e.to_string()),
             };
             let mut games: Vec<Game> = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
@@ -325,14 +330,22 @@ impl GameLibrary {
                     game.error = Some("安装已中断，请重试".into());
                 }
             }
-            Ok::<_, String>(games)
+            let mut sessions = Vec::new();
+            for game in &mut games {
+                if let Some(session) = sessions::recover(game)? {
+                    game.launch_state = "running".into();
+                    sessions.push(session);
+                }
+            }
+            Ok::<_, String>((games, sessions))
         })();
-        let (games, load_error) = match result {
-            Ok(games) => (games, None),
-            Err(error) => (Vec::new(), Some(error)),
+        let (games, recovered_sessions, load_error) = match result {
+            Ok((games, sessions)) => (games, sessions, None),
+            Err(error) => (Vec::new(), Vec::new(), Some(error)),
         };
         Self(Mutex::new(Library {
             games,
+            recovered_sessions,
             load_error,
             ..Library::default()
         }))
@@ -654,6 +667,33 @@ pub fn start_game(
         .await;
         match result {
             Ok(mut running) => {
+                let session = (|| {
+                    let session = sessions::capture(
+                        &launch,
+                        running.child.id().ok_or("游戏进程已退出")?,
+                        &running.natives_directory,
+                    )?;
+                    sessions::persist(&session)?;
+                    Ok::<_, String>(session)
+                })();
+                let session = match session {
+                    Ok(session) => session,
+                    Err(error) => {
+                        let _ = running.child.start_kill();
+                        let _ = running.child.wait().await;
+                        update_game(
+                            &app,
+                            &launch.id,
+                            |game| {
+                                game.launch_state = idle();
+                                game.launch_error =
+                                    Some(format!("无法保存游戏运行记录，已停止本次启动：{error}"));
+                            },
+                            true,
+                        );
+                        return;
+                    }
+                };
                 update_game(
                     &app,
                     &launch.id,
@@ -664,6 +704,7 @@ pub fn start_game(
                     false,
                 );
                 let result = running.child.wait().await;
+                let _ = sessions::clear(&session);
                 update_game(
                     &app,
                     &launch.id,

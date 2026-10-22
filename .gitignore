@@ -51,6 +51,7 @@ __pycache__/
 !/scripts/check_node_licenses.mjs
 !/scripts/license-policy.json
 !/scripts/licenses.test.mjs
+!/scripts/package-windows.mjs
 /fixtures/*
 !/fixtures/security/
 

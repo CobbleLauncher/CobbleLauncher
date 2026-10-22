@@ -42,6 +42,18 @@ pnpm install
 pnpm desktop
 ```
 
+## Windows test package
+
+Build an unsigned Windows x64 folder and ZIP with the executable, start instructions, dependency inventory and original license texts:
+
+```sh
+pnpm package:windows
+```
+
+The output is `target/test-release/<version>-windows-x64/` and a ZIP beside it. Run `pnpm package:windows --check` to check local license coverage without building or packaging. After separately validating the release executable, `--skip-build` packages that existing build. Rebuilding replaces only that generated folder, ZIP and checksum.
+
+Extract the ZIP and open `Cobble Launcher.exe`. The app requires Microsoft Edge WebView2 Runtime. Minecraft requires a compatible Java installation, provided separately. This is a test distribution without a code signature; it does not establish macOS or Linux support. Settings and account credentials use your user profile; game locations are configurable.
+
 ## Command line
 
 List available versions or install Vanilla 1.21.1 into a new folder:
