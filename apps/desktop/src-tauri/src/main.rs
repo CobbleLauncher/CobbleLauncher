@@ -24,8 +24,13 @@ fn set_download_settings(settings: cobble_minecraft::DownloadSettings) -> Result
 fn main() {
     tauri::Builder::default()
         .manage(games::GameLibrary::load())
+        .manage(games::tasks::TaskLibrary::load())
         .invoke_handler(tauri::generate_handler![
             get_app_info,
+            games::tasks::list_tasks,
+            games::tasks::cancel_task,
+            games::tasks::retry_task,
+            games::tasks::get_task_pack_preview,
             microsoft::begin_microsoft_login,
             microsoft::poll_microsoft_login,
             microsoft::cancel_microsoft_login,

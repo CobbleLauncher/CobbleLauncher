@@ -7,7 +7,7 @@ use cobble_content::{
     Mrpack, PackVersion, read_mrpack, resolve_modrinth_pack, supported_pack_target,
 };
 use cobble_store::SafeRelativePath;
-use std::{fs, io, path::Path};
+use std::{fs, path::Path};
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
@@ -16,17 +16,33 @@ pub async fn download_modrinth_pack(
     version: &str,
     destination: &Path,
 ) -> Result<Mrpack, Error> {
-    match fs::symlink_metadata(destination) {
-        Ok(_) => {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "Pack archive destination already exists",
-            )
-            .into());
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
+    if destination.try_exists()? {
+        return Err("Pack archive destination already exists".into());
     }
+    download_modrinth_pack_controlled(
+        project,
+        version,
+        destination,
+        crate::OperationControl::new(std::sync::Arc::new(|_| {})),
+    )
+    .await
+}
+
+pub async fn download_modrinth_pack_controlled(
+    project: &str,
+    version: &str,
+    destination: &Path,
+    control: crate::OperationControl,
+) -> Result<Mrpack, Error> {
+    control.check_cancelled()?;
+    let progress = control.progress();
+    progress(crate::InstallProgress {
+        phase: "metadata".into(),
+        completed: 0,
+        total: 1,
+        reused: 0,
+    });
+
     let parent = destination
         .parent()
         .ok_or("Pack archive destination has no parent")?;
@@ -36,11 +52,34 @@ pub async fn download_modrinth_pack(
         .ok_or("Pack archive filename must be UTF-8")?;
     let name = SafeRelativePath::parse(name)?;
     let selection = resolve_modrinth_pack(project, version).await?;
+    control.check_cancelled()?;
+    if destination.try_exists()? {
+        let path = destination.to_owned();
+        return tokio::task::spawn_blocking(move || {
+            if !crate::modrinth::matches_downloaded_file(&path, &selection.file)? { return Err("Existing pack archive differs from the selected download; it was not overwritten".into()); }
+            validated_pack(&path, &selection.version)
+        }).await?;
+    }
     let downloads = ModDownloads::open()?;
-    let artifact = downloads.fetch_file(&selection.file).await?;
+    progress(crate::InstallProgress {
+        phase: "pack-download".into(),
+        completed: 0,
+        total: 1,
+        reused: 0,
+    });
+    let artifact = downloads
+        .fetch_file_controlled(&selection.file, &control)
+        .await?;
     let parent = parent.to_owned();
     let destination = destination.to_owned();
     tokio::task::spawn_blocking(move || {
+        control.check_cancelled()?;
+        progress(crate::InstallProgress {
+            phase: "pack-install".into(),
+            completed: 0,
+            total: 1,
+            reused: 0,
+        });
         let root = Dir::open_ambient_dir(parent, cap_std::ambient_authority())?;
         // CAS publication refuses existing destinations. Cleanup below therefore
         // applies only after this call has successfully created the archive.
@@ -48,6 +87,14 @@ pub async fn download_modrinth_pack(
         let result = validated_pack(&destination, &selection.version);
         if result.is_err() {
             let _ = fs::remove_file(&destination);
+        }
+        if result.is_ok() {
+            progress(crate::InstallProgress {
+                phase: "complete".into(),
+                completed: 1,
+                total: 1,
+                reused: 0,
+            });
         }
         result
     })

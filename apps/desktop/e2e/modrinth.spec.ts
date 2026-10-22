@@ -11,9 +11,9 @@ async function setup(page: Page, vanilla = false, loaderKind?: Game['loader_kind
     const target = window as unknown as Mock & { isTauri: boolean; __TAURI_INTERNALS__: unknown; __TAURI_EVENT_PLUGIN_INTERNALS__: unknown };
     target.isTauri = true; target.__calls = []; target.__fail = '';
     let installed = false;
-    let listener = 0;
+    const listeners = new Map<string, number>();
     const callbacks = new Map<number, (event: unknown) => void>();
-    const emit = (payload: Game) => callbacks.get(listener)?.({ event: 'game-install', id: 1, payload });
+    const emit = (payload: Game) => callbacks.get(listeners.get('game-install') ?? -1)?.({ event: 'game-install', id: 1, payload });
     target.__running = () => emit({ ...game, launch_state: 'running' });
     target.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
     target.__TAURI_INTERNALS__ = {
@@ -22,7 +22,7 @@ async function setup(page: Page, vanilla = false, loaderKind?: Game['loader_kind
       invoke: async (command: string, args: Record<string, unknown> = {}) => {
         target.__calls.push({ command, args });
         if (target.__fail === command) throw new Error(command === 'preview_game_mod_install' ? 'Fabric API 与已安装的 Map API 版本冲突' : 'synthetic unavailable');
-        if (command === 'plugin:event|listen') { listener = args.handler as number; return 1; }
+        if (command === 'plugin:event|listen') { listeners.set(String(args.event), args.handler as number); return 1; }
         if (command === 'list_games') return [{ ...game, loader_version: vanilla ? null : game.loader_version }];
         if (command === 'list_player_profiles') return { profiles: [{ id: 'test-player', kind: 'offline', name: 'Player', uuid: 'synthetic', note: null }], active_id: 'test-player' };
         if (command === 'plugin:window|is_maximized') return false;

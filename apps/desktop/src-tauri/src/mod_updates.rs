@@ -207,13 +207,17 @@ pub async fn apply_game_mod_updates(
     id: String,
     plan_id: String,
 ) -> Result<cobble_core::ModUpdateOutcome, String> {
-    let (game, _operation) = management::begin(&app, &id, true)?;
-    if game.loader_version.is_none() {
-        return Err("请先完成模组加载器安装".into());
-    }
     let plan = {
         let state = app.state::<GameLibrary>();
         let library = state.0.lock().map_err(|e| e.to_string())?;
+        let game = library
+            .games
+            .iter()
+            .find(|game| game.id == id)
+            .ok_or("找不到这个游戏")?;
+        if game.loader_version.is_none() {
+            return Err("请先完成模组加载器安装".into());
+        }
         let stored = library
             .update_plans
             .get(&id)
@@ -223,54 +227,27 @@ pub async fn apply_game_mod_updates(
         }
         stored.1.clone()
     };
-    let installed = with_game_mods(&app, &id, false, cobble_content::list_mods)?;
-    let pack_files: Vec<_> = plan
-        .changes
-        .iter()
-        .filter_map(|change| {
-            let previous = plan.previous_filename(&change.project_id)?;
-            installed
-                .iter()
-                .any(|local| {
-                    local.pack_owned
-                        && local
-                            .item
-                            .file_name
-                            .strip_suffix(".disabled")
-                            .unwrap_or(&local.item.file_name)
-                            == previous
-                })
-                .then(|| format!("mods/{}", change.filename))
-        })
-        .collect();
-    update_game(&app, &id, |_| {}, false);
-    let result = cobble_core::apply_modrinth_updates(&game.directory, &plan, Arc::new(|_| {}))
-        .await
-        .map_err(|e| e.to_string());
-    if result.is_ok() {
-        if !pack_files.is_empty() {
-            update_game(
-                &app,
-                &id,
-                |game| {
-                    for file in pack_files {
-                        if !game.pack_mod_files.contains(&file) {
-                            game.pack_mod_files.push(file);
-                        }
-                    }
-                },
-                true,
-            );
-        }
-        let state = app.state::<GameLibrary>();
-        let mut library = state.0.lock().map_err(|e| e.to_string())?;
-        if library
-            .update_plans
-            .get(&id)
-            .is_some_and(|stored| stored.0 == plan_id)
-        {
-            library.update_plans.remove(&id);
-        }
+    let result = match tasks::run(
+        app.clone(),
+        tasks::TaskRequest::ModUpdate {
+            game_id: id.clone(),
+            plan,
+        },
+        "更新 Mod",
+    )
+    .await?
+    {
+        tasks::TaskResult::ModUpdate(outcome) => outcome,
+        _ => return Err("任务类型不匹配".into()),
+    };
+    let state = app.state::<GameLibrary>();
+    let mut library = state.0.lock().map_err(|e| e.to_string())?;
+    if library
+        .update_plans
+        .get(&id)
+        .is_some_and(|stored| stored.0 == plan_id)
+    {
+        library.update_plans.remove(&id);
     }
-    result
+    Ok(result)
 }

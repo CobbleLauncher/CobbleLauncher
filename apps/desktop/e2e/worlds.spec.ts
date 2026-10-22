@@ -26,13 +26,13 @@ async function setup(page: Page, initialGame = game, initialWorlds = worlds) {
     let currentGame = structuredClone(initialGame);
     let blocked = false;
     let finish: () => void = () => {};
-    let listener = 0;
+    const listeners = new Map<string, number>();
     const callbacks = new Map<number, (event: unknown) => void>();
     target.__blockExport = () => { blocked = true; };
     target.__finishExport = () => { blocked = false; finish(); };
     target.__setGame = (value) => {
       currentGame = value;
-      callbacks.get(listener)?.({ event: 'game-install', id: 1, payload: value });
+      callbacks.get(listeners.get('game-install') ?? -1)?.({ event: 'game-install', id: 1, payload: value });
     };
     target.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
     target.__TAURI_INTERNALS__ = {
@@ -41,7 +41,7 @@ async function setup(page: Page, initialGame = game, initialWorlds = worlds) {
       invoke: async (command: string, args: Record<string, unknown> = {}) => {
         target.__calls.push({ command, args });
         if (command === target.__failCommand) throw new Error('synthetic world failure');
-        if (command === 'plugin:event|listen') { listener = args.handler as number; return 1; }
+        if (command === 'plugin:event|listen') { listeners.set(String(args.event), args.handler as number); return 1; }
         if (command === 'plugin:window|is_maximized') return false;
         if (command === 'list_games') return [currentGame];
         if (command === 'list_player_profiles') return { profiles: [{ id: 'test-player', kind: 'offline', name: 'Player', uuid: 'synthetic-player', note: null }], active_id: 'test-player' };

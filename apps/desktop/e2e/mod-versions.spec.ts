@@ -42,11 +42,11 @@ async function setup(page: Page) {
     const target = window as unknown as Mock & { isTauri: boolean; __TAURI_INTERNALS__: unknown; __TAURI_EVENT_PLUGIN_INTERNALS__: unknown };
     target.isTauri = true; target.__calls = []; target.__fail = ''; target.__withUpdates = false;
     let currentGame = game;
-    let listener = 0;
+    const listeners = new Map<string, number>();
     let installed = [...localMods];
     let finishInstall: () => void = () => {};
     const callbacks = new Map<number, (event: unknown) => void>();
-    target.__emitGame = (next) => { currentGame = next; callbacks.get(listener)?.({ event: 'game-install', id: 1, payload: next }); };
+    target.__emitGame = (next) => { currentGame = next; callbacks.get(listeners.get('game-install') ?? -1)?.({ event: 'game-install', id: 1, payload: next }); };
     target.__finishInstall = () => finishInstall();
     target.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
     target.__TAURI_INTERNALS__ = {
@@ -55,7 +55,7 @@ async function setup(page: Page) {
       invoke: async (command: string, args: Record<string, unknown> = {}) => {
         target.__calls.push({ command, args });
         if (target.__fail === command) throw new Error('synthetic Mod version failure');
-        if (command === 'plugin:event|listen') { listener = args.handler as number; return 1; }
+        if (command === 'plugin:event|listen') { listeners.set(String(args.event), args.handler as number); return 1; }
         if (command === 'list_games') return [currentGame];
         if (command === 'list_player_profiles') return { profiles: [{ id: 'test-player', kind: 'offline', name: 'Player', uuid: 'synthetic', note: null }], active_id: 'test-player' };
         if (command === 'plugin:window|is_maximized') return false;

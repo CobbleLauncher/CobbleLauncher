@@ -21,18 +21,96 @@ pub async fn install_modrinth_content_pack(
     project_id: &str,
     version_id: &str,
 ) -> Result<Vec<LocalPack>, Error> {
+    install_modrinth_content_pack_controlled(
+        directory,
+        kind,
+        mc,
+        project_id,
+        version_id,
+        crate::OperationControl::new(std::sync::Arc::new(|_| {})),
+    )
+    .await
+}
+
+pub async fn install_modrinth_content_pack_controlled(
+    directory: &Path,
+    kind: LocalPackKind,
+    mc: &str,
+    project_id: &str,
+    version_id: &str,
+    control: crate::OperationControl,
+) -> Result<Vec<LocalPack>, Error> {
+    control.check_cancelled()?;
+
+    let progress = control.progress();
+    progress(crate::InstallProgress {
+        phase: "metadata".into(),
+        completed: 0,
+        total: 1,
+        reused: 0,
+    });
     let selected = resolve_modrinth_content_pack(kind, mc, project_id, version_id).await?;
+    control.check_cancelled()?;
+    let existing_directory = directory.to_owned();
+    let existing_file = selected.file.clone();
+    let existing = tokio::task::spawn_blocking(move || -> Result<Option<Vec<LocalPack>>, Error> {
+        let folder = match kind {
+            LocalPackKind::ResourcePack => "resourcepacks",
+            LocalPackKind::ShaderPack => "shaderpacks",
+        };
+        let path = existing_directory
+            .join(folder)
+            .join(&existing_file.filename);
+        if !path.try_exists()? {
+            return Ok(None);
+        }
+        if crate::modrinth::matches_downloaded_file(&path, &existing_file)? {
+            return Ok(Some(cobble_content::list_local_packs(
+                &existing_directory,
+                kind,
+            )?));
+        }
+        Err("已存在同名内容包且文件不同，未覆盖，请先检查本地文件".into())
+    })
+    .await??;
+    if let Some(packs) = existing {
+        return Ok(packs);
+    }
+    progress(crate::InstallProgress {
+        phase: "pack-download".into(),
+        completed: 0,
+        total: 1,
+        reused: 0,
+    });
     let downloads = ModDownloads::open()?;
-    let artifact = downloads.fetch_file(&selected.file).await?;
+    let artifact = downloads
+        .fetch_file_controlled(&selected.file, &control)
+        .await?;
     let directory = directory.to_owned();
     tokio::task::spawn_blocking(move || {
-        import_artifact(
+        control.check_cancelled()?;
+        progress(crate::InstallProgress {
+            phase: "pack-install".into(),
+            completed: 0,
+            total: 1,
+            reused: 0,
+        });
+        let result = import_artifact(
             &directory,
             kind,
             &downloads.content,
             &artifact,
             &selected.file.filename,
-        )
+        );
+        if result.is_ok() {
+            progress(crate::InstallProgress {
+                phase: "complete".into(),
+                completed: 1,
+                total: 1,
+                reused: 0,
+            });
+        }
+        result
     })
     .await?
 }

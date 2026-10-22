@@ -21,7 +21,7 @@ async function setup(page: Page, initial: { resource?: Pack[]; shader?: Pack[] }
   await page.addInitScript(({ game, resourcePack, shaderPack, initial }) => {
     const target = window as unknown as Mock & { isTauri: boolean; __TAURI_INTERNALS__: unknown; __TAURI_EVENT_PLUGIN_INTERNALS__: unknown };
     target.isTauri = true; target.__calls = []; target.__cancelPackImport = false; target.__failCommand = '';
-    let listener = 0;
+    const listeners = new Map<string, number>();
     let runningGame = game;
     let resourcePacks = [...(initial.resource ?? [])];
     let shaderPacks = [...(initial.shader ?? [])];
@@ -30,7 +30,7 @@ async function setup(page: Page, initial: { resource?: Pack[]; shader?: Pack[] }
     const callbacks = new Map<number, (event: unknown) => void>();
     target.__emitGame = (value) => {
       runningGame = value;
-      callbacks.get(listener)?.({ event: 'game-install', id: 1, payload: value });
+      callbacks.get(listeners.get('game-install') ?? -1)?.({ event: 'game-install', id: 1, payload: value });
     };
     target.__blockNextPackImport = () => { blockImport = true; };
     target.__finishPackImport = () => finishImport();
@@ -41,7 +41,7 @@ async function setup(page: Page, initial: { resource?: Pack[]; shader?: Pack[] }
       invoke: async (command: string, args: Record<string, unknown> = {}) => {
         target.__calls.push({ command, args });
         if (command === target.__failCommand) throw new Error('synthetic pack failure');
-        if (command === 'plugin:event|listen') { listener = args.handler as number; return 1; }
+        if (command === 'plugin:event|listen') { listeners.set(String(args.event), args.handler as number); return 1; }
         if (command === 'list_games') return [runningGame];
         if (command === 'list_player_profiles') return { profiles: [{ id: 'test-player', kind: 'offline', name: 'Player', uuid: 'synthetic', note: null }], active_id: 'test-player' };
         if (command === 'plugin:window|is_maximized') return false;

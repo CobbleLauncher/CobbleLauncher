@@ -68,6 +68,7 @@ async function openLocation(command: 'open_game_directory' | 'open_game_log') {
 const contentType = ref<'mod' | LocalPackKind>('mod');
 const visitedPacks = ref<LocalPackKind[]>([]);
 const packMutationBusy = ref(false);
+const contentRevision = ref(0);
 watch(contentType, (kind) => { if (kind !== 'mod' && !visitedPacks.value.includes(kind)) visitedPacks.value.push(kind); });
 const mods = ref<LocalMod[]>([]);
 const tab = ref<'installed' | 'discover' | 'updates'>('installed');
@@ -123,6 +124,12 @@ async function refresh(preserveError = false) {
   } catch (cause) { if (current === request && (!preserveError || !error.value)) error.value = `无法读取内容：${String(cause)}`; }
   finally { if (current === request) loading.value = false; }
 }
+async function refreshContent() {
+  contentRevision.value++;
+  if (tab.value === 'discover') tab.value = 'installed';
+  await refresh();
+}
+defineExpose({ refreshContent });
 async function mutate(command: string, args: Record<string, unknown> = {}) {
   if (locked.value || busy.value || loading.value) return;
   const current = ++request;
@@ -479,6 +486,7 @@ onUnmounted(() => { disposed = true; ++request; });
             aria-labelledby="updates-tab"
             :game="game"
             :locked="locked || busy || loading"
+            :revision="contentRevision"
             @busy="updatingMods = $event"
             @recognizing="recognizingMods = $event"
             @updated="refresh()"
@@ -702,6 +710,7 @@ onUnmounted(() => { disposed = true; ++request; });
             :game-id="game.id"
             kind="resource_pack"
             :locked="locked || busy"
+            :revision="contentRevision"
             @busy="packMutationBusy = $event"
           />
         </TabsContent>
@@ -714,6 +723,7 @@ onUnmounted(() => { disposed = true; ++request; });
             :game-id="game.id"
             kind="shader_pack"
             :locked="locked || busy"
+            :revision="contentRevision"
             @busy="packMutationBusy = $event"
           />
         </TabsContent>

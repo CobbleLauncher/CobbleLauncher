@@ -9,6 +9,8 @@ pub mod management;
 pub mod marketplace;
 #[path = "mod_updates.rs"]
 pub mod mod_updates;
+#[path = "tasks.rs"]
+pub mod tasks;
 #[path = "worlds.rs"]
 pub mod worlds;
 use cobble_core::InstallProgress;
@@ -535,109 +537,26 @@ fn update_game(app: &AppHandle, id: &str, change: impl FnOnce(&mut Game), persis
     drop(library);
     let _ = app.emit("game-install", snapshot);
 }
-fn start_install(app: AppHandle, game: Game, source: cobble_minecraft::DownloadSource) {
-    tauri::async_runtime::spawn(async move {
-        let event_app = app.clone();
-        let event_id = game.id.clone();
-        let mut last_phase = String::new();
-        let mut last_emit = Instant::now() - Duration::from_secs(1);
-        let throttle = Mutex::new(move |progress: &InstallProgress| {
-            let emit = progress.phase != last_phase
-                || progress.completed == progress.total
-                || last_emit.elapsed() >= Duration::from_millis(100);
-            if emit {
-                last_emit = Instant::now();
-                last_phase.clone_from(&progress.phase);
-            }
-            emit
-        });
-        let progress = Arc::new(move |progress: InstallProgress| {
-            if throttle.lock().expect("progress mutex")(&progress) {
-                update_game(
-                    &event_app,
-                    &event_id,
-                    |g| g.progress = Some(progress),
-                    false,
-                );
-            }
-        });
-        let result = if game.launcher_import_id.is_some() {
-            launcher_import::install(&game, source, progress).await
-        } else if let Some(source_id) = &game.pack_source_id {
-            match pack_archive_path(source_id) {
-                Ok(archive) => cobble_core::install_mrpack(
-                    &archive,
-                    &game.directory,
-                    source,
-                    &game.pack_optional_files,
-                    progress,
-                )
-                .await
-                .map(|_| ())
-                .map_err(|e| e.to_string()),
-                Err(error) => Err(error),
-            }
-        } else {
-            match &game.loader_version {
-                Some(loader) => match game.loader_kind.as_deref().unwrap_or("fabric") {
-                    "fabric" => {
-                        cobble_core::install_fabric(
-                            &game.version,
-                            loader,
-                            &game.directory,
-                            source,
-                            progress,
-                        )
-                        .await
-                    }
-                    "forge" => {
-                        cobble_core::install_forge(
-                            &game.version,
-                            loader,
-                            cobble_core::ForgeKind::Forge,
-                            &game.directory,
-                            source,
-                            progress,
-                        )
-                        .await
-                    }
-                    "neoforge" => {
-                        cobble_core::install_forge(
-                            &game.version,
-                            loader,
-                            cobble_core::ForgeKind::NeoForge,
-                            &game.directory,
-                            source,
-                            progress,
-                        )
-                        .await
-                    }
-                    _ => Err("unsupported mod loader".into()),
-                },
-                None => {
-                    cobble_core::install_game(&game.version, &game.directory, source, progress)
-                        .await
-                }
-            }
-            .map(|_| ())
-            .map_err(|e| e.to_string())
-        };
-        update_game(
+fn start_install(app: AppHandle, game: Game, _source: cobble_minecraft::DownloadSource) {
+    let request = tasks::TaskRequest::GameInstall {
+        game_id: game.id.clone(),
+    };
+    match tasks::register(&app, request, "安装游戏") {
+        Ok(id) => {
+            tauri::async_runtime::spawn(async move {
+                let _ = tasks::execute(app, id).await;
+            });
+        }
+        Err(error) => update_game(
             &app,
             &game.id,
-            |g| match result {
-                Ok(_) => {
-                    g.status = "installed".into();
-                    g.error = None;
-                }
-                Err(error) => {
-                    g.status = "failed".into();
-                    g.error = Some(error.to_string());
-                }
+            |game| {
+                game.status = "failed".into();
+                game.error = Some(error);
             },
             true,
-        );
-    });
+        ),
+    }
 }
 
 #[derive(Serialize)]
@@ -715,6 +634,12 @@ pub fn start_game(
     let launch = snapshot.clone();
     tauri::async_runtime::spawn(async move {
         let result = async {
+            let directory = launch.directory.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                cobble_core::recover_modrinth_update(&directory).map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|e| e.to_string())??;
             let identity = cobble_auth::launch_identity(Some(&profile.id)).await?;
             cobble_core::start_game_with_identity(
                 &launch.version,
@@ -803,6 +728,9 @@ fn with_game_mods(
     }
     if writable && (game.launch_state != "idle" || game.content_installing) {
         return Err("请先关闭游戏，再修改 Mod".into());
+    }
+    if writable {
+        cobble_core::recover_modrinth_update(&game.directory).map_err(|e| e.to_string())?;
     }
     let items = operation(&game.directory).map_err(|e| e.to_string())?;
     let mut owned: std::collections::HashSet<_> = game.pack_mod_files.iter().cloned().collect();
@@ -1075,13 +1003,13 @@ pub async fn install_game_mod_plan(
     id: String,
     plan_id: String,
 ) -> Result<cobble_core::ModrinthInstallOutcome, String> {
-    let (plan, directory) = {
+    let plan = {
         let state = app.state::<GameLibrary>();
-        let mut library = state.0.lock().map_err(|e| e.to_string())?;
+        let library = state.0.lock().map_err(|e| e.to_string())?;
         let game = library
             .games
             .iter()
-            .find(|g| g.id == id)
+            .find(|game| game.id == id)
             .ok_or("找不到这个游戏")?;
         if game.status != "installed" || game.loader_version.is_none() {
             return Err("请先完成游戏和模组加载器安装".into());
@@ -1089,26 +1017,30 @@ pub async fn install_game_mod_plan(
         if game.launch_state != "idle" || game.content_installing {
             return Err("请先关闭游戏或等待安装完成".into());
         }
-        let directory = game.directory.clone();
         let stored = library.mod_plans.get(&id).ok_or("请先选择要安装的 Mod")?;
         if stored.0 != plan_id {
             return Err("安装方案已变更，请重新选择 Mod".into());
         }
-        let plan = stored.1.clone();
-        library
-            .games
-            .iter_mut()
-            .find(|g| g.id == id)
-            .expect("checked game")
-            .content_installing = true;
-        (plan, directory)
+        stored.1.clone()
     };
-    update_game(&app, &id, |_| {}, false);
-    let result = cobble_core::install_modrinth_plan(&plan, &directory, Arc::new(|_| {}))
-        .await
-        .map_err(|e| e.to_string());
-    update_game(&app, &id, |g| g.content_installing = false, false);
-    result
+    let title = format!(
+        "安装 {}",
+        plan.mods
+            .iter()
+            .find(|item| item.project_id == plan.project_id)
+            .map(|item| item.name.as_str())
+            .unwrap_or("Mod")
+    );
+    match tasks::run(
+        app,
+        tasks::TaskRequest::ModInstall { game_id: id, plan },
+        &title,
+    )
+    .await?
+    {
+        tasks::TaskResult::ModInstall(outcome) => Ok(outcome),
+        _ => Err("任务类型不匹配".into()),
+    }
 }
 
 #[tauri::command]

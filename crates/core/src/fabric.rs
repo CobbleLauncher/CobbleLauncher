@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Fabric's official client profile overlays a separately installed Vanilla base.
 //! Independently implemented; XMCL's MIT installer was read as a behavior reference.
-use crate::{InstallOutcome, InstallProgress, install_game};
+use crate::{InstallOutcome, InstallProgress, install_game_controlled};
 use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::fs::{Dir, OpenOptions};
 use cobble_minecraft::DownloadSource;
@@ -102,6 +102,26 @@ pub async fn install_fabric(
     source: DownloadSource,
     on_progress: Arc<dyn Fn(InstallProgress) + Send + Sync>,
 ) -> Result<InstallOutcome, Error> {
+    install_fabric_controlled(
+        mc_version,
+        loader_version,
+        target,
+        source,
+        crate::OperationControl::new(on_progress),
+    )
+    .await
+}
+
+pub async fn install_fabric_controlled(
+    mc_version: &str,
+    loader_version: &str,
+    target: &Path,
+    source: DownloadSource,
+    control: crate::OperationControl,
+) -> Result<InstallOutcome, Error> {
+    control.check_cancelled()?;
+    let on_progress = control.progress();
+
     if target.join(".cobble-forge.json").exists() {
         return Err("this instance already has Forge or NeoForge".into());
     }
@@ -124,7 +144,9 @@ pub async fn install_fabric(
             },
         )
         .await?;
-    let outcome = install_game(mc_version, target, source.clone(), on_progress.clone()).await?;
+    control.check_cancelled()?;
+    let outcome =
+        install_game_controlled(mc_version, target, source.clone(), control.clone()).await?;
     let root = Dir::open_ambient_dir(target, cap_std::ambient_authority())?;
     let mut state = FabricState {
         mc_version: mc_version.into(),
@@ -152,6 +174,7 @@ pub async fn install_fabric(
         reused,
     });
     for (i, library) in state.profile.libraries.iter().enumerate() {
+        control.check_cancelled()?;
         let path = library.path()?;
         let official = format!(
             "{}/{}",
@@ -219,6 +242,7 @@ pub async fn install_fabric(
             reused,
         });
     }
+    control.check_cancelled()?;
     state.complete = true;
     write_state(&root, &state)?;
     on_progress(InstallProgress {

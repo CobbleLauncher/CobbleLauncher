@@ -26,11 +26,11 @@ async function setup(page: Page) {
   await page.addInitScript(({ game, mods, updates }) => {
     const target = window as unknown as Mock & { isTauri: boolean; __TAURI_INTERNALS__: unknown; __TAURI_EVENT_PLUGIN_INTERNALS__: unknown };
     target.isTauri = true; target.__calls = []; target.__fail = ''; target.__failFile = '';
-    let listener = 0;
+    const listeners = new Map<string, number>();
     let localMods = [...mods];
     let applyBlocked = false;
     const callbacks = new Map<number, (event: unknown) => void>();
-    const emit = (payload: Game) => callbacks.get(listener)?.({ event: 'game-install', id: 1, payload });
+    const emit = (payload: Game) => callbacks.get(listeners.get('game-install') ?? -1)?.({ event: 'game-install', id: 1, payload });
     target.__emitRunning = () => emit({ ...game, launch_state: 'running' });
     let finishApply: () => void = () => {};
     target.__finishApply = () => finishApply();
@@ -42,7 +42,7 @@ async function setup(page: Page) {
       invoke: async (command: string, args: Record<string, unknown> = {}) => {
         target.__calls.push({ command, args });
         if (target.__fail === command) throw new Error('synthetic unavailable');
-        if (command === 'plugin:event|listen') { listener = args.handler as number; return 1; }
+        if (command === 'plugin:event|listen') { listeners.set(String(args.event), args.handler as number); return 1; }
         if (command === 'list_games') return [game];
         if (command === 'list_player_profiles') return { profiles: [{ id: 'test-player', kind: 'offline', name: 'Player', uuid: 'synthetic', note: null }], active_id: 'test-player' };
         if (command === 'plugin:window|is_maximized') return false;

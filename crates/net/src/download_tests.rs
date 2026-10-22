@@ -347,6 +347,12 @@ mod managed {
             running.await.unwrap(),
             Err(ManagedDownloadError::Cancelled)
         ));
+        tokio::time::timeout(Duration::from_secs(3), manager.wait_idle())
+            .await
+            .unwrap();
+        // `wait_idle` includes the real curl/checkpoint owner, not only the
+        // cancelled subscriber. Its staging write lease is available now.
+        drop(temp.stage().open_job(request().identity).unwrap());
         let result = tokio::time::timeout(Duration::from_secs(3), async {
             loop {
                 match manager

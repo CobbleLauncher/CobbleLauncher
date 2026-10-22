@@ -8,7 +8,6 @@ use cap_std::fs::{Dir, OpenOptions};
 use cobble_content::{ModrinthFile, ModrinthPlan, ResolvedMod};
 use cobble_net::{
     ArtifactDownloader, Broker, BrokerConfig, DownloadAuthority, DownloadManager, DownloadRequest,
-    TransferCancellation,
 };
 use cobble_store::{
     ArtifactExpectation, ContentStore, DownloadStaging, ExpectedDigests, IntegrityBasis,
@@ -26,6 +25,7 @@ use std::{
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 pub(super) const MARKER: &str = ".cobble-modrinth.json";
+const INSTALL_PENDING: &str = ".cobble-mod-install.json";
 const MAX_FILE: u64 = 512 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
@@ -73,11 +73,12 @@ impl ModDownloads {
         })
     }
 
-    pub async fn fetch(&self, selected: &ResolvedMod) -> Result<VerifiedArtifact, Error> {
-        self.fetch_file(&selected.file).await
-    }
-
-    pub async fn fetch_file(&self, file: &ModrinthFile) -> Result<VerifiedArtifact, Error> {
+    pub async fn fetch_file_controlled(
+        &self,
+        file: &ModrinthFile,
+        control: &crate::OperationControl,
+    ) -> Result<VerifiedArtifact, Error> {
+        control.check_cancelled()?;
         let expected = file_expectation(file)?;
         let artifact = match crate::cache::lookup(&self.content, &self.index, expected)? {
             Some(artifact) => artifact,
@@ -93,16 +94,57 @@ impl ModDownloads {
                     )?,
                     None,
                 )?;
-                self.downloader
-                    .download(request, TransferCancellation::default())
-                    .await?
-                    .artifact
-                    .clone()
+                let result = self
+                    .downloader
+                    .download(request, control.cancellation())
+                    .await;
+                self.downloader.wait_idle().await;
+                control.check_cancelled()?;
+                result?.artifact.clone()
             }
         };
         let _ = crate::cache::record(&self.index, &artifact);
         Ok(artifact)
     }
+}
+
+/// Explicit task retry only: recognize an already published exact artifact.
+pub(super) fn matches_downloaded_file(path: &Path, selected: &ModrinthFile) -> Result<bool, Error> {
+    file_expectation(selected)?;
+    let root = Dir::open_ambient_dir(
+        path.parent().ok_or("Artifact has no parent")?,
+        cap_std::ambient_authority(),
+    )?;
+    let mut options = OpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
+    let mut input = match root.open_with(
+        path.file_name().ok_or("Artifact has no filename")?,
+        &options,
+    ) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    if !input.metadata()?.is_file() || input.metadata()?.len() != selected.size {
+        return Ok(false);
+    }
+    let mut sha1 = Sha1::new();
+    let mut sha512 = Sha512::new();
+    let mut buffer = [0; 65536];
+    loop {
+        let count = input.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        sha1.update(&buffer[..count]);
+        sha512.update(&buffer[..count]);
+    }
+    Ok(
+        format!("{:x}", sha1.finalize()).eq_ignore_ascii_case(&selected.sha1)
+            && selected.sha512.as_ref().is_none_or(|expected| {
+                format!("{:x}", sha512.finalize()).eq_ignore_ascii_case(expected)
+            }),
+    )
 }
 
 /// Downloads the complete plan before publishing any JAR. No game is launched.
@@ -113,8 +155,21 @@ pub async fn install_modrinth_plan(
     directory: &Path,
     on_progress: Arc<dyn Fn(InstallProgress) + Send + Sync>,
 ) -> Result<ModrinthInstallOutcome, Error> {
+    install_modrinth_plan_controlled(plan, directory, crate::OperationControl::new(on_progress))
+        .await
+}
+
+pub async fn install_modrinth_plan_controlled(
+    plan: &ModrinthPlan,
+    directory: &Path,
+    control: crate::OperationControl,
+) -> Result<ModrinthInstallOutcome, Error> {
+    control.check_cancelled()?;
+    let on_progress = control.progress();
+
     validate_plan(plan)?;
     let root = Dir::open_ambient_dir(directory, cap_std::ambient_authority())?;
+    check_pending_plan(&root, plan)?;
     let mut provenance = read_provenance(&root)?;
     let mods = match root.open_dir_nofollow("mods") {
         Ok(mods) => Some(mods),
@@ -130,6 +185,7 @@ pub async fn install_modrinth_plan(
     let total = plan.mods.len();
     on_progress(progress("mod-download", 0, total, reused));
     for (i, selected) in plan.mods.iter().enumerate() {
+        control.check_cancelled()?;
         let existing = mods
             .as_ref()
             .map(|mods| existing_matches(mods, selected))
@@ -139,15 +195,110 @@ pub async fn install_modrinth_plan(
             reused += 1;
             artifacts.push(None);
         } else {
-            let artifact = downloads.fetch(selected).await?;
+            let artifact = downloads
+                .fetch_file_controlled(&selected.file, &control)
+                .await?;
             artifacts.push(Some(artifact));
         }
         on_progress(progress("mod-download", i + 1, total, reused));
     }
+    control.check_cancelled()?;
+    let plan = plan.clone();
+    tokio::task::spawn_blocking(move || {
+        commit_mod_plan(&root, &plan, &control, |index, selected, mods| {
+            let artifact = artifacts[index]
+                .as_ref()
+                .ok_or("an existing mod disappeared during installation; retry")?;
+            downloads.content.copy_to(
+                artifact,
+                mods,
+                &SafeRelativePath::parse(&selected.file.filename)?,
+            )?;
+            Ok(())
+        })
+    })
+    .await?
+}
+
+fn plan_identity(plan: &ModrinthPlan) -> Provenance {
+    plan.mods
+        .iter()
+        .map(|selected| {
+            (
+                selected.project_id.clone(),
+                ManagedMod {
+                    version_id: selected.version_id.clone(),
+                    filename: selected.file.filename.clone(),
+                    sha1: selected.file.sha1.clone(),
+                },
+            )
+        })
+        .collect()
+}
+
+fn check_pending_plan(root: &Dir, plan: &ModrinthPlan) -> Result<bool, Error> {
+    let mut options = OpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
+    let input = match root.open_with(INSTALL_PENDING, &options) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    let pending: Provenance = serde_json::from_reader(input.take(4 * 1024 * 1024))?;
+    if pending != plan_identity(plan) {
+        return Err("另一个 Mod 安装尚未完成，请先重试原安装任务".into());
+    }
+    Ok(true)
+}
+
+fn record_pending_plan(root: &Dir, plan: &ModrinthPlan) -> Result<(), Error> {
+    if check_pending_plan(root, plan)? {
+        return Ok(());
+    }
+    let temporary = ".cobble-mod-install.json.tmp";
+    let mut options = OpenOptions::new();
+    options
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .follow(FollowSymlinks::No);
+    let mut file = root.open_with(temporary, &options)?;
+    serde_json::to_writer(&mut file, &plan_identity(plan))?;
+    file.sync_all()?;
+    drop(file);
+    root.rename(temporary, root, INSTALL_PENDING)?;
+    Ok(())
+}
+
+pub(crate) fn ensure_mod_install_complete(directory: &Path) -> Result<(), Error> {
+    match std::fs::symlink_metadata(directory.join(INSTALL_PENDING)) {
+        Ok(_) => Err("Mod 安装尚未完成，请先重试原安装任务".into()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn commit_mod_plan(
+    root: &Dir,
+    plan: &ModrinthPlan,
+    control: &crate::OperationControl,
+    mut publish: impl FnMut(usize, &ResolvedMod, &Dir) -> Result<(), Error>,
+) -> Result<ModrinthInstallOutcome, Error> {
+    let on_progress = control.progress();
+    let total = plan.mods.len();
+    on_progress(progress("mod-install", 0, total, 0));
+    control.check_cancelled()?;
+    check_pending_plan(root, plan)?;
     root.create_dir_all("mods")?;
     let mods = root.open_dir_nofollow("mods")?;
+    let mut provenance = read_provenance(root)?;
     // Recheck after downloads, before recording or publishing any change.
     preflight(plan, &mods, &mut provenance)?;
+    control.check_cancelled()?;
+    // From this point publication completes or leaves a fixed retry marker.
+    // Cancellation during commit is observed by the owner after successful work,
+    // not by abandoning a root whose required dependencies are still missing.
+    record_pending_plan(root, plan)?;
     for selected in &plan.mods {
         provenance.insert(
             selected.project_id.clone(),
@@ -158,25 +309,19 @@ pub async fn install_modrinth_plan(
             },
         );
     }
-    write_provenance(&root, &provenance)?;
+    write_provenance(root, &provenance)?;
     let mut installed = 0;
     let mut existing = 0;
-    on_progress(progress("mod-install", 0, total, existing));
-    for (i, (selected, artifact)) in plan.mods.iter().zip(artifacts).enumerate() {
+    for (i, selected) in plan.mods.iter().enumerate() {
         if existing_matches(&mods, selected)? {
             existing += 1;
         } else {
-            let artifact =
-                artifact.ok_or("an existing mod disappeared during installation; retry")?;
-            downloads.content.copy_to(
-                &artifact,
-                &mods,
-                &SafeRelativePath::parse(&selected.file.filename)?,
-            )?;
+            publish(i, selected, &mods)?;
             installed += 1;
         }
         on_progress(progress("mod-install", i + 1, total, existing));
     }
+    root.remove_file(INSTALL_PENDING)?;
     on_progress(progress("complete", total, total, existing));
     Ok(ModrinthInstallOutcome {
         installed,
@@ -427,6 +572,112 @@ mod tests {
                 },
             }],
         }
+    }
+
+    fn dependency_plan() -> ModrinthPlan {
+        let mut plan = plan();
+        let mut dependency = plan.mods[0].clone();
+        dependency.project_id = "dependency".into();
+        dependency.version_id = "dependency-one".into();
+        dependency.name = "Required dependency".into();
+        dependency.required_by = Some("synthetic".into());
+        dependency.file.filename = "dependency.jar".into();
+        plan.mods.push(dependency);
+        plan
+    }
+
+    fn cancel_on_install_progress(completed: usize) -> crate::OperationControl {
+        let token = Arc::new(Mutex::new(None::<cobble_net::TransferCancellation>));
+        let observed = token.clone();
+        let control = crate::OperationControl::new(Arc::new(move |event| {
+            if event.phase == "mod-install" && event.completed == completed {
+                observed.lock().unwrap().as_ref().unwrap().cancel();
+            }
+        }));
+        *token.lock().unwrap() = Some(control.cancellation());
+        control
+    }
+
+    #[test]
+    fn cancel_before_additive_commit_leaves_no_marker_or_partial_provenance() {
+        let fixture = Fixture::new();
+        let root = Dir::open_ambient_dir(&fixture.0, cap_std::ambient_authority()).unwrap();
+        let control = cancel_on_install_progress(0);
+        let result = commit_mod_plan(&root, &dependency_plan(), &control, |_, _, _| {
+            panic!("publication must not start")
+        });
+        assert!(result.unwrap_err().is::<crate::OperationCancelled>());
+        assert!(root.symlink_metadata(INSTALL_PENDING).is_err());
+        assert!(read_provenance(&root).unwrap().is_empty());
+        assert!(fixture.mods().entries().unwrap().next().is_none());
+        ensure_mod_install_complete(&fixture.0).unwrap();
+    }
+
+    #[test]
+    fn cancellation_after_first_additive_jar_finishes_required_dependencies() {
+        let fixture = Fixture::new();
+        let root = Dir::open_ambient_dir(&fixture.0, cap_std::ambient_authority()).unwrap();
+        let control = cancel_on_install_progress(1);
+        let result = commit_mod_plan(&root, &dependency_plan(), &control, |_, selected, mods| {
+            mods.write(&selected.file.filename, b"fixture")?;
+            Ok(())
+        })
+        .unwrap();
+        assert!(control.is_cancelled());
+        assert_eq!((result.installed, result.reused), (2, 0));
+        assert_eq!(fixture.mods().read("sample.jar").unwrap(), b"fixture");
+        assert_eq!(fixture.mods().read("dependency.jar").unwrap(), b"fixture");
+        assert_eq!(read_provenance(&root).unwrap().len(), 2);
+        ensure_mod_install_complete(&fixture.0).unwrap();
+    }
+
+    #[test]
+    fn interrupted_additive_plan_blocks_launch_and_only_same_plan_can_resume() {
+        let fixture = Fixture::new();
+        let root = Dir::open_ambient_dir(&fixture.0, cap_std::ambient_authority()).unwrap();
+        let plan = dependency_plan();
+        let control = crate::OperationControl::new(Arc::new(|_| {}));
+        let result = commit_mod_plan(&root, &plan, &control, |index, selected, mods| {
+            if index == 1 {
+                return Err("synthetic interrupted disk copy".into());
+            }
+            mods.write(&selected.file.filename, b"fixture")?;
+            Ok(())
+        });
+        assert!(result.is_err());
+        assert!(check_pending_plan(&root, &plan).unwrap());
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let error = runtime
+            .block_on(crate::prepare_launch("1.21.1", &fixture.0))
+            .unwrap_err();
+        assert!(error.to_string().contains("Mod 安装尚未完成"));
+        let mut different = plan.clone();
+        different.mods[0].version_id = "another-version".into();
+        assert!(check_pending_plan(&root, &different).is_err());
+        let result = commit_mod_plan(&root, &plan, &control, |_, selected, mods| {
+            mods.write(&selected.file.filename, b"fixture")?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!((result.installed, result.reused), (1, 1));
+        ensure_mod_install_complete(&fixture.0).unwrap();
+        assert_eq!(fixture.mods().read("dependency.jar").unwrap(), b"fixture");
+    }
+
+    #[test]
+    fn task_retry_accepts_only_exact_published_artifact_bytes() {
+        let fixture = Fixture::new();
+        let mut file = plan().mods.remove(0).file;
+        file.sha512 = Some(format!("{:x}", Sha512::digest(b"fixture")));
+        let path = fixture.0.join("mods").join(&file.filename);
+        assert!(!matches_downloaded_file(&path, &file).unwrap());
+        std::fs::write(&path, b"fixture").unwrap();
+        assert!(matches_downloaded_file(&path, &file).unwrap());
+        std::fs::write(&path, b"changed").unwrap();
+        assert!(!matches_downloaded_file(&path, &file).unwrap());
+        assert_eq!(std::fs::read(&path).unwrap(), b"changed");
     }
     #[test]
     fn exact_local_import_and_disabled_file_are_reused() {

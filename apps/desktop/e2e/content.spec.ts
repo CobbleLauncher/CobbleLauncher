@@ -16,16 +16,16 @@ async function mock(page: Page, stored: Game[] = [], initialMods: LocalMod[] = [
     target.__cancelImport = false;
     target.__actionFails = false;
     const callbacks = new Map<number, (event: unknown) => void>();
-    let listener = 0;
+    const listeners = new Map<string, number>();
     let mods: LocalMod[] = initialMods;
-    target.__emitGame = (value) => callbacks.get(listener)?.({ event: 'game-install', id: 1, payload: value });
+    target.__emitGame = (value) => callbacks.get(listeners.get('game-install') ?? -1)?.({ event: 'game-install', id: 1, payload: value });
     target.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
     target.__TAURI_INTERNALS__ = {
       metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main' } },
       transformCallback: (callback: (event: unknown) => void) => { const id = callbacks.size + 1; callbacks.set(id, callback); return id; },
       invoke: async (command: string, args: Record<string, unknown> = {}) => {
         target.__calls.push({ command, args });
-        if (command === 'plugin:event|listen') { listener = args.handler as number; return 1; }
+        if (command === 'plugin:event|listen') { listeners.set(String(args.event), args.handler as number); return 1; }
         if (command === 'list_games') return stored;
         if (command === 'list_player_profiles') return { profiles: [{ id: 'test-player', kind: 'offline', name: 'Cobble', uuid: 'synthetic', note: null }], active_id: 'test-player' };
         if (command === 'get_download_settings') return { source: 'bmclapi', mirror: '' };

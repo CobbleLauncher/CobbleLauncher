@@ -186,6 +186,28 @@ pub async fn install_forge(
     source: DownloadSource,
     on_progress: Arc<dyn Fn(InstallProgress) + Send + Sync>,
 ) -> Result<InstallOutcome, Error> {
+    install_forge_controlled(
+        mc,
+        version,
+        kind,
+        target,
+        source,
+        crate::OperationControl::new(on_progress),
+    )
+    .await
+}
+
+pub async fn install_forge_controlled(
+    mc: &str,
+    version: &str,
+    kind: ForgeKind,
+    target: &Path,
+    source: DownloadSource,
+    control: crate::OperationControl,
+) -> Result<InstallOutcome, Error> {
+    control.check_cancelled()?;
+    let on_progress = control.progress();
+
     supported(mc, kind, Some(version))?;
     if target.join(".cobble-fabric.json").exists() {
         return Err("this instance already has Fabric".into());
@@ -205,7 +227,9 @@ pub async fn install_forge(
         }
     }
     let java = cobble_minecraft::resolve_java(21).await?;
-    let outcome = crate::install_game(mc, target, source.clone(), on_progress.clone()).await?;
+    control.check_cancelled()?;
+    let outcome =
+        crate::install_game_controlled(mc, target, source.clone(), control.clone()).await?;
     let directory = dunce::canonicalize(target)?;
     let broker = Broker::new(BrokerConfig {
         total_timeout: Duration::from_secs(300),
@@ -219,6 +243,7 @@ pub async fn install_forge(
     let mut bytes = None;
     let mut last_error = None;
     for (candidate, download_url) in source.candidates(&url)? {
+        control.check_cancelled()?;
         match fetch(&broker, &download_url, 32 * 1024 * 1024).await {
             Ok(value) => {
                 bytes = Some(value);
@@ -300,15 +325,9 @@ pub async fn install_forge(
         .kill_on_drop(true);
     #[cfg(windows)]
     command.creation_flags(0x0800_0000);
+    control.check_cancelled()?;
     let mut child = command.spawn()?;
-    let status = match tokio::time::timeout(Duration::from_secs(900), child.wait()).await {
-        Ok(result) => result?,
-        Err(_) => {
-            child.kill().await?;
-            child.wait().await?;
-            return Err(format!("installer timed out; see {}", log.display()).into());
-        }
-    };
+    let status = wait_installer(&mut child, &control, &log).await?;
     if !status.success() {
         return Err(format!("installer exited with {status}; see {}", log.display()).into());
     }
@@ -320,6 +339,7 @@ pub async fn install_forge(
     state.profile = installed;
     verify_libraries(&directory, &state.profile)?;
     verify_outputs(&directory, &install, kind)?;
+    control.check_cancelled()?;
     state.complete = true;
     write_state(&directory, &state)?;
     on_progress(InstallProgress {
@@ -329,6 +349,30 @@ pub async fn install_forge(
         reused: 0,
     });
     Ok(outcome)
+}
+
+async fn wait_installer(
+    child: &mut tokio::process::Child,
+    control: &crate::OperationControl,
+    log: &Path,
+) -> Result<std::process::ExitStatus, Error> {
+    let result = tokio::select! {
+        result = tokio::time::timeout(Duration::from_secs(900), child.wait()) => Some(result),
+        _ = control.cancelled() => None,
+    };
+    match result {
+        None => {
+            let _ = child.start_kill();
+            child.wait().await?;
+            Err(crate::OperationCancelled.into())
+        }
+        Some(Ok(result)) => Ok(result?),
+        Some(Err(_)) => {
+            let _ = child.start_kill();
+            child.wait().await?;
+            Err(format!("installer timed out; see {}", log.display()).into())
+        }
+    }
 }
 
 fn supported(mc: &str, kind: ForgeKind, version: Option<&str>) -> Result<(), Error> {
@@ -619,6 +663,40 @@ async fn fetch(broker: &Broker, url: &str, limit: u64) -> Result<Vec<u8>, Error>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn owned_installer_fixture() {
+        if std::env::var_os("COBBLE_TEST_INSTALLER_WAIT").is_some() {
+            std::thread::sleep(Duration::from_secs(10));
+        }
+    }
+
+    #[test]
+    fn cancelling_owned_installer_waits_until_its_process_has_exited() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["--exact", "forge::tests::owned_installer_fixture"])
+                .env("COBBLE_TEST_INSTALLER_WAIT", "1")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .kill_on_drop(true);
+            #[cfg(windows)]
+            command.creation_flags(0x0800_0000);
+            let mut child = command.spawn().unwrap();
+            assert!(child.id().is_some());
+            let control = crate::OperationControl::new(Arc::new(|_| {}));
+            control.cancel();
+            let result = wait_installer(&mut child, &control, Path::new("fixture.log")).await;
+            assert!(result.unwrap_err().is::<crate::OperationCancelled>());
+            assert!(child.try_wait().unwrap().is_some());
+        });
+    }
 
     #[test]
     fn loader_metadata_validation_rejects_invalid_success_bodies() {

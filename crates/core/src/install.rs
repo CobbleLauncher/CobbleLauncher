@@ -6,7 +6,6 @@ use cobble_minecraft::{
 };
 use cobble_net::{
     ArtifactDownloader, Broker, BrokerConfig, DownloadAuthority, DownloadManager, DownloadRequest,
-    TransferCancellation,
 };
 use cobble_store::{
     ArtifactExpectation, ContentStore, DownloadStaging, ExpectedDigests, IntegrityBasis,
@@ -25,7 +24,7 @@ type Error = Box<dyn std::error::Error + Send + Sync>;
 const MARKER: &str = ".cobble-install.json";
 
 /// Resource counts for the current installation phase.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstallProgress {
     pub phase: String,
     pub completed: usize,
@@ -47,7 +46,23 @@ pub async fn install_game(
     source: DownloadSource,
     on_progress: Arc<dyn Fn(InstallProgress) + Send + Sync>,
 ) -> Result<InstallOutcome, Error> {
-    install_resources(version, target, false, source, on_progress).await
+    install_game_controlled(
+        version,
+        target,
+        source,
+        crate::OperationControl::new(on_progress),
+    )
+    .await
+}
+
+pub async fn install_game_controlled(
+    version: &str,
+    target: &Path,
+    source: DownloadSource,
+    control: crate::OperationControl,
+) -> Result<InstallOutcome, Error> {
+    control.check_cancelled()?;
+    install_resources_controlled(version, target, false, source, control).await
 }
 
 #[derive(Serialize, Deserialize)]
@@ -65,6 +80,26 @@ pub async fn install_resources(
     source: DownloadSource,
     on_progress: Arc<dyn Fn(InstallProgress) + Send + Sync>,
 ) -> Result<InstallOutcome, Error> {
+    install_resources_controlled(
+        version,
+        target,
+        client_only,
+        source,
+        crate::OperationControl::new(on_progress),
+    )
+    .await
+}
+
+pub async fn install_resources_controlled(
+    version: &str,
+    target: &Path,
+    client_only: bool,
+    source: DownloadSource,
+    control: crate::OperationControl,
+) -> Result<InstallOutcome, Error> {
+    control.check_cancelled()?;
+    let on_progress = control.progress();
+
     on_progress(InstallProgress {
         phase: "metadata".into(),
         completed: 0,
@@ -80,6 +115,7 @@ pub async fn install_resources(
         .fetch_version_from(&broker, version, &source)
         .await?;
     let mut plan = metadata.download_plan(&PlatformContext::current()?)?;
+    control.check_cancelled()?;
     on_progress(InstallProgress {
         phase: "metadata".into(),
         completed: 1,
@@ -115,7 +151,7 @@ pub async fn install_resources(
         &root,
         &cache_index,
         &source,
-        ("files", &on_progress),
+        ("files", &control),
     )
     .await?;
     if let Some(index_path) = index_path {
@@ -133,11 +169,13 @@ pub async fn install_resources(
             &root,
             &cache_index,
             &source,
-            ("assets", &on_progress),
+            ("assets", &control),
         )
         .await?;
     }
+    control.check_cancelled()?;
     save_metadata(&root, &metadata, &content)?;
+    control.check_cancelled()?;
     write_state(
         &root,
         &InstallState {
@@ -247,9 +285,10 @@ async fn download_files(
     root: &Arc<Dir>,
     index: &Arc<Dir>,
     source: &DownloadSource,
-    progress: (&str, &Arc<dyn Fn(InstallProgress) + Send + Sync>),
+    progress: (&str, &crate::OperationControl),
 ) -> Result<(), Error> {
-    let (phase, on_progress) = progress;
+    let (phase, control) = progress;
+    let on_progress = control.progress();
     let total = files.len();
     on_progress(InstallProgress {
         phase: phase.into(),
@@ -261,24 +300,53 @@ async fn download_files(
     let mut pending = tokio::task::JoinSet::new();
     let mut completed = 0;
     let mut reused = 0;
+    let mut failure: Option<Error> = None;
     loop {
-        while pending.len() < 4 {
+        while pending.len() < 4 && !control.is_cancelled() && failure.is_none() {
             let Some(file) = files.next() else { break };
             let (downloader, content, root) = (downloader.clone(), content.clone(), root.clone());
             let index = index.clone();
             let source = source.clone();
+            let control = control.clone();
             pending.spawn(async move {
                 let path = file.path.as_str().to_owned();
-                download_file(file, downloader, content, root, index, source)
+                download_file(file, downloader, content, root, index, source, control)
                     .await
-                    .map_err(|error| -> Error { format!("{path}: {error}").into() })
+                    .map_err(|error| -> Error {
+                        if error.is::<crate::OperationCancelled>() {
+                            error
+                        } else {
+                            format!("{path}: {error}").into()
+                        }
+                    })
             });
         }
         let Some(result) = pending.join_next().await else {
             break;
         };
-        reused += usize::from(result??);
-        completed += 1;
+        match result {
+            Ok(Ok(hit)) => {
+                reused += usize::from(hit);
+                completed += 1;
+            }
+            Ok(Err(error)) => {
+                if failure.is_none()
+                    || (!error.is::<crate::OperationCancelled>()
+                        && failure
+                            .as_ref()
+                            .is_some_and(|previous| previous.is::<crate::OperationCancelled>()))
+                {
+                    failure = Some(error);
+                }
+                control.cancel();
+            }
+            Err(error) => {
+                if failure.is_none() {
+                    failure = Some(error.into());
+                }
+                control.cancel();
+            }
+        }
         on_progress(InstallProgress {
             phase: phase.into(),
             completed,
@@ -286,7 +354,11 @@ async fn download_files(
             reused,
         });
     }
-    Ok(())
+    downloader.wait_idle().await;
+    if let Some(error) = failure {
+        return Err(error);
+    }
+    control.check_cancelled()
 }
 
 async fn download_file(
@@ -296,7 +368,9 @@ async fn download_file(
     root: Arc<Dir>,
     index: Arc<Dir>,
     source: DownloadSource,
+    control: crate::OperationControl,
 ) -> Result<bool, Error> {
+    control.check_cancelled()?;
     let path = file.path.clone();
     let check_root = root.clone();
     let (size, sha1) = (file.size, file.sha1);
@@ -321,6 +395,7 @@ async fn download_file(
     })
     .await??;
     let reused = cached.is_some();
+    control.check_cancelled()?;
     let artifact = if let Some(artifact) = cached {
         artifact
     } else {
@@ -329,6 +404,7 @@ async fn download_file(
         let candidates = source.candidates(&file.url)?;
         let has_fallback = candidates.len() > 1;
         for (candidate, url) in candidates {
+            control.check_cancelled()?;
             let mut request = DownloadRequest::new(
                 &url,
                 expected,
@@ -343,15 +419,16 @@ async fn download_file(
             if url != file.url {
                 request = request.with_mirror_redirects(&file.url)?;
             }
-            match downloader
-                .download(request, TransferCancellation::default())
-                .await
-            {
+            match downloader.download(request, control.cancellation()).await {
                 Ok(result) => {
                     downloaded = Some(result.artifact.clone());
                     break;
                 }
                 Err(error) => {
+                    if control.is_cancelled() {
+                        downloader.wait_idle().await;
+                        control.check_cancelled()?;
+                    }
                     if has_fallback {
                         candidate.report_failure();
                     }
@@ -364,6 +441,7 @@ async fn download_file(
             None => return Err(last_error.ok_or("No download source available")?.into()),
         }
     };
+    control.check_cancelled()?;
     tokio::task::spawn_blocking(move || {
         let _ = crate::cache::record(&index, &artifact);
         content.copy_to(&artifact, &root, &file.path)
@@ -507,7 +585,7 @@ mod tests {
                     &root,
                     &index,
                     &DownloadSource::Official,
-                    ("files", &callback),
+                    ("files", &crate::OperationControl::new(callback)),
                 )
                 .await
                 .unwrap();

@@ -4,7 +4,7 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { ContentPackVersion, LocalPack, LocalPackKind, ModSearchHit, ModSearchPage } from './games';
 
-const props = defineProps<{ gameId: string; kind: LocalPackKind; locked: boolean }>();
+const props = defineProps<{ gameId: string; kind: LocalPackKind; locked: boolean; revision?: number }>();
 const emit = defineEmits<{ busy: [value: boolean]; installed: [packs: LocalPack[]] }>();
 const label = computed(() => props.kind === 'resource_pack' ? '资源包' : '光影包');
 const query = ref('');
@@ -80,6 +80,7 @@ watch(() => [props.gameId, props.kind], () => {
   searching.value = false; loadingVersions.value = false; hasMore.value = false;
   searchError.value = ''; versionError.value = ''; installError.value = '';
 });
+watch(() => props.revision, () => { installError.value = ''; });
 onUnmounted(() => { disposed = true; ++searchRequest; ++versionRequest; });
 </script>
 <template>

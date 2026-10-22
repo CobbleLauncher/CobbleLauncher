@@ -16,8 +16,56 @@ import GameActionsPage from './GameActionsPage.vue';
 import ProfileSwitcher from './ProfileSwitcher.vue';
 import ProfilesPage from './ProfilesPage.vue';
 import AddProfilePage from './AddProfilePage.vue';
+import TasksPage from './TasksPage.vue';
+import { isActiveTask, type TaskSnapshot } from './tasks';
 import { effectiveProfile, type Game, type GameAction, type PackPreview, type ProfileLibrary } from './games';
 const games = ref<Game[]>([]);
+const tasks = ref<TaskSnapshot[]>([]);
+const tasksOpen = ref(false);
+const tasksLoading = ref(false);
+const tasksError = ref('');
+const activeTaskCount = computed(() => tasks.value.filter(isActiveTask).length);
+const gameDetailsPage = ref<InstanceType<typeof GameDetailsPage> | null>(null);
+const retriedTasks = new Set<string>();
+const staleContentGames = new Set<string>();
+let unlistenTasks: UnlistenFn | undefined;
+function updateTask(task: TaskSnapshot) {
+  const index = tasks.value.findIndex((item) => item.id === task.id);
+  const previous = tasks.value[index];
+  if (previous && previous.updated_at > task.updated_at) return;
+  if (previous && ['failed', 'cancelled', 'interrupted'].includes(previous.state) && task.state === 'running') retriedTasks.add(task.id);
+  if (retriedTasks.has(task.id) && task.state === 'succeeded') {
+    retriedTasks.delete(task.id);
+    if (task.game_id && view.value === 'details' && selectedGameId.value === task.game_id && gameDetailsPage.value) {
+      staleContentGames.add(task.game_id); void refreshReturnedContent();
+    }
+  }
+  if (index < 0) tasks.value.unshift(task);
+  else if (tasks.value[index]!.updated_at <= task.updated_at) tasks.value[index] = task;
+}
+async function refreshReturnedContent() {
+  if (tasksOpen.value || view.value !== 'details' || !staleContentGames.has(selectedGameId.value)) return;
+  const id = selectedGameId.value;
+  await nextTick();
+  if (tasksOpen.value || view.value !== 'details' || selectedGameId.value !== id || !staleContentGames.has(id) || !gameDetailsPage.value) return;
+  staleContentGames.delete(id);
+  await gameDetailsPage.value.refreshContent();
+}
+async function loadTasks() {
+  if (!native || tasksLoading.value) return;
+  tasksLoading.value = true; tasksError.value = '';
+  try {
+    if (!unlistenTasks) {
+      const stop = await listen<TaskSnapshot>('task-updated', (event) => updateTask(event.payload));
+      if (disposed) { stop(); return; }
+      unlistenTasks = stop;
+    }
+    const value = await invoke<TaskSnapshot[]>('list_tasks');
+    if (!disposed && Array.isArray(value)) for (const task of value) updateTask(task);
+  } catch { if (!disposed) tasksError.value = '无法读取任务，请重试。'; }
+  finally { tasksLoading.value = false; }
+}
+function continueTaskPack(preview: PackPreview) { discoverPacksVisited.value = true; openOnlineImport(preview); tasksOpen.value = false; }
 const profileLibrary = ref<ProfileLibrary>({ profiles: [], active_id: null });
 const profileReady = ref(false);
 const profileBusy = ref(false);
@@ -175,9 +223,10 @@ function goBack() {
   else if (view.value === 'profiles' || view.value === 'add-profile') leaveProfiles();
   else view.value = 'library';
 }
-watch(view, async () => {
+watch([view, tasksOpen], async () => {
   await nextTick();
-  document.querySelector<HTMLElement>('main h1')?.focus();
+  void refreshReturnedContent();
+  document.querySelector<HTMLElement>(tasksOpen.value ? '.tasks-workspace h1' : '.app-workspace h1')?.focus();
   window.scrollTo(0, 0);
 });
 const theme = readTheme();
@@ -192,8 +241,8 @@ async function windowAction(action: 'minimize' | 'toggleMaximize' | 'close') {
   try { error.value = ''; await getCurrentWindow()[action](); await syncWindow(); }
   catch { error.value = '窗口操作失败，请重试'; }
 }
-onMounted(() => { applyTheme(theme); void syncWindow(); void loadGames(); void loadProfile(); window.addEventListener('resize', syncWindow); });
-onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('resize', syncWindow); });
+onMounted(() => { applyTheme(theme); void syncWindow(); void loadGames(); void loadProfile(); void loadTasks(); window.addEventListener('resize', syncWindow); });
+onUnmounted(() => { disposed = true; unlisten?.(); unlistenTasks?.(); window.removeEventListener('resize', syncWindow); });
 </script>
 <template>
   <div class="launcher">
@@ -207,6 +256,21 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
           aria-hidden="true"
         ><i /><i /><i /><i /></span><span class="brand">cobble<span class="brand-dot">.</span></span>
       </div>
+      <button
+        class="tasks-button"
+        aria-label="打开任务"
+        :aria-expanded="tasksOpen"
+        @click="tasksOpen = !tasksOpen"
+      >
+        <svg
+          viewBox="0 0 20 20"
+          fill="none"
+          aria-hidden="true"
+        ><path d="M10 3v9m-3-3 3 3 3-3M4 13v4h12v-4" /></svg><span>任务</span><span
+          v-if="activeTaskCount"
+          class="task-count"
+        >{{ activeTaskCount }}</span>
+      </button>
       <div
         v-if="native"
         class="window-controls"
@@ -241,7 +305,10 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
         </button>
       </div>
     </header>
-    <main>
+    <main
+      v-show="!tasksOpen"
+      class="app-workspace"
+    >
       <template v-if="view === 'library'">
         <div class="library-header">
           <div>
@@ -443,6 +510,7 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
         />
         <ImportPackPage
           v-else-if="view === 'import'"
+          :key="initialPackPreview?.preview_id ?? 'local'"
           :initial-preview="initialPackPreview"
           @created="addCreatedGame"
         />
@@ -453,6 +521,7 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
         />
         <GameDetailsPage
           v-else-if="view === 'details' && selectedGame"
+          ref="gameDetailsPage"
           :game="selectedGame"
           :starting="starting.includes(selectedGame.id)"
           :profile="effectiveProfile(selectedGame, profileLibrary)"
@@ -530,6 +599,30 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
       >
         {{ error }}
       </p>
+    </main>
+    <main
+      v-show="tasksOpen"
+      class="tasks-workspace"
+    >
+      <div class="page-header">
+        <button
+          class="back-button"
+          aria-label="返回工作区"
+          @click="tasksOpen = false"
+        >
+          <svg viewBox="0 0 20 20"><path d="m11 4-6 6 6 6M5 10h11" /></svg>返回工作区
+        </button><h1 tabindex="-1">
+          任务
+        </h1>
+      </div>
+      <TasksPage
+        :tasks="tasks"
+        :loading="tasksLoading"
+        :error="tasksError"
+        @updated="updateTask"
+        @reload="loadTasks"
+        @selected-pack="continueTaskPack"
+      />
     </main>
   </div>
 </template>

@@ -222,20 +222,20 @@ pub fn create_launcher_import(
 pub(super) async fn install(
     game: &Game,
     source: cobble_minecraft::DownloadSource,
-    progress: Arc<dyn Fn(InstallProgress) + Send + Sync>,
+    control: cobble_core::OperationControl,
 ) -> Result<(), String> {
     let id = game.launcher_import_id.as_deref().ok_or("缺少导入记录")?;
     let path = plan_path(id)?;
     let plan: ImportPlan =
         serde_json::from_slice(&fs::read(path).map_err(|error| error.to_string())?)
             .map_err(|error| error.to_string())?;
-    cobble_core::import_launcher_game(
+    cobble_core::import_launcher_game_controlled(
         &plan.candidate,
         &plan.content_id,
         &game.directory,
         source,
         plan.include_saves,
-        progress,
+        control,
     )
     .await
     .map(|_| ())

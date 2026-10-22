@@ -65,17 +65,24 @@ pub async fn install_game_content_pack(
     project_id: String,
     version_id: String,
 ) -> Result<Vec<LocalPack>, String> {
-    let (game, _operation) = management::begin(&app, &id, true)?;
-    update_game(&app, &id, |_| {}, false);
-    cobble_core::install_modrinth_content_pack(
-        &game.directory,
-        kind,
-        &game.version,
-        &project_id,
-        &version_id,
+    match tasks::run(
+        app,
+        tasks::TaskRequest::ContentPack {
+            game_id: id,
+            kind,
+            project_id,
+            version_id,
+        },
+        match kind {
+            LocalPackKind::ResourcePack => "安装资源包",
+            LocalPackKind::ShaderPack => "安装光影包",
+        },
     )
-    .await
-    .map_err(|e| e.to_string())
+    .await?
+    {
+        tasks::TaskResult::Packs(packs) => Ok(packs),
+        _ => Err("任务类型不匹配".into()),
+    }
 }
 
 #[tauri::command]

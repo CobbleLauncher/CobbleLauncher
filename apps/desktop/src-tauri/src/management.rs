@@ -36,13 +36,16 @@ pub(super) fn begin(
         return Err("请先完成游戏安装".into());
     }
     game.content_installing = true;
-    Ok((
-        game.clone(),
-        Operation {
-            app: app.clone(),
-            id: id.into(),
-        },
-    ))
+    let game = game.clone();
+    drop(library);
+    let operation = Operation {
+        app: app.clone(),
+        id: id.into(),
+    };
+    if game.directory.is_dir() {
+        cobble_core::recover_modrinth_update(&game.directory).map_err(|e| e.to_string())?;
+    }
+    Ok((game, operation))
 }
 
 #[tauri::command]

@@ -517,7 +517,14 @@ fn write_state(target: &Path, state: &ImportState, new: bool) -> Result<(), Erro
     result
 }
 
-fn copy_entry(source: &Path, target: &Path, world_root: bool, depth: usize) -> Result<(), Error> {
+fn copy_entry(
+    source: &Path,
+    target: &Path,
+    world_root: bool,
+    depth: usize,
+    control: &crate::OperationControl,
+) -> Result<(), Error> {
+    control.check_cancelled()?;
     if depth > 128 {
         return Err("导入内容目录超过 128 层".into());
     }
@@ -540,6 +547,7 @@ fn copy_entry(source: &Path, target: &Path, world_root: bool, depth: usize) -> R
                 &target.join(name),
                 depth == 0 && source.file_name().is_some_and(|name| name == "saves"),
                 depth + 1,
+                control,
             )?;
         }
     } else if before.is_file() {
@@ -547,7 +555,18 @@ fn copy_entry(source: &Path, target: &Path, world_root: bool, depth: usize) -> R
             .write(true)
             .create_new(true)
             .open(target)?;
-        let copied = io::copy(&mut File::open(source)?, &mut output)?;
+        let mut input = File::open(source)?;
+        let mut buffer = [0; 64 * 1024];
+        let mut copied = 0;
+        loop {
+            control.check_cancelled()?;
+            let length = input.read(&mut buffer)?;
+            if length == 0 {
+                break;
+            }
+            output.write_all(&buffer[..length])?;
+            copied += length as u64;
+        }
         let after = fs::symlink_metadata(source)?;
         if linked(&after)
             || copied != before.len()
@@ -562,7 +581,22 @@ fn copy_entry(source: &Path, target: &Path, world_root: bool, depth: usize) -> R
     Ok(())
 }
 
+#[cfg(test)]
 fn copy_content(target: &Path, state: &mut ImportState, progress: &Progress) -> Result<(), Error> {
+    copy_content_controlled(
+        target,
+        state,
+        &crate::OperationControl::new(progress.clone()),
+    )
+}
+
+fn copy_content_controlled(
+    target: &Path,
+    state: &mut ImportState,
+    control: &crate::OperationControl,
+) -> Result<(), Error> {
+    control.check_cancelled()?;
+    let progress = control.progress();
     let staging = target.join(STAGING);
     if !state.staging_complete {
         let source = real_directory(&state.source)?;
@@ -582,7 +616,7 @@ fn copy_content(target: &Path, state: &mut ImportState, progress: &Progress) -> 
                 reused: 0,
             });
             for (index, name) in state.entries.iter().enumerate() {
-                copy_entry(&source.join(name), &staging.join(name), false, 0)?;
+                copy_entry(&source.join(name), &staging.join(name), false, 0, control)?;
                 progress(InstallProgress {
                     phase: "import-copy".into(),
                     completed: index + 1,
@@ -590,6 +624,7 @@ fn copy_content(target: &Path, state: &mut ImportState, progress: &Progress) -> 
                     reused: 0,
                 });
             }
+            control.check_cancelled()?;
             state.staging_complete = true;
             write_state(target, state, false)?;
             Ok(())
@@ -602,6 +637,7 @@ fn copy_content(target: &Path, state: &mut ImportState, progress: &Progress) -> 
     }
     real_directory(&staging)?;
     for name in &state.entries {
+        control.check_cancelled()?;
         leaf(name)?;
         if !allowed(name, state.include_saves) {
             return Err("导入标记含不支持的内容路径".into());
@@ -629,6 +665,7 @@ fn copy_content(target: &Path, state: &mut ImportState, progress: &Progress) -> 
             (_, Err(error)) => return Err(error.into()),
         }
     }
+    control.check_cancelled()?;
     state.content_complete = true;
     write_state(target, state, false)?;
     // Empty owned staging only; never remove published/user files.
@@ -688,6 +725,27 @@ pub async fn import_launcher_game(
     include_saves: bool,
     progress: Progress,
 ) -> Result<InstallOutcome, Error> {
+    import_launcher_game_controlled(
+        candidate,
+        content_id,
+        target,
+        source,
+        include_saves,
+        crate::OperationControl::new(progress),
+    )
+    .await
+}
+
+pub async fn import_launcher_game_controlled(
+    candidate: &LauncherImportCandidate,
+    content_id: &str,
+    target: &Path,
+    source: DownloadSource,
+    include_saves: bool,
+    control: crate::OperationControl,
+) -> Result<InstallOutcome, Error> {
+    control.check_cancelled()?;
+
     if let Some(reason) = &candidate.unsupported_reason {
         return Err(reason.clone().into());
     }
@@ -702,6 +760,7 @@ pub async fn import_launcher_game(
         .clone();
     let target_owned = target.to_owned();
     let content_id = content_id.to_owned();
+    let initialization_control = control.clone();
     let state = tokio::task::spawn_blocking(move || -> Result<ImportState, Error> {
         if target_owned.try_exists()? {
             real_directory(&target_owned)?;
@@ -743,11 +802,12 @@ pub async fn import_launcher_game(
             content_complete: false,
             complete: false,
         };
+        initialization_control.check_cancelled()?;
         initialize_target(&target, &state)?;
         Ok(state)
     })
     .await??;
-    finish_import(target, source, state, progress).await
+    finish_import(target, source, state, control).await
 }
 
 pub async fn resume_launcher_import(
@@ -755,26 +815,37 @@ pub async fn resume_launcher_import(
     source: DownloadSource,
     progress: Progress,
 ) -> Result<InstallOutcome, Error> {
+    resume_launcher_import_controlled(target, source, crate::OperationControl::new(progress)).await
+}
+
+pub async fn resume_launcher_import_controlled(
+    target: &Path,
+    source: DownloadSource,
+    control: crate::OperationControl,
+) -> Result<InstallOutcome, Error> {
+    control.check_cancelled()?;
+
     let target = real_directory(target)?;
     let state = read_state(&target)?;
     if state.complete {
         return Err("这个导入任务已经完成".into());
     }
-    finish_import(&target, source, state, progress).await
+    finish_import(&target, source, state, control).await
 }
 
 async fn finish_import(
     target: &Path,
     source: DownloadSource,
     mut state: ImportState,
-    progress: Progress,
+    control: crate::OperationControl,
 ) -> Result<InstallOutcome, Error> {
+    control.check_cancelled()?;
     if !state.content_complete {
         let directory = target.to_owned();
-        let copy_progress = progress.clone();
+        let copy_control = control.clone();
         state = tokio::task::spawn_blocking(move || -> Result<ImportState, Error> {
             real_directory(&directory)?;
-            copy_content(&directory, &mut state, &copy_progress)?;
+            copy_content_controlled(&directory, &mut state, &copy_control)?;
             Ok(state)
         })
         .await??;
@@ -784,11 +855,23 @@ async fn finish_import(
         state.loader_version.as_deref(),
     ) {
         (None, None) => {
-            crate::install_game(&state.minecraft_version, target, source, progress).await?
+            crate::install_game_controlled(
+                &state.minecraft_version,
+                target,
+                source,
+                control.clone(),
+            )
+            .await?
         }
         (Some("fabric"), Some(loader)) => {
-            crate::install_fabric(&state.minecraft_version, loader, target, source, progress)
-                .await?
+            crate::install_fabric_controlled(
+                &state.minecraft_version,
+                loader,
+                target,
+                source,
+                control.clone(),
+            )
+            .await?
         }
         (Some(kind @ ("forge" | "neoforge")), Some(loader)) => {
             let kind = if kind == "forge" {
@@ -796,18 +879,19 @@ async fn finish_import(
             } else {
                 crate::ForgeKind::NeoForge
             };
-            crate::install_forge(
+            crate::install_forge_controlled(
                 &state.minecraft_version,
                 loader,
                 kind,
                 target,
                 source,
-                progress,
+                control.clone(),
             )
             .await?
         }
         _ => return Err("不支持这个导入运行版本".into()),
     };
+    control.check_cancelled()?;
     state.complete = true;
     write_state(target, &state, false)?;
     Ok(outcome)
@@ -1137,6 +1221,44 @@ mod tests {
         assert_eq!(
             fs::read(f.0.join("target/saves/World/level.dat")).unwrap(),
             b"world"
+        );
+    }
+
+    #[test]
+    fn cancelled_copy_removes_only_owned_staging_and_retries_from_existing_marker() {
+        let fixture = Fixture::new();
+        fixture.write("source/config/settings.json", b"configuration");
+        fixture.write("source/mods/example.jar", b"mod bytes");
+        let target = fixture.0.join("target");
+        let mut plan = state(&fixture.0.join("source"), false);
+        initialize_target(&target, &plan).unwrap();
+        let token = Arc::new(std::sync::Mutex::new(
+            None::<cobble_net::TransferCancellation>,
+        ));
+        let observed = token.clone();
+        let control = crate::OperationControl::new(Arc::new(move |progress| {
+            if progress.completed == 1 {
+                observed.lock().unwrap().as_ref().unwrap().cancel();
+            }
+        }));
+        *token.lock().unwrap() = Some(control.cancellation());
+        assert!(
+            copy_content_controlled(&target, &mut plan, &control)
+                .unwrap_err()
+                .is::<crate::OperationCancelled>()
+        );
+        assert!(!target.join(STAGING).exists());
+        assert!(!target.join("config").exists());
+        let mut retry = read_state(&target).unwrap();
+        assert!(!retry.staging_complete && !retry.content_complete && !retry.complete);
+        copy_content(&target, &mut retry, &progress()).unwrap();
+        assert_eq!(
+            fs::read(target.join("mods/example.jar")).unwrap(),
+            b"mod bytes"
+        );
+        assert_eq!(
+            fs::read(fixture.0.join("source/mods/example.jar")).unwrap(),
+            b"mod bytes"
         );
     }
 

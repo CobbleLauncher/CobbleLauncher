@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { TabsRoot, TabsList, TabsTrigger, TabsContent } from 'reka-ui';
 import DiscoverPacks from './DiscoverPacks.vue';
 import type { LocalPack, LocalPackKind } from './games';
-const props = defineProps<{ gameId: string; kind: LocalPackKind; locked: boolean }>();
+const props = defineProps<{ gameId: string; kind: LocalPackKind; locked: boolean; revision?: number }>();
 const emit = defineEmits<{ busy: [value: boolean] }>();
 const label = computed(() => props.kind === 'resource_pack' ? '资源包' : '光影包');
 const packs = ref<LocalPack[]>([]);
@@ -72,6 +72,7 @@ async function openFolder() {
   finally { folderBusy.value = false; }
 }
 watch(() => props.locked, (locked) => { if (locked && !mutating.value) deleting.value = null; });
+watch(() => props.revision, () => { deleting.value = null; tab.value = 'installed'; void load(); });
 watch(() => [props.gameId, props.kind], () => { tab.value = 'installed'; discoveryVisited.value = false; packs.value = []; query.value = ''; deleting.value = null; void load(); }, { immediate: true });
 onUnmounted(() => { ++request; });
 </script>
@@ -233,6 +234,7 @@ onUnmounted(() => { ++request; });
           v-if="discoveryVisited"
           :game-id="gameId"
           :kind="kind"
+          :revision="revision"
           :locked="locked || operation !== null"
           @busy="discoveryBusy"
           @installed="installed"

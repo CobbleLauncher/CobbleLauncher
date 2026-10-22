@@ -40,14 +40,18 @@ pub async fn preview_modrinth_pack(
     version_id: String,
 ) -> Result<PackPreview, String> {
     let id = next_pack_id()?;
-    let archive = pack_archive_path(&id)?;
-    let directory = archive.parent().ok_or("无法定位整合包缓存")?.to_owned();
-    tauri::async_runtime::spawn_blocking(move || fs::create_dir_all(directory))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
-    let pack = cobble_core::download_modrinth_pack(&project_id, &version_id, &archive)
-        .await
-        .map_err(|e| e.to_string())?;
-    store_pack_preview(&app, id, pack)
+    match tasks::run(
+        app,
+        tasks::TaskRequest::ModpackDownload {
+            archive_id: id,
+            project_id,
+            version_id,
+        },
+        "下载整合包",
+    )
+    .await?
+    {
+        tasks::TaskResult::Pack(preview) => Ok(preview),
+        _ => Err("任务类型不匹配".into()),
+    }
 }

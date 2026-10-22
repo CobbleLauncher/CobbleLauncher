@@ -13,20 +13,20 @@ async function mockNative(page: Page, stored: Game[] = [], packSelection: PackPr
   await page.addInitScript(({ pack, game, stored, source }) => {
     const target = window as unknown as TestWindow & { isTauri: boolean; __TAURI_INTERNALS__: unknown; __TAURI_EVENT_PLUGIN_INTERNALS__: unknown };
     const callbacks = new Map<number, (event: unknown) => void>();
-    let handler = 0;
+    const listeners = new Map<string, number>();
     target.isTauri = true;
     target.__calls = [];
     target.__pick = 'pack';
     target.__createFails = false;
     target.__directoryCancel = false;
-    target.__gameEvent = (value) => callbacks.get(handler)?.({ event: 'game-install', id: 1, payload: value });
+    target.__gameEvent = (value) => callbacks.get(listeners.get('game-install') ?? -1)?.({ event: 'game-install', id: 1, payload: value });
     target.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
     target.__TAURI_INTERNALS__ = {
       metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main' } },
       transformCallback: (callback: (event: unknown) => void) => { const id = callbacks.size + 1; callbacks.set(id, callback); return id; },
       invoke: async (command: string, args: Record<string, unknown> = {}) => {
         target.__calls.push({ command, args });
-        if (command === 'plugin:event|listen') { handler = args.handler as number; return 1; }
+        if (command === 'plugin:event|listen') { listeners.set(String(args.event), args.handler as number); return 1; }
         if (command === 'list_games') return stored;
         if (command === 'list_player_profiles') return { profiles: [], active_id: null };
         if (command === 'get_download_settings') return { source, mirror: '' };

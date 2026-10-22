@@ -4,7 +4,7 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { Game, ManagedGameMod, ModRecognitionResult, ModUpdateCandidate, ModUpdateCheck, ModUpdatePreview, ModUpdateResult, ModVersion } from './games';
 import ModVersionPicker from './ModVersionPicker.vue';
-const props = defineProps<{ game: Game; locked: boolean }>();
+const props = defineProps<{ game: Game; locked: boolean; revision?: number }>();
 const emit = defineEmits<{ busy: [value: boolean]; recognizing: [value: boolean]; updated: [] }>();
 const updates = ref<ModUpdateCandidate[]>([]);
 const selected = ref<string[]>([]);
@@ -140,6 +140,11 @@ async function apply() {
   finally { applying.value = false; emit('busy', false); }
 }
 function back() { if (!applying.value) { preview.value = null; planError.value = ''; } }
+watch(() => props.revision, () => {
+  ++request; preview.value = null; planError.value = ''; result.value = null; updates.value = []; selected.value = [];
+  checked.value = false; checking.value = false; preparing.value = false; checkError.value = ''; recognitionResult.value = null;
+  if (versionMode.value) { selectedManaged.value = null; managedVersion.value = null; void loadManaged(); }
+});
 watch(() => props.game.id, () => { ++request; ++managedRequest; versionMode.value = false; managed.value = []; loadingManaged.value = false; managedError.value = ''; selectedManaged.value = null; managedVersion.value = null; versionChanged.value = false; updates.value = []; selected.value = []; checked.value = false; checking.value = false; preparing.value = false; preview.value = null; checkError.value = ''; planError.value = ''; result.value = null; recognitionResult.value = null; recognitionError.value = ''; });
 onUnmounted(() => { ++request; ++managedRequest; });
 </script>

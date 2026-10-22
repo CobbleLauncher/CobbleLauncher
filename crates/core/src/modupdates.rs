@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Explicit updates of locally recorded Modrinth Mods. The caller holds the
-//! stopped-instance write guard during apply. Backups permit manual recovery
-//! after abrupt termination; this is not an atomic multi-file transaction.
+//! stopped-instance write guard during apply. One pending marker and backups
+//! recover interrupted replacement; this is not an atomic multi-file transaction.
 use crate::{
     InstallProgress,
     modrinth::{
@@ -15,7 +15,7 @@ use cobble_content::{
     resolve_modrinth_many, resolve_modrinth_selected,
 };
 use cobble_store::SafeRelativePath;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -46,7 +46,7 @@ pub struct ManagedModSummary {
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModUpdateChange {
     pub project_id: String,
     pub name: String,
@@ -56,7 +56,7 @@ pub struct ModUpdateChange {
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModUpdatePlan {
     pub changes: Vec<ModUpdateChange>,
     directory: PathBuf,
@@ -66,6 +66,17 @@ pub struct ModUpdatePlan {
 }
 
 impl ModUpdatePlan {
+    pub fn version_selections(&self) -> Vec<ModVersionSelection> {
+        self.graph
+            .mods
+            .iter()
+            .filter(|item| item.required_by.is_none())
+            .map(|item| ModVersionSelection {
+                project_id: item.project_id.clone(),
+                version_id: item.version_id.clone(),
+            })
+            .collect()
+    }
     /// Original basename for adapters that retain pack-origin labels across updates.
     pub fn previous_filename(&self, project_id: &str) -> Option<&str> {
         self.originals
@@ -80,7 +91,7 @@ pub struct ModUpdateOutcome {
     pub added: usize,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct PresentMod {
     recorded: ManagedMod,
     actual_filename: String,
@@ -448,10 +459,26 @@ pub async fn apply_modrinth_updates(
     plan: &ModUpdatePlan,
     on_progress: Arc<dyn Fn(InstallProgress) + Send + Sync>,
 ) -> Result<ModUpdateOutcome, Error> {
+    apply_modrinth_updates_controlled(directory, plan, crate::OperationControl::new(on_progress))
+        .await
+}
+
+pub async fn apply_modrinth_updates_controlled(
+    directory: &Path,
+    plan: &ModUpdatePlan,
+    control: crate::OperationControl,
+) -> Result<ModUpdateOutcome, Error> {
+    control.check_cancelled()?;
+    let on_progress = control.progress();
+
     if dunce::canonicalize(directory)? != plan.directory {
         return Err("Update plan belongs to another game".into());
     }
+    recover_modrinth_update(directory)?;
     let root = open_root(directory)?;
+    if read_provenance(&root)? != plan.provenance && already_applied(&root, plan)? {
+        return Ok(requested_outcome(plan));
+    }
     preflight(&root, plan)?;
     if plan.changes.is_empty() {
         on_progress(InstallProgress {
@@ -468,8 +495,13 @@ pub async fn apply_modrinth_updates(
     let downloads = ModDownloads::open()?;
     let mut artifacts = Vec::new();
     for (index, change) in plan.changes.iter().enumerate() {
+        control.check_cancelled()?;
         let item = graph_item(plan, &change.project_id)?;
-        artifacts.push(downloads.fetch(item).await?);
+        artifacts.push(
+            downloads
+                .fetch_file_controlled(&item.file, &control)
+                .await?,
+        );
         on_progress(InstallProgress {
             phase: "mod-download".into(),
             completed: index + 1,
@@ -477,27 +509,89 @@ pub async fn apply_modrinth_updates(
             reused: 0,
         });
     }
+    control.check_cancelled()?;
     preflight(&root, plan)?;
-    let outcome = publish_updates(&root, plan, |change, staging| {
-        let index = plan
-            .changes
-            .iter()
-            .position(|entry| entry.project_id == change.project_id)
-            .ok_or("Unknown update item")?;
-        downloads.content.copy_to(
-            &artifacts[index],
-            staging,
-            &SafeRelativePath::parse(&change.filename)?,
-        )?;
-        Ok(())
-    })?;
+    let change_count = plan.changes.len();
+    on_progress(InstallProgress {
+        phase: "mod-install".into(),
+        completed: 0,
+        total: change_count,
+        reused: 0,
+    });
+    let stage_progress = on_progress.clone();
+    let plan = plan.clone();
+    let outcome = tokio::task::spawn_blocking(move || {
+        control.check_cancelled()?;
+        publish_updates_inner(
+            &root,
+            &plan,
+            |change, staging| {
+                let index = plan
+                    .changes
+                    .iter()
+                    .position(|entry| entry.project_id == change.project_id)
+                    .ok_or("Unknown update item")?;
+                downloads.content.copy_to(
+                    &artifacts[index],
+                    staging,
+                    &SafeRelativePath::parse(&change.filename)?,
+                )?;
+                stage_progress(InstallProgress {
+                    phase: "mod-install".into(),
+                    completed: index + 1,
+                    total: change_count,
+                    reused: 0,
+                });
+                Ok(())
+            },
+            |_| Ok(()),
+            Some(&control),
+        )
+    })
+    .await??;
     on_progress(InstallProgress {
         phase: "complete".into(),
-        completed: plan.changes.len(),
-        total: plan.changes.len(),
+        completed: change_count,
+        total: change_count,
         reused: 0,
     });
     Ok(outcome)
+}
+
+fn requested_outcome(plan: &ModUpdatePlan) -> ModUpdateOutcome {
+    ModUpdateOutcome {
+        updated: plan
+            .changes
+            .iter()
+            .filter(|change| change.from_version.is_some())
+            .count(),
+        added: plan
+            .changes
+            .iter()
+            .filter(|change| change.from_version.is_none())
+            .count(),
+    }
+}
+
+fn already_applied(root: &Dir, plan: &ModUpdatePlan) -> Result<bool, Error> {
+    let provenance = read_provenance(root)?;
+    for item in &plan.graph.mods {
+        let Some(current) = provenance.get(&item.project_id) else {
+            return Ok(false);
+        };
+        if current.version_id != item.version_id
+            || current.filename != item.file.filename
+            || !current.sha1.eq_ignore_ascii_case(&item.file.sha1)
+        {
+            return Ok(false);
+        }
+    }
+    let present = present_mods(root, &provenance)?;
+    Ok(plan.changes.iter().all(|change| {
+        present.get(&change.project_id).is_some_and(|item| {
+            item.enabled == change.enabled && item.recorded.filename == change.filename
+        })
+    }))
 }
 
 fn graph_item<'a>(plan: &'a ModUpdatePlan, project: &str) -> Result<&'a ResolvedMod, Error> {
@@ -508,6 +602,7 @@ fn graph_item<'a>(plan: &'a ModUpdatePlan, project: &str) -> Result<&'a Resolved
         .ok_or_else(|| "Update plan is missing an artifact".into())
 }
 
+#[cfg(test)]
 fn publish_updates(
     root: &Dir,
     plan: &ModUpdatePlan,
@@ -516,11 +611,22 @@ fn publish_updates(
     publish_updates_with_hook(root, plan, stage, |_| Ok(()))
 }
 
+#[cfg(test)]
 fn publish_updates_with_hook(
+    root: &Dir,
+    plan: &ModUpdatePlan,
+    stage: impl FnMut(&ModUpdateChange, &Dir) -> Result<(), Error>,
+    after_publish: impl FnMut(usize) -> Result<(), Error>,
+) -> Result<ModUpdateOutcome, Error> {
+    publish_updates_inner(root, plan, stage, after_publish, None)
+}
+
+fn publish_updates_inner(
     root: &Dir,
     plan: &ModUpdatePlan,
     mut stage: impl FnMut(&ModUpdateChange, &Dir) -> Result<(), Error>,
     mut after_publish: impl FnMut(usize) -> Result<(), Error>,
+    control: Option<&crate::OperationControl>,
 ) -> Result<ModUpdateOutcome, Error> {
     preflight(root, plan)?;
     root.create_dir_all(".cobble-mod-backups")?;
@@ -548,9 +654,35 @@ fn publish_updates_with_hook(
     drop(snapshot);
     // All new JAR copies are staged before the first old file is moved.
     for change in &plan.changes {
+        if let Some(control) = control {
+            control.check_cancelled()?;
+        }
         stage(change, &new_files)?;
     }
     preflight(root, plan)?;
+    if let Some(control) = control {
+        control.check_cancelled()?;
+    }
+    let pending = PendingUpdate {
+        backup_id: id.clone(),
+        changes: plan
+            .changes
+            .iter()
+            .map(|change| PendingChange {
+                old_filename: plan
+                    .originals
+                    .get(&change.project_id)
+                    .map(|old| old.actual_filename.clone()),
+                staged_filename: change.filename.clone(),
+                new_filename: if change.enabled {
+                    change.filename.clone()
+                } else {
+                    format!("{}.disabled", change.filename)
+                },
+            })
+            .collect(),
+    };
+    write_pending(root, &pending)?;
     let mods = root.open_dir_nofollow("mods")?;
     let mut moved = Vec::new();
     let mut published = Vec::new();
@@ -608,9 +740,142 @@ fn publish_updates_with_hook(
             write_provenance(root, &plan.provenance)?;
             Ok(())
         })();
-        return match rollback { Ok(()) => Err(error), Err(restore) => Err(format!("Update failed: {error}; rollback incomplete: {restore}. Recover from .cobble-mod-backups/{id}").into()) };
+        return match rollback { Ok(()) => { root.remove_file(PENDING)?; Err(error) }, Err(restore) => Err(format!("Update failed: {error}; rollback incomplete: {restore}. Recover from .cobble-mod-backups/{id}").into()) };
     }
+    root.remove_file(PENDING)?;
     result
+}
+
+const PENDING: &str = ".cobble-mod-update.json";
+
+pub(crate) fn ensure_update_complete(directory: &Path) -> Result<(), Error> {
+    match std::fs::symlink_metadata(directory.join(PENDING)) {
+        Ok(_) => Err("Mod 更新尚未恢复，请先重试任务或恢复更新".into()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct PendingChange {
+    old_filename: Option<String>,
+    staged_filename: String,
+    new_filename: String,
+}
+#[derive(Serialize, Deserialize)]
+struct PendingUpdate {
+    backup_id: String,
+    changes: Vec<PendingChange>,
+}
+
+fn write_pending(root: &Dir, state: &PendingUpdate) -> Result<(), Error> {
+    if root.symlink_metadata(PENDING).is_ok() {
+        return Err("已有未恢复的 Mod 更新，请先恢复".into());
+    }
+    let temporary = ".cobble-mod-update.json.tmp";
+    if root.symlink_metadata(temporary).is_ok() {
+        root.remove_file(temporary)?;
+    }
+    let mut options = OpenOptions::new();
+    options
+        .write(true)
+        .create_new(true)
+        .follow(FollowSymlinks::No);
+    let mut file = root.open_with(temporary, &options)?;
+    serde_json::to_writer(&mut file, state)?;
+    file.sync_all()?;
+    drop(file);
+    root.rename(temporary, root, PENDING)?;
+    Ok(())
+}
+
+fn recovery_name(directory: &Dir, name: &str) -> Result<String, Error> {
+    for suffix in 0..10_000 {
+        let name = format!("{suffix}-{name}");
+        if directory
+            .symlink_metadata(&name)
+            .is_err_and(|e| e.kind() == io::ErrorKind::NotFound)
+        {
+            return Ok(name);
+        }
+    }
+    Err("恢复目录中的同名文件过多，请先查看 Mod 备份".into())
+}
+
+/// Roll back one interrupted replacement under the caller's stopped-game lease.
+/// Published/conflicting current files are retained in the backup's recovery/
+/// folder. This is a small file recovery protocol, not multi-file atomicity.
+pub fn recover_modrinth_update(directory: &Path) -> Result<bool, Error> {
+    let root = open_root(directory)?;
+    let mut options = OpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
+    let input = match root.open_with(PENDING, &options) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    let pending: PendingUpdate = serde_json::from_reader(input.take(1024 * 1024))?;
+    let backup_id = SafeRelativePath::parse(&pending.backup_id)?;
+    if backup_id.as_str().contains('/') || pending.changes.len() > 256 {
+        return Err("Mod 更新恢复记录无效".into());
+    }
+    for change in &pending.changes {
+        basename(&change.staged_filename)?;
+        basename(
+            change
+                .new_filename
+                .strip_suffix(".disabled")
+                .unwrap_or(&change.new_filename),
+        )?;
+        if let Some(old) = &change.old_filename {
+            basename(old.strip_suffix(".disabled").unwrap_or(old))?;
+        }
+    }
+    let backup = root
+        .open_dir_nofollow(".cobble-mod-backups")?
+        .open_dir_nofollow(backup_id.as_str())?;
+    let old = backup.open_dir_nofollow("old")?;
+    let new = backup.open_dir_nofollow("new")?;
+    backup.create_dir_all("recovery")?;
+    let preserved = backup.open_dir_nofollow("recovery")?;
+    let mods = root.open_dir_nofollow("mods")?;
+    // First preserve published outputs; only afterwards restore originals.
+    for change in &pending.changes {
+        let original_waiting = change
+            .old_filename
+            .as_ref()
+            .map(|name| regular_present(&old, name))
+            .transpose()?
+            .unwrap_or(false);
+        if !regular_present(&new, &change.staged_filename)?
+            && regular_present(&mods, &change.new_filename)?
+            && (change.old_filename.as_ref() != Some(&change.new_filename) || original_waiting)
+        {
+            mods.rename(
+                &change.new_filename,
+                &preserved,
+                recovery_name(&preserved, &change.new_filename)?,
+            )?;
+        }
+    }
+    for change in &pending.changes {
+        if let Some(name) = &change.old_filename
+            && regular_present(&old, name)?
+        {
+            if regular_present(&mods, name)? {
+                mods.rename(name, &preserved, recovery_name(&preserved, name)?)?;
+            }
+            old.rename(name, &mods, name)?;
+        }
+    }
+    let provenance: Provenance = serde_json::from_reader(
+        backup
+            .open_with("provenance.json", &options)?
+            .take(4 * 1024 * 1024),
+    )?;
+    write_provenance(&root, &provenance)?;
+    root.remove_file(PENDING)?;
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -878,6 +1143,154 @@ mod tests {
         assert!(root.symlink_metadata("mods/root-new.jar").is_err());
         assert!(root.symlink_metadata("mods/dep.jar").is_err());
         assert_eq!(read_provenance(&root).unwrap(), plan.provenance);
+    }
+
+    #[test]
+    fn interrupted_replacement_recovers_before_move_after_move_after_publish_and_after_provenance()
+    {
+        for interrupted_at in 0..=3 {
+            let fixture = Fixture::new();
+            let plan = fixture_plan(&fixture, true);
+            let root = fixture.root();
+            root.create_dir_all(".cobble-mod-backups/interrupted/old")
+                .unwrap();
+            root.create_dir_all(".cobble-mod-backups/interrupted/new")
+                .unwrap();
+            let backup = root
+                .open_dir_nofollow(".cobble-mod-backups")
+                .unwrap()
+                .open_dir_nofollow("interrupted")
+                .unwrap();
+            backup
+                .write(
+                    "provenance.json",
+                    serde_json::to_vec(&plan.provenance).unwrap(),
+                )
+                .unwrap();
+            let old = backup.open_dir_nofollow("old").unwrap();
+            let new = backup.open_dir_nofollow("new").unwrap();
+            for change in &plan.changes {
+                stage(change, &new).unwrap();
+            }
+            write_pending(
+                &root,
+                &PendingUpdate {
+                    backup_id: "interrupted".into(),
+                    changes: plan
+                        .changes
+                        .iter()
+                        .map(|change| PendingChange {
+                            old_filename: plan
+                                .originals
+                                .get(&change.project_id)
+                                .map(|old| old.actual_filename.clone()),
+                            staged_filename: change.filename.clone(),
+                            new_filename: format!("{}.disabled", change.filename),
+                        })
+                        .collect(),
+                },
+            )
+            .unwrap();
+            let mods = root.open_dir_nofollow("mods").unwrap();
+            if interrupted_at >= 1 {
+                mods.rename("root-old.jar.disabled", &old, "root-old.jar.disabled")
+                    .unwrap();
+            }
+            if interrupted_at >= 2 {
+                new.rename("root-new.jar", &mods, "root-new.jar.disabled")
+                    .unwrap();
+                mods.write(
+                    "root-new.jar.disabled",
+                    b"user edit after interrupted publication",
+                )
+                .unwrap();
+            }
+            if interrupted_at >= 3 {
+                new.rename("dep.jar", &mods, "dep.jar.disabled").unwrap();
+                let mut changed = plan.provenance.clone();
+                for item in &plan.graph.mods {
+                    changed.insert(
+                        item.project_id.clone(),
+                        ManagedMod {
+                            version_id: item.version_id.clone(),
+                            filename: item.file.filename.clone(),
+                            sha1: item.file.sha1.clone(),
+                        },
+                    );
+                }
+                write_provenance(&root, &changed).unwrap();
+            }
+            assert!(recover_modrinth_update(&fixture.0).unwrap());
+            assert!(!recover_modrinth_update(&fixture.0).unwrap());
+            assert_eq!(mods.read("root-old.jar.disabled").unwrap(), b"old-one");
+            assert!(mods.symlink_metadata("root-new.jar.disabled").is_err());
+            assert!(mods.symlink_metadata("dep.jar.disabled").is_err());
+            assert_eq!(read_provenance(&root).unwrap(), plan.provenance);
+            if interrupted_at >= 2 {
+                let recovery = backup.open_dir_nofollow("recovery").unwrap();
+                let mut preserved = false;
+                for entry in recovery.entries().unwrap() {
+                    let entry = entry.unwrap();
+                    if recovery.read(entry.file_name()).unwrap()
+                        == b"user edit after interrupted publication"
+                    {
+                        preserved = true;
+                    }
+                }
+                assert!(preserved);
+            }
+        }
+    }
+
+    #[test]
+    fn cancelled_staging_leaves_originals_and_exact_committed_plan_retry_is_idempotent() {
+        let fixture = Fixture::new();
+        let plan = fixture_plan(&fixture, true);
+        let root = fixture.root();
+        let control = crate::OperationControl::new(Arc::new(|_| {}));
+        let result = publish_updates_inner(
+            &root,
+            &plan,
+            |change, staging| {
+                stage(change, staging)?;
+                control.cancel();
+                Ok(())
+            },
+            |_| Ok(()),
+            Some(&control),
+        );
+        assert!(result.unwrap_err().is::<crate::OperationCancelled>());
+        assert_eq!(root.read("mods/root-old.jar.disabled").unwrap(), b"old-one");
+        assert!(root.symlink_metadata(PENDING).is_err());
+        publish_updates(&root, &plan, stage).unwrap();
+        let count = root
+            .open_dir_nofollow(".cobble-mod-backups")
+            .unwrap()
+            .entries()
+            .unwrap()
+            .count();
+        let persisted: ModUpdatePlan =
+            serde_json::from_slice(&serde_json::to_vec(&plan).unwrap()).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let result = runtime
+            .block_on(apply_modrinth_updates_controlled(
+                &fixture.0,
+                &persisted,
+                crate::OperationControl::new(Arc::new(|_| {})),
+            ))
+            .unwrap();
+        assert_eq!((result.updated, result.added), (1, 1));
+        assert_eq!(
+            root.open_dir_nofollow(".cobble-mod-backups")
+                .unwrap()
+                .entries()
+                .unwrap()
+                .count(),
+            count
+        );
+        assert_eq!(plan.version_selections().len(), 1);
     }
 
     #[test]

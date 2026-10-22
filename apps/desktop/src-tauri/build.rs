@@ -3,6 +3,10 @@ fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "get_app_info",
+            "list_tasks",
+            "cancel_task",
+            "retry_task",
+            "get_task_pack_preview",
             "begin_microsoft_login",
             "poll_microsoft_login",
             "cancel_microsoft_login",

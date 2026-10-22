@@ -67,6 +67,33 @@ impl DownloadManager {
             jobs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
+    /// Call after producers stop scheduling. Cancelled subscriptions can return
+    /// before their blocking owners exit; job results are published only after
+    /// `download_shared_before` has drained those owners.
+    pub async fn wait_idle(&self) {
+        loop {
+            let receivers: Vec<_> = self
+                .jobs
+                .lock()
+                .expect("download jobs mutex")
+                .values()
+                .map(|job| job.result.subscribe())
+                .collect();
+            if receivers.is_empty() {
+                return;
+            }
+            for mut receive in receivers {
+                loop {
+                    if receive.borrow_and_update().is_some() {
+                        break;
+                    }
+                    if receive.changed().await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    }
     /// Shares matching jobs only within this manager. Closing jobs remain Busy
     /// until their blocking workers release staging locks. Dropping this future
     /// releases its subscription, just like explicitly cancelling it.

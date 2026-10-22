@@ -8,7 +8,6 @@ use cobble_content::{Mrpack, MrpackFile, read_mrpack_file};
 use cobble_minecraft::DownloadSource;
 use cobble_net::{
     ArtifactDownloader, Broker, BrokerConfig, DownloadAuthority, DownloadManager, DownloadRequest,
-    TransferCancellation,
 };
 use cobble_store::{
     ArtifactExpectation, ContentStore, DownloadStaging, ExpectedDigests, IntegrityBasis,
@@ -54,11 +53,31 @@ pub async fn install_mrpack(
     optional_files: &[String],
     on_progress: Arc<dyn Fn(InstallProgress) + Send + Sync>,
 ) -> Result<MrpackInstallOutcome, Error> {
+    install_mrpack_controlled(
+        archive,
+        target,
+        source,
+        optional_files,
+        crate::OperationControl::new(on_progress),
+    )
+    .await
+}
+
+pub async fn install_mrpack_controlled(
+    archive: &Path,
+    target: &Path,
+    source: DownloadSource,
+    optional_files: &[String],
+    control: crate::OperationControl,
+) -> Result<MrpackInstallOutcome, Error> {
+    control.check_cancelled()?;
+    let on_progress = control.progress();
+
     let mut input = std::fs::File::open(archive)?;
     if !input.metadata()?.is_file() || input.metadata()?.len() > 16 * 1024 * 1024 * 1024 {
         return Err("pack archive must be a regular file no larger than 16 GiB".into());
     }
-    let archive_sha256 = hash_reader(&mut input)?;
+    let archive_sha256 = hash_reader_controlled(&mut input, &control)?;
     input.seek(SeekFrom::Start(0))?;
     let pack = read_mrpack_file(input.try_clone()?)?;
     let selected: BTreeSet<String> = optional_files.iter().cloned().collect();
@@ -85,14 +104,15 @@ pub async fn install_mrpack(
         event.phase = format!("pack-base-{}", event.phase);
         base_progress(event);
     });
+    let base_control = control.with_progress(base_progress);
     match (pack.loader_kind.as_deref(), pack.loader_version.as_deref()) {
         (Some("fabric"), Some(loader)) => {
-            crate::install_fabric(
+            crate::install_fabric_controlled(
                 &pack.minecraft_version,
                 loader,
                 target,
                 source,
-                base_progress,
+                base_control,
             )
             .await?;
         }
@@ -102,18 +122,19 @@ pub async fn install_mrpack(
             } else {
                 crate::ForgeKind::NeoForge
             };
-            crate::install_forge(
+            crate::install_forge_controlled(
                 &pack.minecraft_version,
                 loader,
                 kind,
                 target,
                 source,
-                base_progress,
+                base_control,
             )
             .await?;
         }
         (None, None) => {
-            crate::install_game(&pack.minecraft_version, target, source, base_progress).await?;
+            crate::install_game_controlled(&pack.minecraft_version, target, source, base_control)
+                .await?;
         }
         _ => return Err("unsupported or incomplete pack loader selection".into()),
     }
@@ -142,10 +163,11 @@ pub async fn install_mrpack(
     let mut final_files = BTreeMap::new();
     on_progress(progress("pack-download", 0, files.len()));
     for (number, file) in files.iter().enumerate() {
+        control.check_cancelled()?;
         let expected = expectation(file)?;
         let artifact = match crate::cache::lookup(&content, &index, expected)? {
             Some(artifact) => artifact,
-            None => download(file, expected, &downloader).await?,
+            None => download(file, expected, &downloader, &control).await?,
         };
         let _ = crate::cache::record(&index, &artifact);
         final_files.insert(file.path.clone(), artifact);
@@ -156,7 +178,9 @@ pub async fn install_mrpack(
     input.seek(SeekFrom::Start(0))?;
     let mut zip = zip::ZipArchive::new(input)?;
     apply_overrides(&mut zip, &pack, &content, &mut final_files)?;
-    publish(&root, &content, &final_files, &on_progress)?;
+    control.check_cancelled()?;
+    publish_controlled(&root, &content, &final_files, &control)?;
+    control.check_cancelled()?;
     state.complete = true;
     write_state(&root, &state)?;
     on_progress(progress("complete", final_files.len(), final_files.len()));
@@ -251,9 +275,11 @@ async fn download(
     file: &MrpackFile,
     expected: ArtifactExpectation,
     downloader: &DownloadManager,
+    control: &crate::OperationControl,
 ) -> Result<VerifiedArtifact, Error> {
     let mut last = None;
     for url in &file.downloads {
+        control.check_cancelled()?;
         let request = DownloadRequest::new(
             url,
             expected,
@@ -261,10 +287,10 @@ async fn download(
             None,
         )?
         .with_modpack_redirects()?;
-        match downloader
-            .download(request, TransferCancellation::default())
-            .await
-        {
+        let result = downloader.download(request, control.cancellation()).await;
+        downloader.wait_idle().await;
+        control.check_cancelled()?;
+        match result {
             Ok(outcome) => return Ok(outcome.artifact.clone()),
             Err(error) => last = Some(error),
         }
@@ -303,9 +329,17 @@ fn digest<const N: usize>(value: &str) -> Result<[u8; N], Error> {
 }
 
 fn hash_reader(input: &mut impl Read) -> Result<String, Error> {
+    hash_reader_controlled(input, &crate::OperationControl::new(Arc::new(|_| {})))
+}
+
+fn hash_reader_controlled(
+    input: &mut impl Read,
+    control: &crate::OperationControl,
+) -> Result<String, Error> {
     let mut hash = Sha256::new();
     let mut buffer = [0; 65536];
     loop {
+        control.check_cancelled()?;
         let count = input.read(&mut buffer)?;
         if count == 0 {
             break;
@@ -315,19 +349,37 @@ fn hash_reader(input: &mut impl Read) -> Result<String, Error> {
     Ok(format!("{:x}", hash.finalize()))
 }
 
+#[cfg(test)]
 fn publish(
     root: &Dir,
     content: &ContentStore,
     files: &BTreeMap<String, VerifiedArtifact>,
     on_progress: &Arc<dyn Fn(InstallProgress) + Send + Sync>,
 ) -> Result<(), Error> {
+    publish_controlled(
+        root,
+        content,
+        files,
+        &crate::OperationControl::new(on_progress.clone()),
+    )
+}
+
+fn publish_controlled(
+    root: &Dir,
+    content: &ContentStore,
+    files: &BTreeMap<String, VerifiedArtifact>,
+    control: &crate::OperationControl,
+) -> Result<(), Error> {
+    let on_progress = control.progress();
     // Preflight every destination before publishing any payload. Existing files
     // are reused only on exact digest match; local edits always block retry.
     for (path, artifact) in files {
+        control.check_cancelled()?;
         existing(root, path, artifact)?;
     }
     on_progress(progress("pack-install", 0, files.len()));
     for (number, (path, artifact)) in files.iter().enumerate() {
+        control.check_cancelled()?;
         if !existing(root, path, artifact)? {
             content.copy_to(artifact, root, &SafeRelativePath::parse(path)?)?;
         }

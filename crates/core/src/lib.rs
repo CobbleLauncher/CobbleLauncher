@@ -7,6 +7,7 @@ use cobble_domain::AppInfo;
 
 mod cache;
 mod content_pack_install;
+mod control;
 mod fabric;
 mod foreign_import;
 mod forge;
@@ -20,27 +21,41 @@ mod mrpack;
 mod pack_download;
 mod runner;
 mod worlds;
-pub use content_pack_install::install_modrinth_content_pack;
-pub use fabric::{FabricVersion, install_fabric, list_fabric_versions, list_fabric_versions_from};
+pub use content_pack_install::{
+    install_modrinth_content_pack, install_modrinth_content_pack_controlled,
+};
+pub use control::{OperationCancelled, OperationControl};
+pub use fabric::{
+    FabricVersion, install_fabric, install_fabric_controlled, list_fabric_versions,
+    list_fabric_versions_from,
+};
 pub use foreign_import::{
-    LauncherContentRoot, LauncherImportCandidate, import_launcher_game, inspect_launcher_import,
-    resume_launcher_import,
+    LauncherContentRoot, LauncherImportCandidate, import_launcher_game,
+    import_launcher_game_controlled, inspect_launcher_import, resume_launcher_import,
+    resume_launcher_import_controlled,
 };
 pub use forge::{
-    ForgeKind, ForgeVersion, install_forge, list_forge_versions, list_forge_versions_from,
+    ForgeKind, ForgeVersion, install_forge, install_forge_controlled, list_forge_versions,
+    list_forge_versions_from,
 };
-pub use install::{InstallOutcome, InstallProgress, install_game, install_resources};
+pub use install::{
+    InstallOutcome, InstallProgress, install_game, install_game_controlled, install_resources,
+    install_resources_controlled,
+};
 pub use instances::{copy_instance, export_instance_mrpack};
 pub use launch::{LaunchPreparation, prepare_launch};
 pub use modrecognition::{ModRecognitionOutcome, recognize_modrinth_mods};
-pub use modrinth::{ModrinthInstallOutcome, install_modrinth_plan};
+pub use modrinth::{
+    ModrinthInstallOutcome, install_modrinth_plan, install_modrinth_plan_controlled,
+};
 pub use modupdates::{
     ManagedModSummary, ModUpdateCandidate, ModUpdateChange, ModUpdateOutcome, ModUpdatePlan,
-    apply_modrinth_updates, check_modrinth_updates, list_managed_modrinth_mods, managed_mod_count,
-    prepare_modrinth_updates, prepare_modrinth_version_changes,
+    apply_modrinth_updates, apply_modrinth_updates_controlled, check_modrinth_updates,
+    list_managed_modrinth_mods, managed_mod_count, prepare_modrinth_updates,
+    prepare_modrinth_version_changes, recover_modrinth_update,
 };
-pub use mrpack::{MrpackInstallOutcome, install_mrpack};
-pub use pack_download::download_modrinth_pack;
+pub use mrpack::{MrpackInstallOutcome, install_mrpack, install_mrpack_controlled};
+pub use pack_download::{download_modrinth_pack, download_modrinth_pack_controlled};
 pub use runner::{
     RunningGame, prepare_identity_arguments, prepare_offline_arguments, start_game_with_identity,
     start_offline_game, start_offline_game_with_options,

@@ -6,6 +6,10 @@
   ],
   "permissions": [
     "allow-get-app-info",
+    "allow-list-tasks",
+    "allow-cancel-task",
+    "allow-retry-task",
+    "allow-get-task-pack-preview",
     "allow-begin-microsoft-login",
     "allow-poll-microsoft-login",
     "allow-cancel-microsoft-login",

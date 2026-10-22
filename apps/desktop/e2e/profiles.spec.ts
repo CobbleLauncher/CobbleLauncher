@@ -14,12 +14,12 @@ async function native(page: Page, library: ProfileLibrary = { profiles: [], acti
     const target = window as unknown as ProfileWindow & { isTauri: boolean; __TAURI_INTERNALS__: unknown; __TAURI_EVENT_PLUGIN_INTERNALS__: unknown };
     const library: ProfileLibrary = JSON.parse(sessionStorage.getItem('test-profiles') || JSON.stringify(initial));
     let currentGame: Game = JSON.parse(sessionStorage.getItem('test-game') || JSON.stringify(game));
-    let handler = 0;
+    const listeners = new Map<string, number>();
     const callbacks = new Map<number, (event: unknown) => void>();
     target.__calls = [];
     target.__failProfileSave = false;
     target.isTauri = true;
-    target.__gameEvent = (game) => { currentGame = game; callbacks.get(handler)?.({ event: 'game-install', id: 1, payload: game }); };
+    target.__gameEvent = (game) => { currentGame = game; callbacks.get(listeners.get('game-install') ?? -1)?.({ event: 'game-install', id: 1, payload: game }); };
     target.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
     const save = () => { sessionStorage.setItem('test-profiles', JSON.stringify(library)); return structuredClone(library); };
     target.__TAURI_INTERNALS__ = {
@@ -27,7 +27,7 @@ async function native(page: Page, library: ProfileLibrary = { profiles: [], acti
       transformCallback: (callback: (event: unknown) => void) => { const id = callbacks.size + 1; callbacks.set(id, callback); return id; },
       invoke: async (command: string, args: Record<string, unknown> = {}) => {
         target.__calls.push({ command, args });
-        if (command === 'plugin:event|listen') { handler = args.handler as number; return 1; }
+        if (command === 'plugin:event|listen') { listeners.set(String(args.event), args.handler as number); return 1; }
         if (command === 'list_games') return [currentGame];
         if (command === 'list_game_mods') return [];
         if (command === 'get_launcher_preferences') return { memory_mb: 2048, game_directory: 'C:\\Cobble\\games', custom_game_directory: false };

@@ -33,9 +33,9 @@ async function setup(page: Page) {
     let resources: LocalPack[] = [];
     let shaders: LocalPack[] = [];
     let finishInstall: () => void = () => {};
-    let listener = 0;
+    const listeners = new Map<string, number>();
     const callbacks = new Map<number, (event: unknown) => void>();
-    target.__emitGame = (next) => { currentGame = next; callbacks.get(listener)?.({ event: 'game-install', id: 1, payload: next }); };
+    target.__emitGame = (next) => { currentGame = next; callbacks.get(listeners.get('game-install') ?? -1)?.({ event: 'game-install', id: 1, payload: next }); };
     target.__finishInstall = () => finishInstall();
     target.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
     target.__TAURI_INTERNALS__ = {
@@ -44,7 +44,7 @@ async function setup(page: Page) {
       invoke: async (command: string, args: Record<string, unknown> = {}) => {
         target.__calls.push({ command, args });
         if (target.__failCommand === command) throw new Error('synthetic content-pack failure');
-        if (command === 'plugin:event|listen') { listener = args.handler as number; return 1; }
+        if (command === 'plugin:event|listen') { listeners.set(String(args.event), args.handler as number); return 1; }
         if (command === 'list_games') return [currentGame];
         if (command === 'list_player_profiles') return { profiles: [{ id: 'test-player', kind: 'offline', name: 'Player', uuid: 'synthetic', note: null }], active_id: 'test-player' };
         if (command === 'plugin:window|is_maximized') return false;
