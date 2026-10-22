@@ -27,4 +27,4 @@ Keep credentials outside this repository. The custom domain is `cobble.yuzhes.co
 
 Verify the live homepage, both legal routes, and the JSON content after every deployment. The verification endpoint must return the JSON directly over HTTPS without login or redirects.
 
-The legal pages currently describe early-development software without Microsoft sign-in. Update the privacy statement before adding account sign-in, token storage, telemetry, cloud sync, or other new data processing. Contact email: `a@yuzhes.com`.
+The legal pages currently describe early-development software without Microsoft sign-in. Update the privacy statement before adding account sign-in, token storage, telemetry, cloud sync, or other new data processing. Contact email: `cobble-launcher@yuzhes.com`.
