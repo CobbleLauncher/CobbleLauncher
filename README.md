@@ -2,7 +2,7 @@
 
 **A Minecraft launcher that stays out of your way.**
 
-CobbleLauncher is an open-source launcher for Minecraft: Java Edition. It aims to make installing and starting the game simpler, with the settings you need close at hand. The project is in early development and has no stable release yet. Microsoft sign-in is not available yet; local play uses an offline profile.
+CobbleLauncher is an open-source launcher for Minecraft: Java Edition. It aims to make installing and starting the game simpler, with the settings you need close at hand. The project is in early development and has no stable release yet. Microsoft sign-in is undergoing account testing; offline profiles remain available for local play.
 
 ## What you can do today
 
@@ -13,6 +13,7 @@ CobbleLauncher is an open-source launcher for Minecraft: Java Edition. It aims t
 - Choose Java and memory defaults, with optional settings for each game.
 - Choose where new games are stored.
 - Keep multiple offline player profiles, switch between them, or pin one to a game before launching.
+- Add Microsoft accounts through browser sign-in, with credentials stored in the OS credential vault.
 - Import local Mods, view their details, and enable, disable, or remove them individually or in batches.
 - Search Modrinth for compatible Mods and install their required dependencies together.
 - Check for updates to Mods installed through Modrinth, review version changes and required dependencies, and update selected Mods together.

@@ -6,6 +6,10 @@
   ],
   "permissions": [
     "allow-get-app-info",
+    "allow-begin-microsoft-login",
+    "allow-poll-microsoft-login",
+    "allow-cancel-microsoft-login",
+    "allow-open-microsoft-login",
     "allow-get-launcher-preferences",
     "allow-set-default-memory",
     "allow-pick-default-game-directory",

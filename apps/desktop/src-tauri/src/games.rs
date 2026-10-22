@@ -696,22 +696,26 @@ pub fn start_game(
     }
     // Capture the effective identity before spawning; later selection changes
     // only affect future launches.
-    let profile = cobble_auth::resolve_player_profile(game.profile_id.as_deref())
-        .map_err(|e| e.to_string())?;
+    let profile =
+        cobble_auth::get_player_profile(game.profile_id.as_deref()).map_err(|e| e.to_string())?;
     game.launch_state = "preparing".into();
     game.launch_error = None;
     let snapshot = game.clone();
     drop(library);
     let launch = snapshot.clone();
     tauri::async_runtime::spawn(async move {
-        match cobble_core::start_offline_game_with_options(
-            &launch.version,
-            &launch.directory,
-            &profile,
-            &launch.runtime_overrides,
-        )
-        .await
-        {
+        let result = async {
+            let identity = cobble_auth::launch_identity(Some(&profile.id)).await?;
+            cobble_core::start_game_with_identity(
+                &launch.version,
+                &launch.directory,
+                &identity,
+                &launch.runtime_overrides,
+            )
+            .await
+        }
+        .await;
+        match result {
             Ok(mut running) => {
                 update_game(
                     &app,
@@ -1100,7 +1104,7 @@ pub fn set_game_profile(
     profile_id: Option<String>,
 ) -> Result<Game, String> {
     if let Some(profile_id) = profile_id.as_deref() {
-        cobble_auth::resolve_player_profile(Some(profile_id)).map_err(|e| e.to_string())?;
+        cobble_auth::get_player_profile(Some(profile_id)).map_err(|e| e.to_string())?;
     }
     let mut library = library.0.lock().map_err(|e| e.to_string())?;
     let game = library

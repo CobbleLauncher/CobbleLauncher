@@ -34,7 +34,8 @@ pub use modupdates::{
 pub use mrpack::{MrpackInstallOutcome, install_mrpack};
 pub use pack_download::download_modrinth_pack;
 pub use runner::{
-    RunningGame, prepare_offline_arguments, start_offline_game, start_offline_game_with_options,
+    RunningGame, prepare_identity_arguments, prepare_offline_arguments, start_game_with_identity,
+    start_offline_game, start_offline_game_with_options,
 };
 pub use worlds::export_world_backup;
 

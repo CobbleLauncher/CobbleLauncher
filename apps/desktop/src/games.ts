@@ -30,7 +30,10 @@ export type Game = {
 };
 export type PackPreview = { preview_id: string; name: string; version_id: string; summary: string | null; minecraft_version: string; loader_kind?: LoaderKind | null; loader_version: string | null; required_files: number; optional_files: { path: string; size: number }[]; overrides: number };
 export type OfflineProfile = { name: string; uuid: string };
-export type PlayerProfile = OfflineProfile & { id: string; kind: 'offline'; note: string | null };
+export type PlayerProfile = OfflineProfile & { id: string; kind: 'offline' | 'microsoft'; note: string | null };
+export function profileKindLabel(profile: Pick<PlayerProfile, 'kind'>): string { return profile.kind === 'microsoft' ? '正版' : '离线'; }
+export type MicrosoftLoginFlow = { flow_id: string; user_code: string; verification_uri: string; expires_in: number; interval: number };
+export type MicrosoftLoginPoll = { state: 'pending' | 'complete'; library?: ProfileLibrary };
 export type ProfileLibrary = { profiles: PlayerProfile[]; active_id: string | null };
 export function effectiveProfile(game: Game, library: ProfileLibrary): PlayerProfile | null {
   return library.profiles.find((profile) => profile.id === (game.profile_id ?? library.active_id)) ?? null;

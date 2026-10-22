@@ -13,6 +13,19 @@ dirs = "=7.0.0"
 md5 = "=0.8.1"
 uuid = "=1.28.0"
 tempfile = "=3.27.0"
+curl.workspace = true
+tokio.workspace = true
+url.workspace = true
+getrandom.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "=3.6.3", default-features = false, features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "=3.6.3", default-features = false, features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "=3.6.3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
 
 [lints]
 workspace = true

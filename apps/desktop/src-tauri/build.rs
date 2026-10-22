@@ -3,6 +3,10 @@ fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "get_app_info",
+            "begin_microsoft_login",
+            "poll_microsoft_login",
+            "cancel_microsoft_login",
+            "open_microsoft_login",
             "get_launcher_preferences",
             "set_default_memory",
             "pick_default_game_directory",

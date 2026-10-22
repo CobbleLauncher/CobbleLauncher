@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-//! Explicit local offline-profile launch. This does not authenticate an account.
+//! Host-owned offline or verified Microsoft identity launch.
 use crate::{LaunchPreparation, prepare_launch};
-use cobble_auth::OfflineProfile;
+use cobble_auth::{LaunchIdentity, OfflineProfile};
 use cobble_minecraft::{
     LaunchOverrides, read_launcher_preferences, resolve_java_override, substitute,
     validate_memory_mb,
@@ -38,6 +38,16 @@ pub async fn start_offline_game_with_options(
     profile: &OfflineProfile,
     options: &LaunchOverrides,
 ) -> Result<RunningGame, BoxError> {
+    let identity = LaunchIdentity::offline(profile)?;
+    start_game_with_identity(version, directory, &identity, options).await
+}
+
+pub async fn start_game_with_identity(
+    version: &str,
+    directory: &Path,
+    identity: &LaunchIdentity,
+    options: &LaunchOverrides,
+) -> Result<RunningGame, BoxError> {
     let memory_mb = match options.memory_mb {
         Some(memory_mb) => memory_mb,
         None => read_launcher_preferences()?.memory_mb,
@@ -45,7 +55,7 @@ pub async fn start_offline_game_with_options(
     validate_memory_mb(memory_mb)?;
     let plan = prepare_launch(version, directory).await?;
     let java = resolve_java_override(plan.required_java, &options.java).await?;
-    let arguments = prepare_offline_arguments(&plan, profile, memory_mb)?;
+    let arguments = prepare_identity_arguments(&plan, identity, memory_mb)?;
     let directory = dunce::canonicalize(directory)?;
     let logs = directory.join(".cobble-logs");
     fs::create_dir_all(&logs)?;
@@ -83,14 +93,57 @@ pub fn prepare_offline_arguments(
     if OfflineProfile::new(&profile.name)? != *profile {
         return Err("offline profile UUID does not match its name".into());
     }
+    prepare_bound_arguments(
+        plan,
+        &profile.name,
+        &profile.uuid,
+        "0",
+        "legacy",
+        "",
+        memory_mb,
+    )
+}
+
+/// Host-only argv preparation. Do not expose the returned credentials in IPC or logs.
+pub fn prepare_identity_arguments(
+    plan: &LaunchPreparation,
+    identity: &LaunchIdentity,
+    memory_mb: u32,
+) -> Result<Vec<String>, BoxError> {
+    prepare_bound_arguments(
+        plan,
+        &identity.name,
+        &identity.uuid,
+        identity.access_token(),
+        &identity.user_type,
+        &identity.xuid,
+        memory_mb,
+    )
+}
+
+fn prepare_bound_arguments(
+    plan: &LaunchPreparation,
+    name: &str,
+    uuid: &str,
+    access_token: &str,
+    user_type: &str,
+    xuid: &str,
+    memory_mb: u32,
+) -> Result<Vec<String>, BoxError> {
+    validate_memory_mb(memory_mb)?;
+    let session = if user_type == "msa" {
+        format!("token:{access_token}:{uuid}")
+    } else {
+        "0".into()
+    };
     let placeholders = HashMap::from([
-        ("auth_player_name".into(), profile.name.clone()),
-        ("auth_uuid".into(), profile.uuid.clone()),
-        ("auth_access_token".into(), "0".into()),
-        ("auth_session".into(), "0".into()),
-        ("user_type".into(), "legacy".into()),
+        ("auth_player_name".into(), name.to_owned()),
+        ("auth_uuid".into(), uuid.to_owned()),
+        ("auth_access_token".into(), access_token.to_owned()),
+        ("auth_session".into(), session),
+        ("user_type".into(), user_type.to_owned()),
         ("user_properties".into(), "{}".into()),
-        ("auth_xuid".into(), String::new()),
+        ("auth_xuid".into(), xuid.to_owned()),
     ]);
     let bind = |value: &str| -> Result<String, BoxError> {
         let value = substitute(value, &placeholders)?;
@@ -195,5 +248,32 @@ mod tests {
         let mut profile = profile;
         profile.uuid = "0".repeat(32);
         assert!(prepare_offline_arguments(&plan, &profile, 2048).is_err());
+    }
+
+    #[test]
+    fn online_identity_binds_minecraft_credentials_without_offline_uuid_derivation() {
+        let arguments = prepare_bound_arguments(
+            &plan(),
+            "VerifiedPlayer",
+            "0123456789abcdef0123456789abcdef",
+            "synthetic-mc-token",
+            "msa",
+            "synthetic-xuid",
+            2048,
+        )
+        .unwrap();
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["--accessToken", "synthetic-mc-token"])
+        );
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["--uuid", "0123456789abcdef0123456789abcdef"])
+        );
+        assert!(arguments.iter().any(|arg| arg == "msa"));
+        assert!(arguments.iter().any(|arg| arg == "synthetic-xuid"));
+        assert!(!arguments.iter().any(|arg| arg.contains("${")));
     }
 }

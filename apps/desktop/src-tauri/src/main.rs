@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod games;
 mod java;
+mod microsoft;
 mod offline;
 mod preferences;
 
@@ -25,6 +26,10 @@ fn main() {
         .manage(games::GameLibrary::load())
         .invoke_handler(tauri::generate_handler![
             get_app_info,
+            microsoft::begin_microsoft_login,
+            microsoft::poll_microsoft_login,
+            microsoft::cancel_microsoft_login,
+            microsoft::open_microsoft_login,
             preferences::get_launcher_preferences,
             preferences::set_default_memory,
             preferences::pick_default_game_directory,

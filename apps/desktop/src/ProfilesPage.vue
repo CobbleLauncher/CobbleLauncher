@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenuContent, DropdownMenuItem } from 'reka-ui';
-import type { ProfileLibrary, PlayerProfile } from './games';
+import { profileKindLabel, type ProfileLibrary, type PlayerProfile } from './games';
 const props = defineProps<{ library: ProfileLibrary; busy: boolean; error: string; ready: boolean; choosing: boolean }>();
 defineEmits<{ add: []; select: [id: string]; remove: [id: string]; note: [id: string, note: string | null]; retry: [] }>();
 const editing = ref<string | null>(null);
@@ -52,7 +52,7 @@ function edit(profile: PlayerProfile) { editing.value = profile.id; note.value =
             class="profile-avatar"
             aria-hidden="true"
           >{{ profile.name.slice(0, 1).toUpperCase() }}</span><div class="profile-row-info">
-            <h2>{{ profile.name }} <span class="offline-badge">离线</span></h2><p v-if="profile.note">
+            <h2>{{ profile.name }} <span class="offline-badge">{{ profileKindLabel(profile) }}</span></h2><p v-if="profile.note">
               {{ profile.note }}
             </p><span
               v-if="profile.id === library.active_id"

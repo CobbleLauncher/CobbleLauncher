@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { Game, PlayerProfile } from './games';
-import { gameLoaderLabel } from './games';
+import { gameLoaderLabel, profileKindLabel } from './games';
 const props = defineProps<{ game: Game; retrying: boolean; profile: PlayerProfile | null; starting: boolean }>();
 defineEmits<{ retry: [id: string]; play: [id: string]; manage: [id: string] }>();
 const phase = computed(() => {
@@ -74,7 +74,7 @@ const percent = computed(() => {
         v-if="game.profile_id"
         class="game-profile"
       >
-        {{ profile ? `使用 ${profile.name} · 离线` : '请选择玩家档案' }}
+        {{ profile ? `使用 ${profile.name} · ${profileKindLabel(profile)}` : '请选择玩家档案' }}
       </p>
       <template v-if="game.status === 'installing'">
         <div

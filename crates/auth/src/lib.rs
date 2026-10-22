@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-//! Local offline profiles and Microsoft application configuration.
+//! Local player profiles, Microsoft sign-in and OS-backed credentials.
 //!
 //! Offline profiles are local identities, not verified Microsoft accounts.
 
@@ -9,6 +9,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
+
+mod microsoft;
+mod protocol;
+mod vault;
+pub use microsoft::{
+    DeviceLogin, LaunchIdentity, LoginPoll, begin_microsoft_login, cancel_microsoft_login,
+    launch_identity, microsoft_login_url, poll_microsoft_login,
+};
+pub use protocol::AuthError;
 
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -121,9 +130,26 @@ pub fn update_profile_note(id: &str, note: Option<&str>) -> Result<ProfileLibrar
 
 pub fn remove_player_profile(id: &str) -> Result<ProfileLibrary, BoxError> {
     with_library(|directory, mut library| {
+        if find_profile(&library, id)?.kind == "microsoft" {
+            microsoft::revoke(id)?;
+        }
         remove_from_library(&mut library, id)?;
         save_library_at(directory, &library)?;
         Ok(library)
+    })
+}
+
+/// Capture the effective saved identity without performing authentication or I/O
+/// to a remote service. Explicit missing bindings never fall back to another.
+pub fn get_player_profile(id: Option<&str>) -> Result<PlayerProfile, BoxError> {
+    with_library(|_, library| {
+        let id = id.or(library.active_id.as_deref()).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "Choose a player profile before launching",
+            )
+        })?;
+        Ok(find_profile(&library, id)?.clone())
     })
 }
 
@@ -150,6 +176,7 @@ pub fn save_offline_profile(name: &str) -> Result<OfflineProfile, BoxError> {
 pub fn remove_offline_profile() -> Result<(), BoxError> {
     with_library(|directory, mut library| {
         if let Some(id) = library.active_id.clone() {
+            resolve_from_library(&library, Some(&id))?;
             remove_from_library(&mut library, &id)?;
             save_library_at(directory, &library)?;
         }
@@ -257,12 +284,30 @@ fn validate_library(library: &ProfileLibrary) -> Result<(), BoxError> {
     let mut ids = std::collections::HashSet::new();
     let mut names = std::collections::HashSet::new();
     for profile in &library.profiles {
-        OfflineProfile::new(&profile.name)?;
+        match profile.kind.as_str() {
+            "offline" => {
+                OfflineProfile::new(&profile.name)?;
+            }
+            "microsoft"
+                if !profile.name.is_empty()
+                    && profile.name.len() <= 16
+                    && profile
+                        .name
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+                    && profile.id == format!("microsoft-{}", profile.uuid) => {}
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Invalid player profile kind or identity",
+                )
+                .into());
+            }
+        }
         uuid::Uuid::parse_str(&profile.uuid)?;
-        if profile.kind != "offline"
-            || profile.id.is_empty()
+        if profile.id.is_empty()
             || !ids.insert(&profile.id)
-            || !names.insert(&profile.name)
+            || (profile.kind == "offline" && !names.insert(&profile.name))
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -321,6 +366,30 @@ fn save_library_at(directory: &Path, library: &ProfileLibrary) -> Result<(), Box
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn microsoft_profiles_with_transferred_names_keep_distinct_uuid_identities() {
+        let directory = tempfile::tempdir().unwrap();
+        let library = ProfileLibrary {
+            profiles: [
+                "0123456789abcdef0123456789abcdef",
+                "fedcba9876543210fedcba9876543210",
+            ]
+            .into_iter()
+            .map(|uuid| PlayerProfile {
+                id: format!("microsoft-{uuid}"),
+                kind: "microsoft".into(),
+                name: "TransferredName".into(),
+                uuid: uuid.into(),
+                note: None,
+            })
+            .collect(),
+            active_id: None,
+        };
+        save_library_at(directory.path(), &library).unwrap();
+        assert_eq!(read_library_at(directory.path()).unwrap(), library);
+        assert_ne!(library.profiles[0].id, library.profiles[1].id);
+    }
 
     #[test]
     fn standard_offline_uuid_is_case_sensitive() {

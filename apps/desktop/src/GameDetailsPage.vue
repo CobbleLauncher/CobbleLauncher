@@ -4,7 +4,7 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, TabsRoot, TabsList, TabsTrigger, TabsContent } from 'reka-ui';
 import type { Game, GameAction, LocalMod, LocalPackKind, PlayerProfile, ProfileLibrary } from './games';
-import { gameLoaderLabel } from './games';
+import { gameLoaderLabel, profileKindLabel } from './games';
 import DiscoverMods from './DiscoverMods.vue';
 import ModUpdates from './ModUpdates.vue';
 import GameRuntimeSettings from './GameRuntimeSettings.vue';
@@ -156,7 +156,7 @@ onUnmounted(() => { disposed = true; ++request; });
           :disabled="contentBusy"
           @click="pageTab = 'runtime'"
         >
-          {{ profile ? `使用 ${profile.name} · 离线` : '请选择玩家档案' }} <span aria-hidden="true">⌄</span>
+          {{ profile ? `使用 ${profile.name} · ${profileKindLabel(profile)}` : '请选择玩家档案' }} <span aria-hidden="true">⌄</span>
         </button>
         <p
           v-if="game.pack_name"
@@ -356,12 +356,12 @@ onUnmounted(() => { disposed = true; ++request; });
             :key="item.id"
             :value="item.id"
           >
-            固定 {{ item.name }}
+            固定 {{ item.name }} · {{ profileKindLabel(item) }}
           </option>
         </select>
       </div>
       <p class="setting-hint">
-        {{ profile ? `实际使用 ${profile.name} · 离线` : '请选择玩家档案' }}
+        {{ profile ? `实际使用 ${profile.name} · ${profileKindLabel(profile)}` : '请选择玩家档案' }}
       </p>
       <p
         v-if="profileBindingError"

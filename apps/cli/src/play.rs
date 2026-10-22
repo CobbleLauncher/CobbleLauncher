@@ -43,17 +43,32 @@ fn play(
     directory: &std::path::Path,
     name: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let profile = match name {
-        Some(name) => cobble_auth::OfflineProfile::new(name)?,
-        None => cobble_auth::read_offline_profile()?
-            .ok_or("no offline profile saved; supply --name <offline-name>")?,
-    };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
     runtime.block_on(async {
-        let mut game = cobble_core::start_offline_game(version, directory, &profile).await?;
-        println!("Minecraft started with offline profile {}.", profile.name);
+        let identity = match name {
+            Some(name) => {
+                cobble_auth::LaunchIdentity::offline(&cobble_auth::OfflineProfile::new(name)?)?
+            }
+            None => cobble_auth::launch_identity(None).await?,
+        };
+        let mut game = cobble_core::start_game_with_identity(
+            version,
+            directory,
+            &identity,
+            &cobble_minecraft::LaunchOverrides::default(),
+        )
+        .await?;
+        println!(
+            "Minecraft started with {} profile {}.",
+            if identity.user_type == "msa" {
+                "Microsoft"
+            } else {
+                "offline"
+            },
+            identity.name
+        );
         println!("Game log: {}", game.log_path.display());
         let status = game.child.wait().await?;
         if !status.success() {

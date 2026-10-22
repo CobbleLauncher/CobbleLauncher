@@ -20,6 +20,8 @@ const games = ref<Game[]>([]);
 const profileLibrary = ref<ProfileLibrary>({ profiles: [], active_id: null });
 const profileReady = ref(false);
 const profileBusy = ref(false);
+const authBusy = ref(false);
+const addProfilePage = ref<InstanceType<typeof AddProfilePage> | null>(null);
 const profileError = ref('');
 const pendingGameId = ref<string | null>(null);
 const profileOrigin = ref<'library' | 'details'>('library');
@@ -42,11 +44,31 @@ function openAddProfile() {
   profileError.value = '';
   view.value = 'add-profile';
 }
-function leaveProfiles() {
-  if (profileBusy.value) return;
+async function leaveProfiles() {
+  if (profileBusy.value || authBusy.value) return;
   profileError.value = '';
+  if (view.value === 'add-profile') {
+    if (addProfilePage.value && !await addProfilePage.value.cancelLogin()) return;
+    await loadProfile();
+  }
   if (pendingGameId.value) { selectedGameId.value = pendingGameId.value; pendingGameId.value = null; view.value = 'details'; }
   else view.value = view.value === 'add-profile' ? addOrigin.value : profileOrigin.value;
+}
+async function finishProfileChoice(returnToGame: boolean) {
+  if (returnToGame && pendingGameId.value) {
+    const game = games.value.find((game) => game.id === pendingGameId.value);
+    if (game?.profile_id) updateGame(await invoke<Game>('set_game_profile', { id: game.id, profileId: profileLibrary.value.active_id }));
+    selectedGameId.value = pendingGameId.value;
+    pendingGameId.value = null;
+    view.value = 'details';
+  } else if (returnToGame && view.value === 'add-profile') view.value = addOrigin.value;
+}
+async function acceptMicrosoftLibrary(library: ProfileLibrary) {
+  if (profileBusy.value) return;
+  profileLibrary.value = library; profileError.value = ''; profileBusy.value = true;
+  try { await finishProfileChoice(true); }
+  catch { profileError.value = '档案已保存，请重新选择游戏使用的档案。'; view.value = 'profiles'; }
+  finally { profileBusy.value = false; }
 }
 async function changeProfile(command: string, args: Record<string, unknown>, returnToGame = false) {
   if (profileBusy.value || !profileReady.value) return;
@@ -55,13 +77,7 @@ async function changeProfile(command: string, args: Record<string, unknown>, ret
   profileBusy.value = true;
   try {
     profileLibrary.value = await invoke<ProfileLibrary>(command, args);
-    if (returnToGame && pendingGameId.value) {
-      const game = games.value.find((game) => game.id === pendingGameId.value);
-      if (game?.profile_id) updateGame(await invoke<Game>('set_game_profile', { id: game.id, profileId: profileLibrary.value.active_id }));
-      selectedGameId.value = pendingGameId.value;
-      pendingGameId.value = null;
-      view.value = 'details';
-    } else if (returnToGame && view.value === 'add-profile') view.value = addOrigin.value;
+    await finishProfileChoice(returnToGame);
   } catch { profileError.value = '未能保存档案，请重试'; }
   finally { profileBusy.value = false; }
 }
@@ -151,7 +167,7 @@ function removeFromLibrary(id: string) {
   view.value = 'library';
 }
 function goBack() {
-  if (profileBusy.value || gameActionBusy.value || contentBusy.value || packPreviewBusy.value) return;
+  if (profileBusy.value || authBusy.value || gameActionBusy.value || contentBusy.value || packPreviewBusy.value) return;
   if (view.value === 'import') view.value = importOrigin.value;
   else if (view.value === 'game-action') view.value = 'details';
   else if (view.value === 'profiles' || view.value === 'add-profile') leaveProfiles();
@@ -398,7 +414,7 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
           <button
             class="back-button"
             :aria-label="view === 'import' && importOrigin === 'discover-packs' ? '返回发现整合包' : view === 'game-action' ? '返回游戏详情' : view === 'profiles' || view === 'add-profile' ? '返回' : '返回游戏库'"
-            :disabled="profileBusy || gameActionBusy || contentBusy || packPreviewBusy"
+            :disabled="profileBusy || authBusy || gameActionBusy || contentBusy || packPreviewBusy"
             @click="goBack"
           >
             <svg viewBox="0 0 20 20"><path d="m11 4-6 6 6 6M5 10h11" /></svg>{{ view === 'import' && importOrigin === 'discover-packs' ? '发现整合包' : view === 'game-action' ? '游戏详情' : view === 'profiles' || view === 'add-profile' ? '返回' : '游戏库' }}
@@ -453,6 +469,7 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
         />
         <AddProfilePage
           v-else-if="view === 'add-profile'"
+          ref="addProfilePage"
           :library="profileLibrary"
           :busy="profileBusy"
           :error="profileError"
@@ -460,6 +477,8 @@ onUnmounted(() => { disposed = true; unlisten?.(); window.removeEventListener('r
           @add="(name, note) => changeProfile('add_offline_profile', { name, note }, true)"
           @select="selectProfile"
           @cancel="leaveProfiles"
+          @library-updated="acceptMicrosoftLibrary"
+          @auth-busy="authBusy = $event"
         />
         <SettingsPage
           v-else-if="view === 'settings'"

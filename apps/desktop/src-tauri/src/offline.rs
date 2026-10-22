@@ -23,8 +23,12 @@ pub fn update_profile_note(id: String, note: Option<String>) -> Result<ProfileLi
 }
 
 #[tauri::command]
-pub fn remove_player_profile(id: String) -> Result<ProfileLibrary, String> {
-    cobble_auth::remove_player_profile(&id).map_err(|error| error.to_string())
+pub async fn remove_player_profile(id: String) -> Result<ProfileLibrary, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        cobble_auth::remove_player_profile(&id).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
