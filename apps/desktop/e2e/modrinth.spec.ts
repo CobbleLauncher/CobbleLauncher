@@ -70,7 +70,7 @@ test('discovery is on demand, resolves dependencies and installs with a host pla
   await page.screenshot({ path: info.outputPath('modrinth-plan-dark.png'), fullPage: true });
   await page.getByRole('button', { name: '安装 2 个 Mod' }).click();
   await expect(page.getByRole('button', { name: '正在安装…' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: '安装 Mod 中' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '安装 Mod 中', exact: true })).toBeDisabled();
   await expect(page.getByRole('tab', { name: '已安装' })).toBeDisabled();
   expect((await calls(page, 'install_game_mod_plan'))[0].args).toEqual({ id: game.id, planId: 'plan-map' });
   await page.evaluate(() => (window as unknown as Mock).__finish());
@@ -144,7 +144,7 @@ test('failed installation shows its cause and can retry the same plan', async ({
   expect(installs).toHaveLength(2);
   expect(installs[0].args).toEqual(installs[1].args);
   await page.getByRole('button', { name: '返回游戏库' }).click();
-  await expect(page.getByRole('button', { name: '安装 Mod 中' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '处理内容中…', exact: true })).toBeDisabled();
   await page.evaluate(() => (window as unknown as Mock).__finish());
   await expect(page.getByRole('button', { name: '开始游戏' })).toBeEnabled();
 });

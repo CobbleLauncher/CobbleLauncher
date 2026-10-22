@@ -16,6 +16,68 @@ fn installed_directory(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
     Ok(game.directory.clone())
 }
 
+fn installed_version(app: &AppHandle, id: &str) -> Result<String, String> {
+    let state = app.state::<GameLibrary>();
+    let library = state.0.lock().map_err(|e| e.to_string())?;
+    let game = library
+        .games
+        .iter()
+        .find(|game| game.id == id)
+        .ok_or("找不到这个游戏")?;
+    if game.status != "installed" {
+        return Err("请先完成游戏安装".into());
+    }
+    Ok(game.version.clone())
+}
+
+#[tauri::command]
+pub async fn search_game_content_packs(
+    app: AppHandle,
+    id: String,
+    kind: LocalPackKind,
+    query: String,
+    offset: u32,
+) -> Result<cobble_content::SearchResults, String> {
+    let version = installed_version(&app, &id)?;
+    cobble_content::search_modrinth_content_packs(kind, &version, &query, offset)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_game_content_pack_versions(
+    app: AppHandle,
+    id: String,
+    kind: LocalPackKind,
+    project_id: String,
+) -> Result<Vec<cobble_content::ContentPackVersion>, String> {
+    let version = installed_version(&app, &id)?;
+    cobble_content::list_modrinth_content_pack_versions(kind, &version, &project_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn install_game_content_pack(
+    app: AppHandle,
+    id: String,
+    kind: LocalPackKind,
+    project_id: String,
+    version_id: String,
+) -> Result<Vec<LocalPack>, String> {
+    let (game, _operation) = management::begin(&app, &id, true)?;
+    update_game(&app, &id, |_| {}, false);
+    cobble_core::install_modrinth_content_pack(
+        &game.directory,
+        kind,
+        &game.version,
+        &project_id,
+        &version_id,
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn list_game_packs(
     app: AppHandle,

@@ -148,7 +148,7 @@ const percent = computed(() => {
       :disabled="game.content_installing || starting || game.launch_state === 'preparing' || game.launch_state === 'running'"
       @click="$emit('play', game.id)"
     >
-      {{ game.content_installing ? '安装 Mod 中' : game.launch_state === 'running' ? '运行中' : game.launch_state === 'preparing' || starting ? '启动中…' : profile ? '开始游戏' : '选择玩家档案' }}
+      {{ game.content_installing ? '处理内容中…' : game.launch_state === 'running' ? '运行中' : game.launch_state === 'preparing' || starting ? '启动中…' : profile ? '开始游戏' : '选择玩家档案' }}
     </button>
   </article>
 </template>

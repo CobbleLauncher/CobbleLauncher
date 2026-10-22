@@ -4,6 +4,7 @@
 mod local_mods;
 mod local_packs;
 mod modrinth;
+mod modrinth_content_packs;
 mod modrinth_packs;
 mod mrpack;
 mod worlds;
@@ -20,6 +21,10 @@ pub use modrinth::{
     SearchResults, find_modrinth_update, identify_modrinth_file,
     identify_modrinth_file_with_broker, modrinth_version_number, resolve_modrinth,
     resolve_modrinth_many, search_modrinth,
+};
+pub use modrinth_content_packs::{
+    ContentPackVersion, ModrinthContentPackDownload, list_modrinth_content_pack_versions,
+    resolve_modrinth_content_pack, search_modrinth_content_packs,
 };
 pub use modrinth_packs::{
     ModrinthPackDownload, PackVersion, list_modrinth_pack_versions, resolve_modrinth_pack,

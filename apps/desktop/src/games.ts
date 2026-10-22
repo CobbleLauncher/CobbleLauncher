@@ -53,6 +53,7 @@ export type ModUpdateResult = { updated: number; added: number };
 export type ModRecognitionResult = { recognized: number; unmatched: number };
 export type LocalPackKind = 'resource_pack' | 'shader_pack';
 export type LocalPack = { file_name: string; name: string; description: string | null; size_bytes: number; pack_format: number | null };
+export type ContentPackVersion = { version_id: string; name: string; version_number: string; version_type: string; date_published: string };
 export type ModrinthPackVersion = { version_id: string; name: string; version_number: string; minecraft_versions: string[]; loaders: string[]; version_type: string; date_published: string };
 export type LocalWorld = { folder_name: string; name: string; minecraft_version: string | null; game_mode: number | null; hardcore: boolean; last_played: number | null; metadata_error: boolean };
 export type LauncherImportContentRoot = { content_id: string; label: string; has_saves: boolean };

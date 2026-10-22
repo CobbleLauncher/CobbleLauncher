@@ -6,6 +6,7 @@
 use cobble_domain::AppInfo;
 
 mod cache;
+mod content_pack_install;
 mod fabric;
 mod foreign_import;
 mod forge;
@@ -19,6 +20,7 @@ mod mrpack;
 mod pack_download;
 mod runner;
 mod worlds;
+pub use content_pack_install::install_modrinth_content_pack;
 pub use fabric::{FabricVersion, install_fabric, list_fabric_versions, list_fabric_versions_from};
 pub use foreign_import::{
     LauncherContentRoot, LauncherImportCandidate, import_launcher_game, inspect_launcher_import,

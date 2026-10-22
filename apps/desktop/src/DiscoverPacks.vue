@@ -1,0 +1,274 @@
+<!-- SPDX-License-Identifier: MIT -->
+<script setup lang="ts">
+import { computed, onUnmounted, ref, watch } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
+import type { ContentPackVersion, LocalPack, LocalPackKind, ModSearchHit, ModSearchPage } from './games';
+
+const props = defineProps<{ gameId: string; kind: LocalPackKind; locked: boolean }>();
+const emit = defineEmits<{ busy: [value: boolean]; installed: [packs: LocalPack[]] }>();
+const label = computed(() => props.kind === 'resource_pack' ? '资源包' : '光影包');
+const query = ref('');
+const submitted = ref('');
+const hits = ref<ModSearchHit[]>([]);
+const searched = ref(false);
+const searching = ref(false);
+const searchError = ref('');
+const nextOffset = ref(0);
+const hasMore = ref(false);
+const selected = ref<ModSearchHit | null>(null);
+const versions = ref<ContentPackVersion[]>([]);
+const versionId = ref('');
+const chosenVersion = computed(() => versions.value.find((version) => version.version_id === versionId.value));
+const loadingVersions = ref(false);
+const versionError = ref('');
+const installing = ref(false);
+const installError = ref('');
+let searchRequest = 0;
+let versionRequest = 0;
+let failedOffset = 0;
+let disposed = false;
+
+function versionType(value: string): string { return ({ release: '正式版', beta: '测试版', alpha: '预览版' })[value] ?? value; }
+function downloadCount(value: number): string { return new Intl.NumberFormat('zh-CN', { notation: 'compact' }).format(value); }
+async function search(offset = 0, retry = false) {
+  if (installing.value) return;
+  const current = ++searchRequest;
+  if (!offset && !retry) submitted.value = query.value.trim();
+  if (!offset) { hits.value = []; nextOffset.value = 0; hasMore.value = false; }
+  failedOffset = offset;
+  searched.value = true; searching.value = true; searchError.value = '';
+  try {
+    const result = await invoke<ModSearchPage>('search_game_content_packs', { id: props.gameId, kind: props.kind, query: submitted.value, offset });
+    if (current !== searchRequest) return;
+    hits.value = offset ? [...new Map([...hits.value, ...result.hits].map((hit) => [hit.project_id, hit])).values()] : result.hits;
+    nextOffset.value = result.offset + result.hits.length;
+    hasMore.value = result.hits.length > 0 && nextOffset.value < result.total_hits;
+  } catch { if (current === searchRequest) searchError.value = `暂时无法获取${label.value}，请重试。`; }
+  finally { if (current === searchRequest) searching.value = false; }
+}
+async function loadVersions() {
+  if (!selected.value || installing.value) return;
+  const current = ++versionRequest;
+  versions.value = []; versionId.value = ''; versionError.value = ''; installError.value = ''; loadingVersions.value = true;
+  try {
+    const result = await invoke<ContentPackVersion[]>('list_game_content_pack_versions', { id: props.gameId, kind: props.kind, projectId: selected.value.project_id });
+    if (current !== versionRequest) return;
+    versions.value = result; versionId.value = result[0]?.version_id ?? '';
+  } catch (cause) { if (current === versionRequest) versionError.value = `无法读取${label.value}版本：${String(cause)}`; }
+  finally { if (current === versionRequest) loadingVersions.value = false; }
+}
+function select(hit: ModSearchHit) {
+  if (installing.value) return;
+  selected.value = hit; void loadVersions();
+}
+function back() {
+  if (installing.value) return;
+  ++versionRequest; selected.value = null; loadingVersions.value = false; versionError.value = ''; installError.value = '';
+}
+async function install() {
+  if (!selected.value || !chosenVersion.value || props.locked || installing.value) return;
+  installing.value = true; installError.value = ''; emit('busy', true);
+  try {
+    const result = await invoke<LocalPack[]>('install_game_content_pack', { id: props.gameId, kind: props.kind, projectId: selected.value.project_id, versionId: chosenVersion.value.version_id });
+    if (!disposed) emit('installed', result);
+  } catch (cause) { if (!disposed) installError.value = `安装${label.value}未完成：${String(cause)}`; }
+  finally { installing.value = false; emit('busy', false); }
+}
+watch(() => [props.gameId, props.kind], () => {
+  ++searchRequest; ++versionRequest; query.value = ''; submitted.value = ''; hits.value = [];
+  selected.value = null; versions.value = []; versionId.value = ''; searched.value = false;
+  searching.value = false; loadingVersions.value = false; hasMore.value = false;
+  searchError.value = ''; versionError.value = ''; installError.value = '';
+});
+onUnmounted(() => { disposed = true; ++searchRequest; ++versionRequest; });
+</script>
+<template>
+  <div class="discover-content discover-local-packs">
+    <p class="pack-discovery-source">
+      来自 Modrinth
+    </p>
+    <template v-if="selected">
+      <button
+        class="text-button"
+        :disabled="installing"
+        @click="back"
+      >
+        ← 返回搜索结果
+      </button>
+      <div class="mod-preview pack-project-preview">
+        <span
+          class="project-monogram"
+          aria-hidden="true"
+        >{{ selected.title.slice(0, 1) }}</span>
+        <div class="mod-info">
+          <h2>{{ selected.title }}</h2><p class="mod-meta">
+            {{ selected.author }} · {{ downloadCount(selected.downloads) }} 次下载
+          </p>
+        </div>
+      </div>
+      <p class="preview-description">
+        {{ selected.description }}
+      </p>
+      <p
+        v-if="loadingVersions"
+        class="content-empty"
+        role="status"
+      >
+        正在读取{{ label }}版本…
+      </p>
+      <div
+        v-else-if="versionError"
+        class="inline-error"
+        role="alert"
+      >
+        <p>{{ versionError }}</p><button
+          class="text-button"
+          @click="loadVersions"
+        >
+          重试读取版本
+        </button>
+      </div>
+      <template v-else-if="versions.length">
+        <div class="form-field pack-version-field">
+          <label :for="`content-pack-version-${kind}`">{{ label }}版本</label>
+          <select
+            :id="`content-pack-version-${kind}`"
+            v-model="versionId"
+            :disabled="installing"
+            @change="installError = ''"
+          >
+            <option
+              v-for="version in versions"
+              :key="version.version_id"
+              :value="version.version_id"
+            >
+              {{ version.name }}{{ version.name !== version.version_number ? ` · ${version.version_number}` : '' }} · {{ versionType(version.version_type) }} · {{ version.date_published.slice(0, 10) }}
+            </option>
+          </select>
+        </div>
+        <p class="setting-hint content-pack-use-hint">
+          {{ kind === 'resource_pack' ? '安装后在游戏内选择资源包。' : '需要支持光影的游戏环境，安装后在游戏内选择。' }}
+        </p>
+        <div class="plan-actions">
+          <button
+            class="primary-button"
+            :disabled="locked || installing || !chosenVersion"
+            @click="install"
+          >
+            <span
+              v-if="installing"
+              class="busy-spinner"
+              aria-hidden="true"
+            />{{ installing ? '正在安装…' : installError ? '重试安装' : `安装${label}` }}
+          </button>
+          <p
+            v-if="locked && !installing"
+            class="mod-meta"
+          >
+            关闭游戏后即可安装。
+          </p>
+        </div>
+        <p
+          v-if="installError"
+          class="settings-error"
+          role="alert"
+        >
+          {{ installError }}
+        </p>
+      </template>
+      <p
+        v-else
+        class="content-empty"
+      >
+        没有适用于当前游戏的{{ label }}版本。
+      </p>
+    </template>
+    <template v-else>
+      <form
+        class="content-toolbar discover-search"
+        @submit.prevent="search()"
+      >
+        <input
+          v-model="query"
+          type="search"
+          :aria-label="`搜索 Modrinth ${label}`"
+          :placeholder="`搜索想要的${label}`"
+        >
+        <button
+          class="secondary-button"
+          type="submit"
+        >
+          搜索
+        </button>
+      </form>
+      <p
+        v-if="!searched"
+        class="content-empty"
+      >
+        输入名称，查找适用于当前游戏的{{ label }}。
+      </p>
+      <ul
+        v-if="hits.length"
+        class="mod-list discover-list"
+        :aria-label="`发现${label}`"
+      >
+        <li
+          v-for="hit in hits"
+          :key="hit.project_id"
+          class="mod-row"
+        >
+          <span
+            class="project-monogram"
+            aria-hidden="true"
+          >{{ hit.title.slice(0, 1) }}</span>
+          <div class="mod-info">
+            <h3>{{ hit.title }}</h3><p class="mod-description">
+              {{ hit.description }}
+            </p><p class="mod-meta">
+              {{ hit.author }} · {{ downloadCount(hit.downloads) }} 次下载
+            </p>
+          </div>
+          <button
+            class="secondary-button"
+            :aria-label="`查看 ${hit.title}`"
+            @click="select(hit)"
+          >
+            查看
+          </button>
+        </li>
+      </ul>
+      <div
+        v-if="searchError"
+        class="inline-error"
+        role="alert"
+      >
+        <p>{{ searchError }}</p><button
+          class="text-button"
+          @click="search(failedOffset, true)"
+        >
+          重试搜索
+        </button>
+      </div>
+      <p
+        v-else-if="searching"
+        class="content-empty"
+        role="status"
+      >
+        正在搜索…
+      </p>
+      <p
+        v-else-if="searched && !hits.length"
+        class="content-empty"
+      >
+        没有找到适用的{{ label }}，换个关键词试试。
+      </p>
+      <button
+        v-else-if="hasMore"
+        class="load-more secondary-button"
+        @click="search(nextOffset)"
+      >
+        加载更多
+      </button>
+    </template>
+  </div>
+</template>
