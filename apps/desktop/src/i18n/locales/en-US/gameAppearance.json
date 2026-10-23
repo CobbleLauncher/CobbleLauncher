@@ -1,0 +1,5 @@
+{
+  "title": "Instance appearance", "presets": "Appearance presets",
+  "grass": "Grass", "stone": "Stone", "dirt": "Dirt", "oak": "Oak", "water": "Water", "lava": "Lava", "end": "End",
+  "chooseImage": "Choose image", "reset": "Reset icon"
+}

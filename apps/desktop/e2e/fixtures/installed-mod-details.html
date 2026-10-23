@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Installed Mod review fixture</title></head>
+<body><main id="app" style="max-width:1000px;margin:24px auto;padding:0 20px"></main>
+<script type="module">
+import { createApp, h } from 'vue';
+import GameModsPanel from '../../src/GameModsPanel.vue';
+import { setLocale } from '../../src/i18n';
+import '../../src/style.css';
+import '../../src/ui.css';
+setLocale('en-US');
+createApp({render: () => h(GameModsPanel, {game: {id:'review-game',name:'Review fixture',version:'1.21.1',loader_kind:'fabric',loader_version:'0.16',directory:'synthetic',status:'installed',error:null,progress:null},locked:false})}).mount('#app');
+</script></body></html>

@@ -1,0 +1,22 @@
+[package]
+name = "cobble-backup"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rustic_core = { version = "=0.13.0", default-features = false }
+rustic_backend = { version = "=0.7.0", default-features = false }
+serde.workspace = true
+dunce = "=1.0.5"
+cap-std.workspace = true
+cap-fs-ext.workspace = true
+bytes.workspace = true
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+
+[lints]
+workspace = true

@@ -6,9 +6,10 @@ import { RadioGroupItem, RadioGroupRoot } from 'reka-ui';
 import { defaultDownloadSettings, readDownloadSettings, validateDownloadSettings } from './download-settings';
 import type { Game, PackPreview } from './games';
 import { loaderLabel } from './games';
+import { t } from './i18n';
 
 const props = defineProps<{ initialPreview?: PackPreview | null }>();
-const emit = defineEmits<{ created: [game: Game] }>();
+const emit = defineEmits<{ created: [game: Game]; curseforge: [] }>();
 const preview = ref<PackPreview | null>(null);
 const name = ref('');
 const optionalFiles = ref<string[]>([]);
@@ -21,11 +22,18 @@ const submitting = ref(false);
 const error = ref('');
 let disposed = false;
 
+function settingsCause(cause: unknown) {
+  const message = String(cause);
+  if (message.includes('下载源设置无效')) return t('importPack.invalidDownloadSource');
+  if (message.includes('请输入 HTTPS 镜像地址')) return t('importPack.invalidMirror');
+  return message;
+}
+
 async function initialize() {
   try {
     source.value = await readDownloadSettings();
-    directory.value = isTauri() ? await invoke<string>('default_game_directory') : '默认游戏文件夹';
-  } catch (cause) { error.value = `无法读取游戏设置：${String(cause)}`; }
+    directory.value = isTauri() ? await invoke<string>('default_game_directory') : t('importPack.defaultGameDirectory');
+  } catch (cause) { error.value = t('importPack.readSettingsError', { cause: settingsCause(cause) }); }
   finally { loading.value = false; }
 }
 function applyPreview(selected: PackPreview) {
@@ -35,14 +43,14 @@ function applyPreview(selected: PackPreview) {
 }
 async function choosePack() {
   if (picking.value || submitting.value || loading.value) return;
-  if (!isTauri()) { error.value = '请在桌面应用中导入整合包'; return; }
+  if (!isTauri()) { error.value = t('importPack.desktopOnly'); return; }
   picking.value = true;
   error.value = '';
   try {
     const selected = await invoke<PackPreview | null>('preview_mrpack');
     if (disposed || !selected) return;
     applyPreview(selected);
-  } catch (cause) { if (!disposed) error.value = `无法读取整合包：${String(cause)}`; }
+  } catch (cause) { if (!disposed) error.value = t('importPack.readArchiveError', { cause: String(cause) }); }
   finally { picking.value = false; }
 }
 async function chooseDirectory() {
@@ -52,19 +60,21 @@ async function chooseDirectory() {
   try {
     const selected = await invoke<string | null>('pick_game_directory');
     if (!disposed && selected) { directory.value = selected; useDefaultDirectory.value = false; }
-  } catch (cause) { if (!disposed) error.value = `无法选择文件夹：${String(cause)}`; }
+  } catch (cause) { if (!disposed) error.value = t('importPack.chooseFolderError', { cause: String(cause) }); }
   finally { picking.value = false; }
 }
 async function create() {
   if (!preview.value || picking.value || submitting.value || loading.value) return;
-  error.value = validateDownloadSettings(source.value) ?? '';
+  const downloadError = validateDownloadSettings(source.value);
+  error.value = downloadError && source.value.source !== 'custom' ? t('importPack.invalidDownloadSource')
+    : downloadError ? t('importPack.invalidMirror') : '';
   if (error.value) return;
-  if (!name.value.trim()) { error.value = '请填写游戏名称'; return; }
+  if (!name.value.trim()) { error.value = t('importPack.nameRequired'); return; }
   submitting.value = true;
   try {
     const game = await invoke<Game>('create_mrpack_game', { previewId: preview.value.preview_id, name: name.value.trim(), source: { ...source.value, mirror: source.value.mirror.trim() }, useDefaultDirectory: useDefaultDirectory.value, optionalFiles: [...optionalFiles.value] });
     if (!disposed) emit('created', game);
-  } catch (cause) { if (!disposed) error.value = `无法导入整合包：${String(cause)}`; }
+  } catch (cause) { if (!disposed) error.value = t('importPack.importError', { cause: String(cause) }); }
   finally { submitting.value = false; }
 }
 function fileSize(bytes: number) { return bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`; }
@@ -74,9 +84,14 @@ onUnmounted(() => { disposed = true; });
 
 <template>
   <div class="import-page page-content">
-    <p class="create-description">
-      {{ initialPreview ? '确认内容，然后安装为独立游戏。' : '把喜欢的整合包，变成一个新的世界。' }}
-    </p>
+    <button
+      v-if="!initialPreview"
+      class="text-button"
+      :disabled="loading || picking || submitting"
+      @click="emit('curseforge')"
+    >
+      {{ t('curseforge.importArchive') }}
+    </button>
     <button
       v-if="!initialPreview"
       class="pack-picker"
@@ -89,7 +104,7 @@ onUnmounted(() => { disposed = true; });
         fill="none"
         aria-hidden="true"
       ><path d="m7 12 13-7 13 7-13 7zM7 12v16l13 7 13-7V12M20 19v16M13 9l13 7" /></svg>
-      <span><strong>{{ picking ? '正在读取…' : preview ? '更换整合包' : '选择整合包文件' }}</strong><span class="setting-hint">Modrinth 整合包 · .mrpack</span></span>
+      <span><strong>{{ picking ? t('importPack.reading') : preview ? t('importPack.changeArchive') : t('importPack.chooseArchive') }}</strong><span class="setting-hint">{{ t('importPack.archiveFormat') }}</span></span>
       <span
         aria-hidden="true"
         class="picker-arrow"
@@ -102,7 +117,7 @@ onUnmounted(() => { disposed = true; });
     >
       <section
         class="pack-summary"
-        aria-label="整合包信息"
+        :aria-label="t('importPack.packInfo')"
       >
         <div class="pack-title">
           <h2>{{ preview.name }}</h2><span class="count">{{ preview.version_id }}</span>
@@ -114,25 +129,25 @@ onUnmounted(() => { disposed = true; });
           {{ preview.summary }}
         </p>
         <div class="compatibility-tags">
-          <span>Minecraft {{ preview.minecraft_version }}</span><span>{{ preview.loader_version ? `${loaderLabel(preview.loader_kind ?? 'fabric')} ${preview.loader_version}` : '原版' }}</span>
+          <span>Minecraft {{ preview.minecraft_version }}</span><span>{{ preview.loader_version ? `${loaderLabel(preview.loader_kind ?? 'fabric')} ${preview.loader_version}` : t('importPack.vanilla') }}</span>
         </div>
         <p class="setting-hint">
-          {{ preview.required_files }} 个必需文件 · {{ preview.overrides }} 个配置文件
+          {{ t('importPack.fileCounts', { required: preview.required_files, overrides: preview.overrides }) }}
         </p>
         <p
           v-if="preview.loader_kind === 'forge' || preview.loader_kind === 'neoforge'"
           class="setting-hint"
         >
-          安装时会运行 {{ loaderLabel(preview.loader_kind) }} 官方安装器。
+          {{ t('importPack.installerWarning', { loader: loaderLabel(preview.loader_kind) }) }}
         </p>
       </section>
       <div
         v-if="preview.optional_files.length"
         class="pack-optionals"
       >
-        <h3>可选内容 <span class="count">{{ preview.optional_files.length }}</span></h3>
+        <h3>{{ t('importPack.optionalFiles') }} <span class="count">{{ preview.optional_files.length }}</span></h3>
         <p class="setting-hint">
-          按需选择要一起安装的文件。
+          {{ t('importPack.optionalFilesHint') }}
         </p>
         <label
           v-for="file in preview.optional_files"
@@ -149,7 +164,7 @@ onUnmounted(() => { disposed = true; });
         </label>
       </div>
       <div class="form-field">
-        <label for="pack-game-name">游戏名称</label>
+        <label for="pack-game-name">{{ t('importPack.gameName') }}</label>
         <input
           id="pack-game-name"
           v-model="name"
@@ -159,7 +174,7 @@ onUnmounted(() => { disposed = true; });
         >
       </div>
       <div class="form-field">
-        <label id="pack-source-label">下载源</label>
+        <label id="pack-source-label">{{ t('importPack.downloadSource') }}</label>
         <RadioGroupRoot
           v-model="source.source"
           class="source-options"
@@ -170,13 +185,13 @@ onUnmounted(() => { disposed = true; });
             value="automatic"
             class="source-option"
           >
-            自动（推荐）
+            {{ t('importPack.automaticRecommended') }}
           </RadioGroupItem>
           <RadioGroupItem
             value="official"
             class="source-option"
           >
-            官方
+            {{ t('importPack.official') }}
           </RadioGroupItem>
           <RadioGroupItem
             value="bmclapi"
@@ -185,37 +200,39 @@ onUnmounted(() => { disposed = true; });
             BMCLAPI
           </RadioGroupItem>
           <RadioGroupItem
+            v-if="source.mirror"
             value="custom"
             class="source-option"
           >
-            自定义镜像
+            {{ t('importPack.customMirror') }}
           </RadioGroupItem>
         </RadioGroupRoot>
         <p
           v-if="source.source === 'automatic'"
           class="setting-hint"
         >
-          自动选择响应较快的下载源，失败时切换。
+          {{ t('importPack.automaticHint') }}
         </p>
         <template v-if="source.source === 'custom'">
           <label
             class="sr-only"
             for="pack-mirror"
-          >镜像地址</label>
+          >{{ t('importPack.mirrorAddress') }}</label>
           <input
             id="pack-mirror"
             v-model="source.mirror"
+            readonly
             type="url"
             placeholder="https://mirror.example.com/"
             :disabled="picking || submitting"
           >
         </template>
         <p class="setting-hint">
-          Minecraft 文件使用所选下载源，整合包文件使用包内来源。
+          {{ t('importPack.sourceNote') }}
         </p>
       </div>
       <div class="form-field">
-        <label>安装位置</label>
+        <label>{{ t('importPack.installLocation') }}</label>
         <button
           type="button"
           class="folder-button"
@@ -226,10 +243,10 @@ onUnmounted(() => { disposed = true; });
             viewBox="0 0 24 24"
             fill="none"
           ><path d="M3 7h7l2 2h9v11H3zM3 7V4h7l2 3" /></svg>
-          <span>{{ directory || '默认游戏文件夹' }}</span><span class="folder-change">更改</span>
+          <span>{{ directory || t('importPack.defaultGameDirectory') }}</span><span class="folder-change">{{ t('importPack.change') }}</span>
         </button>
         <p class="setting-hint">
-          将在此文件夹内创建独立的游戏目录。
+          {{ t('importPack.installLocationHint') }}
         </p>
       </div>
       <button
@@ -237,7 +254,7 @@ onUnmounted(() => { disposed = true; });
         type="submit"
         :disabled="loading || picking || submitting"
       >
-        {{ submitting ? '正在创建…' : '导入并安装' }}
+        {{ submitting ? t('importPack.creating') : t('importPack.install') }}
       </button>
     </form>
     <p

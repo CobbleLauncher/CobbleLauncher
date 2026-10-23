@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT
-export type TaskProgress = { phase: string; completed: number; total: number; reused: number };
+import { t } from './i18n';
+export type DownloadProgressDetail = { bytesCompleted: number; bytesTotal: number; bytesReceived: number; bytesPerSecond: number; activeDownloads: number; items: { source: string; item: string; bytesReceived: number; bytesTotal: number }[] };
+export type TaskProgress = { phase: string; completed: number; total: number; reused: number; detail?: DownloadProgressDetail | null };
 export type TaskSnapshot = {
   id: string;
   game_id: string | null;
+  world_folder?: string | null;
   game_name: string;
   title: string;
-  kind: 'game_install' | 'mod_install' | 'mod_update' | 'resource_pack' | 'shader_pack' | 'modpack_download' | 'world_restore';
+  kind: 'game_install' | 'game_repair' | 'mod_install' | 'mod_update' | 'resource_pack' | 'shader_pack' | 'modpack_download' | 'curseforge_pack_download' | 'world_restore' | 'world_automatic_backup' | 'world_snapshot' | 'world_snapshot_restore';
   state: 'running' | 'cancelling' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
   progress: TaskProgress | null;
   error: string | null;
@@ -16,18 +19,22 @@ export type TaskSnapshot = {
 };
 export function isActiveTask(task: TaskSnapshot): boolean { return task.state === 'running' || task.state === 'cancelling'; }
 export function taskStateLabel(task: TaskSnapshot): string {
-  return { running: '进行中', cancelling: '正在取消', succeeded: '已完成', failed: '失败', cancelled: '已取消', interrupted: '已中断' }[task.state];
+  return t(`tasks.states.${task.state}`);
 }
 export function taskPhaseLabel(progress: TaskProgress): string {
-  if (progress.phase === 'world-extract') return '解压世界文件';
-  if (progress.phase === 'world-copy') return '复制世界文件';
-  if (progress.phase === 'world-commit') return '保存世界';
-  if (progress.phase === 'world-complete') return '世界恢复完成';
-  if (progress.phase === 'pack-base-complete') return '准备整合包文件';
-  const labels: Record<string, string> = { metadata: '读取信息', files: '下载文件', assets: '下载游戏资源', fabric: '安装 Fabric', 'forge-installer': '安装 Forge', 'neoforge-installer': '安装 NeoForge', 'pack-download': '下载内容文件', 'pack-overrides': '复制整合包配置', 'pack-install': '安装内容', 'mod-download': '下载 Mod', 'mod-install': '安装 Mod', 'import-copy': '复制游戏内容', complete: '安装完成' };
-  return labels[progress.phase.replace(/^pack-base-/, '')] ?? '正在处理';
+  if (['world-snapshot-scan', 'world-snapshot-write', 'world-snapshot-verify', 'world-snapshot-restore', 'world-snapshot-publish', 'world-snapshot-complete', 'world-extract', 'world-copy', 'world-commit', 'world-complete'].includes(progress.phase)) return t(`tasks.phases.${progress.phase}`);
+  const phase = progress.phase === 'pack-base-complete' ? progress.phase : progress.phase.replace(/^pack-base-/, '');
+  const known = ['metadata', 'files', 'assets', 'fabric', 'forge-installer', 'neoforge-installer', 'pack-download', 'pack-overrides', 'pack-install', 'mod-download', 'mod-install', 'import-copy', 'complete', 'pack-base-complete'];
+  return t(`tasks.phases.${known.includes(phase) ? phase : 'processing'}`);
 }
 export function taskHasKnownTotal(progress: TaskProgress): boolean {
   const phase = progress.phase.replace(/^pack-base-/, '');
   return progress.total > 0 && phase !== 'forge-installer' && phase !== 'neoforge-installer';
 }
+
+export function taskTitleLabel(task: TaskSnapshot): string {
+  return task.kind === 'game_repair' ? t('tasks.repairGame') : task.kind === 'world_automatic_backup' ? t('tasks.automaticBackup') : task.kind === 'world_snapshot' ? t('tasks.snapshotSave') : task.kind === 'world_snapshot_restore' ? t('tasks.snapshotRestore') : task.title;
+}
+export function isWorldSnapshotTask(task: TaskSnapshot): boolean { return task.kind === 'world_snapshot' || task.kind === 'world_snapshot_restore' || task.kind === 'world_automatic_backup'; }
+
+export function taskProgressUsesBytes(progress: TaskProgress): boolean { return progress.phase.startsWith('world-snapshot-'); }

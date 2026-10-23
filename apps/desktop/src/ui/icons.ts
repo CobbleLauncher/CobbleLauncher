@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: MIT
+import {
+  ArrowLeft, Check, ChevronDown, CircleAlert, Copy, Download, Ellipsis,
+  ExternalLink, Folder, Info, LoaderCircle, Network, Pencil, Pin, Play, Plus, Puzzle, RefreshCw,
+  Search, Settings, Trash2, User, X, Palette, Cpu, HardDrive, ShieldCheck, Sun, Moon, Monitor, Languages,
+} from '@lucide/vue';
+
+// Explicit imports keep the shipped set finite and tree-shakable.
+export const appIcons = {
+  palette: Palette,
+  cpu: Cpu,
+  'hard-drive': HardDrive,
+  shield: ShieldCheck,
+  sun: Sun,
+  moon: Moon,
+  monitor: Monitor,
+  languages: Languages,
+  'arrow-left': ArrowLeft,
+  check: Check,
+  'chevron-down': ChevronDown,
+  'alert-circle': CircleAlert,
+  copy: Copy,
+  download: Download,
+  'more-horizontal': Ellipsis,
+  'external-link': ExternalLink,
+  folder: Folder,
+  info: Info,
+  'loader-circle': LoaderCircle,
+  network: Network,
+  pencil: Pencil,
+  pin: Pin,
+  play: Play,
+  plus: Plus,
+  puzzle: Puzzle,
+  'refresh-cw': RefreshCw,
+  search: Search,
+  settings: Settings,
+  trash: Trash2,
+  user: User,
+  x: X,
+} as const;
+export type AppIconName = keyof typeof appIcons;

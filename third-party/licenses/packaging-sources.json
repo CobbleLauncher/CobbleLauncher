@@ -61,5 +61,538 @@
     "source": "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.3800.47/microsoft.web.webview2.1.0.3800.47.nupkg",
     "retrieved": "2026-10-22",
     "note": "Original package LICENSE.txt. NuGet x64 WebView2LoaderStatic.lib bytes match the static library in webview2-com-sys 0.39.1."
+  },
+  {
+    "package": "cranelift-assembler-x64-0.137.0",
+    "file": "rust/cranelift-assembler-x64-0.137.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/ebe5e8df1f4e12c5fc2f5954926881d8d61367d8/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original Apache-2.0 with LLVM exception text at the published crate VCS revision; upstream root contains no separate NOTICE."
+  },
+  {
+    "package": "cranelift-assembler-x64-meta-0.137.0",
+    "file": "rust/cranelift-assembler-x64-meta-0.137.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/ebe5e8df1f4e12c5fc2f5954926881d8d61367d8/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original Apache-2.0 with LLVM exception text at the published crate VCS revision; upstream root contains no separate NOTICE."
+  },
+  {
+    "package": "cranelift-bitset-0.137.0",
+    "file": "rust/cranelift-bitset-0.137.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/ebe5e8df1f4e12c5fc2f5954926881d8d61367d8/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original Apache-2.0 with LLVM exception text at the published crate VCS revision; upstream root contains no separate NOTICE."
+  },
+  {
+    "package": "cranelift-isle-0.137.0",
+    "file": "rust/cranelift-isle-0.137.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/ebe5e8df1f4e12c5fc2f5954926881d8d61367d8/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original Apache-2.0 with LLVM exception text at the published crate VCS revision; upstream root contains no separate NOTICE."
+  },
+  {
+    "package": "cranelift-srcgen-0.137.0",
+    "file": "rust/cranelift-srcgen-0.137.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/ebe5e8df1f4e12c5fc2f5954926881d8d61367d8/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original Apache-2.0 with LLVM exception text at the published crate VCS revision; upstream root contains no separate NOTICE."
+  },
+  {
+    "package": "pulley-interpreter-50.0.0",
+    "file": "rust/pulley-interpreter-50.0.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/ebe5e8df1f4e12c5fc2f5954926881d8d61367d8/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original Apache-2.0 with LLVM exception text at the published crate VCS revision; upstream root contains no separate NOTICE."
+  },
+  {
+    "package": "pulley-macros-50.0.0",
+    "file": "rust/pulley-macros-50.0.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/ebe5e8df1f4e12c5fc2f5954926881d8d61367d8/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original Apache-2.0 with LLVM exception text at the published crate VCS revision; upstream root contains no separate NOTICE."
+  },
+  {
+    "package": "wasmtime-internal-component-macro-50.0.0",
+    "file": "rust/wasmtime-internal-component-macro-50.0.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/ebe5e8df1f4e12c5fc2f5954926881d8d61367d8/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original Apache-2.0 with LLVM exception text at the published crate VCS revision; upstream root contains no separate NOTICE."
+  },
+  {
+    "package": "wasmtime-internal-component-util-50.0.0",
+    "file": "rust/wasmtime-internal-component-util-50.0.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/ebe5e8df1f4e12c5fc2f5954926881d8d61367d8/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original Apache-2.0 with LLVM exception text at the published crate VCS revision; upstream root contains no separate NOTICE."
+  },
+  {
+    "package": "wasmtime-internal-core-50.0.0",
+    "file": "rust/wasmtime-internal-core-50.0.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/ebe5e8df1f4e12c5fc2f5954926881d8d61367d8/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original Apache-2.0 with LLVM exception text at the published crate VCS revision; upstream root contains no separate NOTICE."
+  },
+  {
+    "package": "wasmtime-internal-jit-icache-coherence-50.0.0",
+    "file": "rust/wasmtime-internal-jit-icache-coherence-50.0.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/ebe5e8df1f4e12c5fc2f5954926881d8d61367d8/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original Apache-2.0 with LLVM exception text at the published crate VCS revision; upstream root contains no separate NOTICE."
+  },
+  {
+    "package": "wasmtime-internal-versioned-export-macros-50.0.0",
+    "file": "rust/wasmtime-internal-versioned-export-macros-50.0.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/ebe5e8df1f4e12c5fc2f5954926881d8d61367d8/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original Apache-2.0 with LLVM exception text at the published crate VCS revision; upstream root contains no separate NOTICE."
+  },
+  {
+    "package": "wasmtime-internal-wit-bindgen-50.0.0",
+    "file": "rust/wasmtime-internal-wit-bindgen-50.0.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/bytecodealliance/wasmtime/ebe5e8df1f4e12c5fc2f5954926881d8d61367d8/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original Apache-2.0 with LLVM exception text at the published crate VCS revision; upstream root contains no separate NOTICE."
+  },
+  {
+    "package": "clipboard-win-5.4.1",
+    "file": "rust/clipboard-win-5.4.1/LICENSE",
+    "source": "https://raw.githubusercontent.com/DoumanAsh/clipboard-win/3b27cf2bfd1adcfa6e0264eb51c1025ddaf0f342/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original Boost Software License from the published crate VCS revision."
+  },
+  {
+    "package": "tauri-plugin-2.7.2",
+    "file": "rust/tauri-plugin-2.7.2/LICENSE-MIT",
+    "source": "https://raw.githubusercontent.com/tauri-apps/tauri/59b63ab500da9859f12d8888c3298bc29bba0b92/LICENSE-MIT",
+    "retrieved": "2026-10-22",
+    "note": "Original repository-root license at the published crate VCS revision."
+  },
+  {
+    "package": "tauri-plugin-2.7.2",
+    "file": "rust/tauri-plugin-2.7.2/LICENSE-APACHE-2.0",
+    "source": "https://raw.githubusercontent.com/tauri-apps/tauri/59b63ab500da9859f12d8888c3298bc29bba0b92/LICENSE-APACHE-2.0",
+    "retrieved": "2026-10-22",
+    "note": "Original repository-root license at the published crate VCS revision."
+  },
+  {
+    "package": "@vue/devtools-api-6.6.4",
+    "file": "npm/vue__devtools-api-6.6.4/LICENSE",
+    "source": "https://raw.githubusercontent.com/vuejs/vue-devtools/df6ab6bb7791a7a525a97990de73b3ea5e9a1941/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original upstream MIT license at gitHead recorded by the npm registry for @vue/devtools-api 6.6.4."
+  },
+  {
+    "package": "binrw-0.15.2",
+    "file": "rust/binrw-0.15.2/LICENSE",
+    "source": "https://raw.githubusercontent.com/jam1garner/binrw/db9ef7bece9525057001edd260439fa2748287df/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original MIT license at the published crate VCS revision; omitted from the crate archive."
+  },
+  {
+    "package": "binrw_derive-0.15.2",
+    "file": "rust/binrw_derive-0.15.2/LICENSE",
+    "source": "https://raw.githubusercontent.com/jam1garner/binrw/db9ef7bece9525057001edd260439fa2748287df/LICENSE",
+    "retrieved": "2026-10-22",
+    "note": "Original MIT license at the published crate VCS revision; omitted from the crate archive."
+  },
+  {
+    "package": "integer-sqrt-0.1.5",
+    "file": "rust/integer-sqrt-0.1.5/LICENSE-APACHE",
+    "source": "https://raw.githubusercontent.com/derekdreery/integer-sqrt-rs/282d0d4e26fd41d888894f5578b9d7553f7be0c8/LICENSE-APACHE",
+    "retrieved": "2026-10-22",
+    "note": "Original Apache-2.0 license at the published crate VCS revision; omitted from the crate archive."
+  },
+  {
+    "package": "integer-sqrt-0.1.5",
+    "file": "rust/integer-sqrt-0.1.5/LICENSE-MIT",
+    "source": "https://raw.githubusercontent.com/derekdreery/integer-sqrt-rs/282d0d4e26fd41d888894f5578b9d7553f7be0c8/LICENSE-MIT",
+    "retrieved": "2026-10-22",
+    "note": "Original MIT license at the published crate VCS revision; omitted from the crate archive."
+  },
+  {
+    "package": "rustic_core-0.13.0",
+    "file": "rust/rustic_core-0.13.0/LICENSE-APACHE",
+    "source": "https://raw.githubusercontent.com/rustic-rs/rustic_core/1030be4568e5f83ddf9a1d5354479adc57dce227/LICENSE-APACHE",
+    "retrieved": "2026-10-22",
+    "note": "Original Apache-2.0 license at the published crate VCS revision; omitted from the crate archive."
+  },
+  {
+    "package": "rustic_core-0.13.0",
+    "file": "rust/rustic_core-0.13.0/LICENSE-MIT",
+    "source": "https://raw.githubusercontent.com/rustic-rs/rustic_core/1030be4568e5f83ddf9a1d5354479adc57dce227/LICENSE-MIT",
+    "retrieved": "2026-10-22",
+    "note": "Original MIT license at the published crate VCS revision; omitted from the crate archive."
+  },
+  {
+    "package": "aes256ctr_poly1305aes-0.2.1",
+    "file": "rust/aes256ctr_poly1305aes-0.2.1/LICENSE-APACHE-2.0",
+    "source": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+    "provenance": "canonical-license",
+    "license": "Apache-2.0",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/rustic-rs/aes256ctr_poly1305aes/142ef9cb9691ed378f78ee0c07f3aec3cf713e41/README.md",
+      "https://raw.githubusercontent.com/rustic-rs/aes256ctr_poly1305aes/142ef9cb9691ed378f78ee0c07f3aec3cf713e41/Cargo.toml"
+    ],
+    "retrieved": "2026-10-22",
+    "note": "Canonical Apache-2.0 text selected under the crate's explicit Apache-2.0 OR MIT grant at its published VCS revision; the upstream repository has no license text file."
+  },
+  {
+    "package": "pariter-0.6.0",
+    "file": "rust/pariter-0.6.0/LICENSE-APACHE-2.0",
+    "source": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+    "provenance": "canonical-license",
+    "license": "Apache-2.0",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/dpc/pariter/238cf7bc205668be2ade69d6f742664dbdfba375/Cargo.toml"
+    ],
+    "retrieved": "2026-10-22",
+    "note": "Canonical Apache-2.0 text selected under the crate's explicit MPL-2.0 OR MIT OR Apache-2.0 grant at its published VCS revision; the upstream repository has no license text file."
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the crate's explicit MIT license declaration at its published VCS revision; no original license file is available in that source revision.",
+    "file": "rust/base256emoji-1.0.2/LICENSE-MIT",
+    "package": "base256emoji-1.0.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-22",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/Jorropo/base256emoji/f7cf4ae2c15123376d6634ca7aed005034b396ec/Cargo.toml"
+    ]
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the exact published crate archive Cargo.toml MIT declaration; that archive has no original license file or copyright/NOTICE text.",
+    "file": "rust/base45-3.2.0/LICENSE-MIT",
+    "package": "base45-3.2.0",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-22",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://crates.io/api/v1/crates/base45/3.2.0/download"
+    ]
+  },
+  {
+    "package": "const-str-0.4.3",
+    "source": "https://raw.githubusercontent.com/Nugine/const-str/a549b512ced97f5ec6569823dbce08916cd611f3/LICENSE",
+    "file": "rust/const-str-0.4.3/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the crate's explicit MIT license declaration at its published VCS revision; no original license file is available in that source revision.",
+    "file": "rust/futures-bounded-0.3.0/LICENSE-MIT",
+    "package": "futures-bounded-0.3.0",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-22",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/thomaseizinger/rust-futures-bounded/d0fc40e0fe6c12b92696f766db6b62fd8f9051bc/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Apache-2.0",
+    "note": "Canonical Apache-2.0 text selected under the crate archive explicit MIT OR Apache-2.0 grant; no original license file is available in the published VCS revision.",
+    "file": "rust/if-watch-3.2.2/LICENSE-Apache-2.0",
+    "package": "if-watch-3.2.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-22",
+    "source": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/libp2p/if-watch/f6271229b3505bb1e245aad3d078bf571bb4e20e/Cargo.toml"
+    ]
+  },
+  {
+    "package": "libp2p-0.57.1",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/0a0e944a055183fcda5ee9d13a446546c5746c87/LICENSE",
+    "file": "rust/libp2p-0.57.1/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "libp2p-allow-block-list-0.7.0",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "file": "rust/libp2p-allow-block-list-0.7.0/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "libp2p-connection-limits-0.7.0",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "file": "rust/libp2p-connection-limits-0.7.0/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "libp2p-core-0.44.0",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "file": "rust/libp2p-core-0.44.0/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "libp2p-dcutr-0.15.0",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "file": "rust/libp2p-dcutr-0.15.0/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "libp2p-identity-0.3.0",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/cdabcd0dd82c0f8762070fd2ed7c63a0b18611f4/LICENSE",
+    "file": "rust/libp2p-identity-0.3.0/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "libp2p-noise-0.47.0",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "file": "rust/libp2p-noise-0.47.0/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "libp2p-relay-0.22.0",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "file": "rust/libp2p-relay-0.22.0/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "libp2p-request-response-0.30.0",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "file": "rust/libp2p-request-response-0.30.0/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "libp2p-stream-0.5.0-alpha",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "file": "rust/libp2p-stream-0.5.0-alpha/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "libp2p-swarm-0.48.0",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "file": "rust/libp2p-swarm-0.48.0/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "libp2p-swarm-derive-0.36.0",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "file": "rust/libp2p-swarm-derive-0.36.0/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "libp2p-tcp-0.45.0",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "file": "rust/libp2p-tcp-0.45.0/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "libp2p-websocket-0.46.0",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "file": "rust/libp2p-websocket-0.46.0/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "libp2p-websocket-0.46.0",
+    "source": "https://crates.io/api/v1/crates/libp2p-websocket/0.46.0/download",
+    "file": "rust/libp2p-websocket-0.46.0/LICENSE-COPYRIGHTS.txt",
+    "note": "Copyright statements copied verbatim from source headers in the exact published crate archive; original source headers are not otherwise included in the binary distribution.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "libp2p-yamux-0.48.0",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "file": "rust/libp2p-yamux-0.48.0/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "match-lookup-0.1.3",
+    "source": "https://raw.githubusercontent.com/mriise/smol-base-x/d524fb7c1e6ec08ca043f1f2011802791f010189/%20LICENSE",
+    "file": "rust/match-lookup-0.1.3/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "multistream-select-0.14.0",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "file": "rust/multistream-select-0.14.0/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "prost-codec-0.4.0",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "file": "rust/prost-codec-0.4.0/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "rw-stream-sink-0.5.0",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "file": "rust/rw-stream-sink-0.5.0/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "package": "yamux-0.14.1",
+    "source": "https://raw.githubusercontent.com/paritytech/yamux/cc3d0e89f615ef4f329f7a246c95a8ff1e8cc12d/LICENSE-MIT",
+    "file": "rust/yamux-0.14.1/LICENSE",
+    "note": "Original upstream license text at the exact published crate VCS revision; omitted from the published crate archive.",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "note": "Copyright statements copied verbatim from source headers in the exact published crate archive; original source headers are not otherwise included in the binary distribution.",
+    "package": "libp2p-0.57.1",
+    "file": "rust/libp2p-0.57.1/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/libp2p/0.57.1/download",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "note": "Copyright statements copied verbatim from source headers in the exact published crate archive; original source headers are not otherwise included in the binary distribution.",
+    "package": "libp2p-allow-block-list-0.7.0",
+    "file": "rust/libp2p-allow-block-list-0.7.0/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/libp2p-allow-block-list/0.7.0/download",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "note": "Copyright statements copied verbatim from source headers in the exact published crate archive; original source headers are not otherwise included in the binary distribution.",
+    "package": "libp2p-connection-limits-0.7.0",
+    "file": "rust/libp2p-connection-limits-0.7.0/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/libp2p-connection-limits/0.7.0/download",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "note": "Copyright statements copied verbatim from source headers in the exact published crate archive; original source headers are not otherwise included in the binary distribution.",
+    "package": "libp2p-core-0.44.0",
+    "file": "rust/libp2p-core-0.44.0/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/libp2p-core/0.44.0/download",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "note": "Copyright statements copied verbatim from source headers in the exact published crate archive; original source headers are not otherwise included in the binary distribution.",
+    "package": "libp2p-dcutr-0.15.0",
+    "file": "rust/libp2p-dcutr-0.15.0/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/libp2p-dcutr/0.15.0/download",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "note": "Copyright statements copied verbatim from source headers in the exact published crate archive; original source headers are not otherwise included in the binary distribution.",
+    "package": "libp2p-identity-0.3.0",
+    "file": "rust/libp2p-identity-0.3.0/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/libp2p-identity/0.3.0/download",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "note": "Copyright statements copied verbatim from source headers in the exact published crate archive; original source headers are not otherwise included in the binary distribution.",
+    "package": "libp2p-noise-0.47.0",
+    "file": "rust/libp2p-noise-0.47.0/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/libp2p-noise/0.47.0/download",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "note": "Copyright statements copied verbatim from source headers in the exact published crate archive; original source headers are not otherwise included in the binary distribution.",
+    "package": "libp2p-relay-0.22.0",
+    "file": "rust/libp2p-relay-0.22.0/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/libp2p-relay/0.22.0/download",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "note": "Copyright statements copied verbatim from source headers in the exact published crate archive; original source headers are not otherwise included in the binary distribution.",
+    "package": "libp2p-request-response-0.30.0",
+    "file": "rust/libp2p-request-response-0.30.0/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/libp2p-request-response/0.30.0/download",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "note": "Copyright statements copied verbatim from source headers in the exact published crate archive; original source headers are not otherwise included in the binary distribution.",
+    "package": "libp2p-swarm-0.48.0",
+    "file": "rust/libp2p-swarm-0.48.0/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/libp2p-swarm/0.48.0/download",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "note": "Copyright statements copied verbatim from source headers in the exact published crate archive; original source headers are not otherwise included in the binary distribution.",
+    "package": "libp2p-swarm-derive-0.36.0",
+    "file": "rust/libp2p-swarm-derive-0.36.0/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/libp2p-swarm-derive/0.36.0/download",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "note": "Copyright statements copied verbatim from source headers in the exact published crate archive; original source headers are not otherwise included in the binary distribution.",
+    "package": "libp2p-tcp-0.45.0",
+    "file": "rust/libp2p-tcp-0.45.0/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/libp2p-tcp/0.45.0/download",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "note": "Copyright statements copied verbatim from source headers in the exact published crate archive; original source headers are not otherwise included in the binary distribution.",
+    "package": "libp2p-yamux-0.48.0",
+    "file": "rust/libp2p-yamux-0.48.0/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/libp2p-yamux/0.48.0/download",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "note": "Copyright statements copied verbatim from source headers in the exact published crate archive; original source headers are not otherwise included in the binary distribution.",
+    "package": "multistream-select-0.14.0",
+    "file": "rust/multistream-select-0.14.0/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/multistream-select/0.14.0/download",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "note": "Copyright statements copied verbatim from source headers in the exact published crate archive; original source headers are not otherwise included in the binary distribution.",
+    "package": "rw-stream-sink-0.5.0",
+    "file": "rust/rw-stream-sink-0.5.0/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/rw-stream-sink/0.5.0/download",
+    "retrieved": "2026-10-22"
+  },
+  {
+    "note": "Original LICENSE copied unchanged from the installed versioned npm package; lockfile pins archive integrity.",
+    "package": "@jsonforms/core@3.8.0",
+    "file": "npm/jsonforms__core-3.8.0/LICENSE",
+    "source": "https://registry.npmjs.org/@jsonforms/core/3.8.0",
+    "retrieved": "2026-10-23"
+  },
+  {
+    "note": "Original LICENSE copied unchanged from the installed versioned npm package; lockfile pins archive integrity.",
+    "package": "@jsonforms/vue@3.8.0",
+    "file": "npm/jsonforms__vue-3.8.0/LICENSE",
+    "source": "https://registry.npmjs.org/@jsonforms/vue/3.8.0",
+    "retrieved": "2026-10-23"
+  },
+  {
+    "note": "Original LICENSE copied unchanged from the installed versioned npm package; lockfile pins archive integrity.",
+    "package": "lodash@4.18.1",
+    "file": "npm/lodash-4.18.1/LICENSE",
+    "source": "https://registry.npmjs.org/lodash/4.18.1",
+    "retrieved": "2026-10-23"
+  },
+  {
+    "note": "Original LICENSE copied unchanged from the installed versioned npm package; lockfile pins archive integrity.",
+    "package": "ajv-formats@2.1.1",
+    "file": "npm/ajv-formats-2.1.1/LICENSE",
+    "source": "https://registry.npmjs.org/ajv-formats/2.1.1",
+    "retrieved": "2026-10-23"
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the crate's explicit MIT OR Apache-2.0 license declaration at its published VCS revision; no original license file or copyright/NOTICE text is available in that source revision.",
+    "file": "rust/typed-path-0.9.3/LICENSE-MIT",
+    "package": "typed-path-0.9.3",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-23",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/chipsenkbeil/typed-path/08cae85913d37b862b1d0e1aa2fa9e3857e9312e/Cargo.toml"
+    ]
   }
 ]

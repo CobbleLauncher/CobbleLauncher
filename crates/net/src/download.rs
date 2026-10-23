@@ -68,6 +68,7 @@ impl DownloadAuthority {
 /// digest. UserConfirmedLocal imports remain a separate T006 API.
 #[derive(Clone)]
 pub struct DownloadRequest {
+    source_label: String,
     endpoint: Endpoint,
     url: String,
     credential: Option<CredentialId>,
@@ -75,8 +76,25 @@ pub struct DownloadRequest {
     identity: StageIdentity,
     partition: Option<CredentialPartition>,
     mirror_redirects: bool,
+    curseforge_redirects: bool,
 }
 impl DownloadRequest {
+    pub(crate) fn progress_labels(&self) -> (String, String, u64) {
+        let item = self
+            .endpoint
+            .url
+            .path_segments()
+            .and_then(|mut segments| segments.next_back())
+            .unwrap_or("download");
+        (
+            self.source_label.clone(),
+            item.chars()
+                .filter(|character| !character.is_control())
+                .take(128)
+                .collect(),
+            self.identity.expected_size,
+        )
+    }
     /// Opt in for a selected anonymous BMCL-compatible source's HTTPS CDN routes.
     /// The provider may delegate through redirects subject to the broker's
     /// per-hop destination/TLS checks and existing redirect/body/time limits.
@@ -85,7 +103,11 @@ impl DownloadRequest {
         mut self,
         original_official_url: &str,
     ) -> Result<Self, DownloadError> {
-        if self.credential.is_some() || self.partition.is_some() || self.mirror_redirects {
+        if self.credential.is_some()
+            || self.partition.is_some()
+            || self.mirror_redirects
+            || self.curseforge_redirects
+        {
             return Err(DownloadError::InvalidRequest);
         }
         self.expectation
@@ -122,6 +144,7 @@ impl DownloadRequest {
         if self.credential.is_some()
             || self.partition.is_some()
             || self.mirror_redirects
+            || self.curseforge_redirects
             || !matches!(
                 self.endpoint.url.host_str(),
                 Some(
@@ -195,6 +218,7 @@ impl DownloadRequest {
             max_bytes: expectation.max_bytes,
         };
         Ok(Self {
+            source_label: authority.provider,
             endpoint,
             url: url.into(),
             credential,
@@ -202,7 +226,26 @@ impl DownloadRequest {
             identity,
             partition: authority.partition,
             mirror_redirects: false,
+            curseforge_redirects: false,
         })
+    }
+    /// Exact API-provided CurseForge files may redirect between the finite
+    /// official CDN origins. Credentials are still stripped on origin change.
+    pub fn with_curseforge_redirects(mut self) -> Result<Self, DownloadError> {
+        if self.mirror_redirects
+            || self.curseforge_redirects
+            || self.source_label != "curseforge"
+            || self.expectation.digests.sha1.is_none()
+            || !crate::artifact::curseforge_endpoint(&self.endpoint)
+        {
+            return Err(DownloadError::InvalidRequest);
+        }
+        let mut hash = Sha256::new();
+        hash.update(b"CobbleLauncher finite official CurseForge CDN redirects v1\0");
+        hash.update(self.identity.request_key);
+        self.identity.request_key = hash.finalize().into();
+        self.curseforge_redirects = true;
+        Ok(self)
     }
 }
 fn hash_field(hash: &mut Sha256, bytes: &[u8]) {
@@ -259,6 +302,9 @@ pub struct ArtifactDownloader {
     disk: Arc<Semaphore>,
 }
 impl ArtifactDownloader {
+    pub(crate) fn concurrency(&self) -> usize {
+        self.broker.artifact_config().max_concurrent
+    }
     pub fn new(broker: Broker, staging: DownloadStaging, content: ContentStore) -> Self {
         let concurrent = broker.artifact_config().max_concurrent;
         Self {
@@ -368,6 +414,9 @@ impl ArtifactDownloader {
             let worker_completion = completion.clone();
             let recovery_budget = StageRecoveryBudget::new(deadline, cancel.stop_flag());
             let (file, mode) = tokio::task::spawn_blocking(move || {
+                // Recovery/hashing has a separate two-worker disk budget. Do
+                // not keep that lease while the socket waits for upstream.
+                let _disk = disk;
                 let completion = worker_completion;
                 let mut stage = staging
                     .open_job_with_budget(identity, recovery_budget)
@@ -404,7 +453,6 @@ impl ArtifactDownloader {
                         checkpoint_at: Instant::now(),
                         status: worker_status,
                         _job: worker_job,
-                        _disk: disk,
                         _completion: completion,
                     },
                     mode,
@@ -426,7 +474,9 @@ impl ArtifactDownloader {
                     transfer,
                     file,
                     cancel.clone(),
-                    SameOriginGrant::new(&request.endpoint).with_mirror(request.mirror_redirects),
+                    SameOriginGrant::new(&request.endpoint)
+                        .with_mirror(request.mirror_redirects)
+                        .with_curseforge(request.curseforge_redirects),
                 )
                 .await;
             if let Some(error) = status.lock().map_err(|_| DownloadError::Worker)?.take() {
@@ -441,9 +491,15 @@ impl ArtifactDownloader {
             }
         };
         check_live(&cancel, deadline)?;
+        let disk = self
+            .disk
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| DownloadError::Worker)?;
         let content = self.content.clone();
         tokio::task::spawn_blocking(move || {
-            let _disk = file._disk;
+            let _disk = disk;
             let _completion = file._completion;
             let _job = job;
             let mut stage = file.stage.expect("owned stage");
@@ -553,10 +609,8 @@ struct StageFile {
     checkpoint_at: Instant,
     status: Arc<Mutex<Option<StageError>>>,
     _job: Arc<OwnedSemaphorePermit>,
-    // Held through preparation, HTTP/checkpoints and CAS. This conservative B
-    // slice permits two disk-backed jobs (and thus two artifact transfers) per
-    // cloned downloader; metadata keeps the broker's separate shared budgets.
-    _disk: Arc<OwnedSemaphorePermit>,
+    // Completion stays with preparation, HTTP/checkpoints and CAS even if the
+    // caller is cancelled; retries wait for the final blocking owner to exit.
     _completion: Option<Arc<AttemptCompletion>>,
 }
 impl StageFile {

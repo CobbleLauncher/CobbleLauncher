@@ -353,20 +353,31 @@ where
     F: Fn(&[u8]) -> Result<T, E> + Sync,
 {
     let result = async {
-        let response = tokio::time::timeout(timeout, broker.get(&candidate.1, None, limit))
-            .await
-            .map_err(|_| {
-                E::from(PublicFetchError::Network(NetError::Timeout(
-                    TimeoutPhase::Total,
-                )))
-            })?
-            .map_err(|error| E::from(PublicFetchError::Network(error)))?;
+        let response = tokio::time::timeout(
+            timeout,
+            broker.get_public_metadata(&candidate.1, &candidate.0.id(), limit),
+        )
+        .await
+        .map_err(|_| {
+            E::from(PublicFetchError::Network(NetError::Timeout(
+                TimeoutPhase::Total,
+            )))
+        })?
+        .map_err(|error| E::from(PublicFetchError::Network(error)))?;
         if response.metadata.status != 200 {
             return Err(E::from(PublicFetchError::HttpStatus(
                 response.metadata.status,
             )));
         }
-        parse(&response.body)
+        let parsed = parse(&response.body);
+        if parsed.is_err()
+            && let Some(cache) = cobble_net::PublicMetadataCache::shared()
+        {
+            let _ = cache
+                .invalidate(&candidate.1, &candidate.0.id(), limit)
+                .await;
+        }
+        parsed
     }
     .await;
     if track_preference && result.is_err() {

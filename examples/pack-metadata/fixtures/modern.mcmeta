@@ -1,0 +1,12 @@
+{
+  "pack": {
+    "description": {
+      "text": "Synthetic modern pack"
+    },
+    "min_format": [
+      74,
+      1
+    ],
+    "max_format": 74
+  }
+}

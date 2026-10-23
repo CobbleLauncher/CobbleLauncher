@@ -1,0 +1,126 @@
+{
+  "id": "modpack-inspector",
+  "name": "Modpack Inspector",
+  "version": "0.1.0",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "report"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:report",
+        "version": "0.2.0"
+      }
+    ]
+  },
+  "file_extensions": [
+    "json",
+    "mrpack"
+  ],
+  "report_protocols": [
+    "cobble.mrpack-page@1"
+  ],
+  "contributions": {
+    "schema_version": 1,
+    "commands": [
+      {
+        "id": "modpack-inspector.inspect-pack",
+        "label": {
+          "en": "Inspect pack",
+          "zh-CN": "检查整合包"
+        },
+        "workflow": "report",
+        "menus": [
+          {
+            "position": "tools",
+            "when": "always"
+          }
+        ]
+      }
+    ],
+    "settings": {
+      "categories": [
+        {
+          "id": "inspection",
+          "label": {
+            "en": "Inspection",
+            "zh-CN": "检查"
+          },
+          "fields": [
+            {
+              "id": "page_size",
+              "type": "enum",
+              "label": {
+                "en": "Rows per page",
+                "zh-CN": "每页行数"
+              },
+              "scope": "global",
+              "default": 50,
+              "options": [
+                {
+                  "value": 20,
+                  "label": {
+                    "en": "20"
+                  }
+                },
+                {
+                  "value": 50,
+                  "label": {
+                    "en": "50"
+                  }
+                },
+                {
+                  "value": 100,
+                  "label": {
+                    "en": "100"
+                  }
+                }
+              ]
+            },
+            {
+              "id": "show_dependencies",
+              "type": "boolean",
+              "label": {
+                "en": "Show dependencies",
+                "zh-CN": "显示依赖"
+              },
+              "scope": "global",
+              "default": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Inspect and compare modpack contents",
+    "zh-CN": "查看和比较整合包内容"
+  },
+  "tags": [
+    "modpacks",
+    "inspection"
+  ],
+  "icon": {
+    "file": "icon.png",
+    "sha256": "f4bc2cef6a6af2f371fb7e878da44a3dcdec451dc61f60b2304cd3769e394a8f"
+  },
+  "permissions": [
+    {
+      "permission": "launcher:resource/selected/read",
+      "extensions": [
+        "json",
+        "mrpack"
+      ]
+    },
+    {
+      "permission": "launcher:settings/read",
+      "keys": [
+        "global:page_size",
+        "global:show_dependencies"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+/* SPDX-License-Identifier: MIT */
+.settings-category-content > .settings-section:first-child {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+.settings-category-tab,
+.settings-choice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ui-space-2);
+  min-height: var(--ui-control-height);
+}
+.settings-choice {
+  min-width: 100px;
+  font-size: var(--ui-text-label);
+  background: var(--ui-surface-1);
+}
+.settings-choice[data-state=checked] {
+  border-color: var(--ui-focus);
+  background: var(--ui-surface-2);
+}
+.settings-category-tab .app-icon { color: var(--ui-text-muted); }
+.settings-category-tab[data-state=active] .app-icon { color: var(--ui-focus); }
+.settings-inline-actions:has(.switch-field) {
+  justify-content: space-between;
+  flex-direction: row-reverse;
+  min-height: var(--ui-control-height);
+  margin-top: 0;
+}
+.settings-path-control { border-color: var(--ui-border-strong); }
+.settings-number-pair input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface-1);
+  color: var(--ui-text);
+  font-size: var(--ui-text-body);
+  min-height: var(--ui-control-height);
+}

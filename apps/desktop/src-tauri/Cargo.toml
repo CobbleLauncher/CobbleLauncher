@@ -11,24 +11,56 @@ default-run = "cobble-desktop"
 tauri-build = { version = "=2.7.3", features = [] }
 
 [dependencies]
-tauri = { version = "=2.12.4", features = [] }
+cap-std.workspace = true
+cobble-store.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+tauri = { version = "=2.12.4", features = ["unstable"] }
 cobble-core.workspace = true
+cobble-platform = { path = "../../../crates/platform" }
 cobble-content.workspace = true
+cobble-modpack-inspector = { path = "../../../crates/modpack-inspector" }
 cobble-auth.workspace = true
 cobble-domain.workspace = true
 cobble-minecraft.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde-saphyr = { version = "=2.0.0", default-features = false, features = ["serialize", "deserialize"] }
+tracing = "=0.1.44"
+tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
+tracing-appender = "=0.2.5"
+zip.workspace = true
+tempfile = "=3.27.0"
 dirs = "=7.0.0"
 rfd = "=0.17.2"
 open = "=5.4.4"
 cobble-net.workspace = true
+tokio = { workspace = true, features = ["macros"] }
+cobble-plugin-api = { path = "../../../crates/plugin-api" }
+cobble-diagnostics = { path = "../../../crates/diagnostics" }
+getrandom.workspace = true
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
+base64 = "=0.22.1"
+process-wrap = { version = "=10.0.0", default-features = false, features = ["std", "job-object", "creation-flags"] }
+cobble-plugin-host = { path = "../../../crates/plugin-host" }
 sysinfo = { version = "=0.39.6", default-features = false, features = ["system"] }
 tauri-plugin-single-instance = "=2.5.4"
+tauri-plugin-clipboard-manager = "=2.5.0"
 
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+embedded-curseforge-key = []
 
 [lints]
 workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+cobble-plugin-webview-windows = { path = "../../../crates/plugin-webview-windows" }
+keyring = { version = "=3.6.3", default-features = false, features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "=3.6.3", default-features = false, features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "=3.6.3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }

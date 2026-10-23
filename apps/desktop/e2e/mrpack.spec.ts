@@ -8,9 +8,9 @@ const game: Game = { id: 'synthetic-pack', name: pack.name, pack_name: pack.name
 type Call = { command: string; args: Record<string, unknown> };
 type TestWindow = Window & { __calls: Call[]; __pick: 'pack' | 'cancel' | 'replacement' | 'unsupported'; __createFails: boolean; __directoryCancel: boolean; __gameEvent: (game: Game) => void };
 
-async function mockNative(page: Page, stored: Game[] = [], packSelection: PackPreview = pack, source = 'bmclapi') {
+async function mockNative(page: Page, stored: Game[] = [], packSelection: PackPreview = pack, source = 'bmclapi', mirror = '') {
   const selectedGame = { ...game, loader_kind: packSelection.loader_kind, loader_version: packSelection.loader_version };
-  await page.addInitScript(({ pack, game, stored, source }) => {
+  await page.addInitScript(({ pack, game, stored, source, mirror }) => {
     const target = window as unknown as TestWindow & { isTauri: boolean; __TAURI_INTERNALS__: unknown; __TAURI_EVENT_PLUGIN_INTERNALS__: unknown };
     const callbacks = new Map<number, (event: unknown) => void>();
     const listeners = new Map<string, number>();
@@ -29,7 +29,7 @@ async function mockNative(page: Page, stored: Game[] = [], packSelection: PackPr
         if (command === 'plugin:event|listen') { listeners.set(String(args.event), args.handler as number); return 1; }
         if (command === 'list_games') return stored;
         if (command === 'list_player_profiles') return { profiles: [], active_id: null };
-        if (command === 'get_download_settings') return { source, mirror: '' };
+        if (command === 'get_download_settings') return { source, mirror };
         if (command === 'default_game_directory') return 'C:\\Cobble\\games';
         if (command === 'pick_game_directory') return target.__directoryCancel ? null : 'D:\\My Games';
         if (command === 'preview_mrpack') {
@@ -47,7 +47,7 @@ async function mockNative(page: Page, stored: Game[] = [], packSelection: PackPr
         return null;
       },
     };
-  }, { pack: packSelection, game: selectedGame, stored, source });
+  }, { pack: packSelection, game: selectedGame, stored, source, mirror });
 }
 async function openImport(page: Page) {
   await page.goto('/');
@@ -60,6 +60,7 @@ test('mrpack creation uses the saved Automatic source choice', async ({ page }) 
   await mockNative(page, [], pack, 'automatic');
   await openImport(page);
   await expect(page.getByRole('radio', { name: '自动（推荐）', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('radio', { name: '自定义镜像', exact: true })).toHaveCount(0);
   await expect(page.getByText('自动选择响应较快的下载源，失败时切换。')).toBeVisible();
   await page.getByRole('button', { name: '导入并安装' }).click();
   const args = await page.evaluate(() => (window as unknown as TestWindow).__calls.find((call) => call.command === 'create_mrpack_game')?.args);
@@ -67,7 +68,7 @@ test('mrpack creation uses the saved Automatic source choice', async ({ page }) 
 });
 
 test('preview choices, cancellation, source and native-owned creation with install events and retry', async ({ page }, testInfo) => {
-  await mockNative(page);
+  await mockNative(page, [], pack, 'bmclapi', 'https://mirror.example.com/');
   await openImport(page);
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: pack.name, exact: true })).toBeVisible();
@@ -82,7 +83,8 @@ test('preview choices, cancellation, source and native-owned creation with insta
   await expect(page.getByRole('checkbox').first()).toBeChecked();
   await expect(page.getByLabel('游戏名称')).toHaveValue('我的林间世界');
   await page.getByRole('radio', { name: '自定义镜像', exact: true }).click();
-  await page.getByLabel('镜像地址').fill('https://mirror.example.com/');
+  await expect(page.getByLabel('镜像地址')).toHaveValue('https://mirror.example.com/');
+  await expect(page.getByLabel('镜像地址')).toHaveAttribute('readonly', '');
   await page.getByRole('button', { name: '更改', exact: false }).click();
   await expect(page.getByRole('button', { name: 'D:\\My Games 更改' })).toBeVisible();
   await page.evaluate(() => { (window as unknown as TestWindow).__directoryCancel = true; });
@@ -133,9 +135,7 @@ test('replacement clears optionals; readable unsupported and creation errors rem
   await page.getByRole('button', { name: '导入并安装' }).click();
   await expect(page.getByRole('alert')).toContainText('整合包预览已失效');
   await expect(page.getByRole('button', { name: '导入并安装' })).toBeEnabled();
-  await page.getByRole('radio', { name: '自定义镜像', exact: true }).click();
-  await page.getByRole('button', { name: '导入并安装' }).click();
-  await expect(page.getByRole('alert')).toContainText('HTTPS');
+  await expect(page.getByRole('radio', { name: '自定义镜像', exact: true })).toHaveCount(0);
   await page.getByRole('radio', { name: '官方', exact: true }).click();
   await page.evaluate(() => { (window as unknown as TestWindow).__createFails = false; });
   await page.getByRole('button', { name: '导入并安装' }).click();

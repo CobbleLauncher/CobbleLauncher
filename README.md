@@ -1,39 +1,47 @@
-# CobbleLauncher
+# Cobble Launcher
 
 **A Minecraft launcher that stays out of your way.**
 
-CobbleLauncher is an open-source launcher for Minecraft: Java Edition. It aims to make installing and starting the game simpler, with the settings you need close at hand. The project is in early development and has no stable release yet. Sign in with a Microsoft account or use offline profiles for local play.
+Cobble is an open-source launcher for Minecraft: Java Edition, built with Rust, Tauri and Vue. Keep your games separate, find compatible content, and get back to playing without digging through folders.
 
-## What you can do today
+Cobble is in early development. Windows is the primary testing platform; macOS and Linux support is still being validated.
 
-- Use a clean, frameless interface with light and dark themes.
-- Create Vanilla, Fabric, Forge, or NeoForge installations from the desktop or command line.
-- Follow downloads and installations in one task view, cancel work, and resume failed or interrupted tasks.
-- Automatically choose between official downloads and BMCLAPI, with fallback if a source fails. You can also choose a source manually or use a custom BMCLAPI-compatible source.
-- Choose Java and memory defaults, with optional settings for each game.
-- Choose where new games are stored.
-- Keep multiple offline player profiles, switch between them, or pin one to a game before launching.
-- Add Microsoft accounts through browser sign-in, with credentials stored in the OS credential vault.
-- Import local Mods, view their details, and enable, disable, or remove them individually or in batches.
-- Search Modrinth for compatible Mods and install their required dependencies together.
-- Choose compatible Mod versions, read their changelogs, and preview dependencies before installing or changing an installed version.
-- Check for updates to Mods installed through Modrinth, review version changes and required dependencies, and update selected Mods together.
-- Identify local and modpack Mods on Modrinth so they can use the same update workflow.
-- Import, search, and remove resource pack and shader pack ZIPs for each game.
-- Find resource packs and shaders on Modrinth, choose a version compatible with your game, and install it.
-- Import `.mrpack` files for supported loaders, with optional client content and pack configurations.
-- Find modpacks on Modrinth, choose a compatible release, and review its contents before installing.
-- Import existing Minecraft, Prism, or MultiMC games into independent installations, with optional saves.
-- Rename or copy games, export a local `.mrpack`, and remove games while choosing whether to keep their files.
-- Open game folders or logs from the details page.
-- Browse local worlds, view their basic details, and export ZIP backups while the game is closed.
-- Import a world ZIP into a new world, or explicitly replace an existing world and keep its previous contents available to restore.
+## Play and manage your games
 
-Forge and NeoForge currently target Minecraft 1.21.1. Their official installers handle library downloads and patches. Mod updates preserve disabled state and keep backups of replaced files. Unrecognized Mods need manual version checks; updating an entire modpack is not available yet.
+- **Your library, your way.** Continue your last game, pin instances, set custom icons and covers, and create Windows desktop shortcuts.
+- **Simple installation.** Install Vanilla, Fabric, Forge or NeoForge. Detect installed Java runtimes and choose settings globally or per game. Downloads support automatic source selection, parallel transfers, cancellation and resume.
+- **Content in one place.** Browse Modrinth and CurseForge for modpacks, Mods, resource packs and shaders. Review compatible versions and dependencies before installing.
+- **Updates you can undo.** Manage enabled Mods, choose versions, review recent changes and undo managed installs or updates while preserving later local edits.
+- **Accounts and appearance.** Switch between Microsoft accounts and offline profiles, assign an account to a game, and preview or apply skins.
+- **Useful recovery.** Recover interrupted installations, repair launcher-managed game files, and open the relevant logs when a launch fails.
 
-## Get started
+## Keep your worlds and creations
 
-You’ll need Rust 1.99, Node.js 24, pnpm 11, and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform.
+- Save named world snapshots with deduplicated storage, or enable automatic backups after a game exits. Restore earlier versions with a rollback option.
+- Browse screenshots and edit supported Mod configuration files with backups. The optional Config Doctor can also copy compatible keybindings between games.
+- Search, save and preview blueprints, inspect materials, and import files into a game's schematic folder. Optional providers can add online blueprint catalogs.
+- Import existing launcher instances and local modpacks into separate games. Preview differences between local MRPACK versions before making changes.
+
+## Optional tools and multiplayer
+
+Extensions add viewers, diagnostics and other tools. Browse installed extensions, review permissions, and subscribe to multiple static HTTPS catalogs, including catalogs hosted on GitHub. Plugins can use host-rendered interfaces or an isolated custom frontend, with access limited by their declared permissions.
+
+Bundled examples include Schematic Viewer, Crash Doctor, Config Doctor and Modpack Inspector. Plugin development is experimental and the SDK is still evolving.
+
+The optional **Cobble Mesh** companion supports relay-based game invitations and local-network contacts. You can manage your public identity, use a temporary contact identity, inspect local Mesh status, or switch Mesh off. Automatic persistent connections and direct/hole-punch routing are being developed; they are not part of the current integration.
+
+## Current limits
+
+- Forge and NeoForge currently support Minecraft 1.21.1. Other game/loader combinations are being expanded.
+- Java is detected automatically but must currently be installed separately.
+- Whole-modpack upgrades currently provide a difference preview; individual managed Mod changes support installation, updates and undo.
+- Blueprint previews support Sponge `.schem` v1–v3 local-palette files and `.litematic` v4–v7, with basic cube rendering. Textures may be read from your installed game; Minecraft textures are not distributed with Cobble.
+- Offline skins are displayed in the launcher. Offline profiles cannot join servers that require Microsoft authentication.
+- Windows test packages are unsigned. Real Minecraft multiplayer through Mesh has not yet completed end-to-end acceptance.
+
+## Build and run
+
+Install Rust 1.99, Node.js 24, pnpm 11 and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/), then:
 
 ```sh
 git clone https://github.com/CobbleLauncher/CobbleLauncher.git
@@ -42,67 +50,40 @@ pnpm install
 pnpm desktop
 ```
 
-## Windows test package
-
-Build an unsigned Windows x64 folder and ZIP with the executable, start instructions, dependency inventory and original license texts:
+To build a Windows test package:
 
 ```sh
 pnpm package:windows
 ```
 
-The output is `target/test-release/<version>-windows-x64/` and a ZIP beside it. Run `pnpm package:windows --check` to check local license coverage without building or packaging. After separately validating the release executable, `--skip-build` packages that existing build. Rebuilding replaces only that generated folder, ZIP and checksum.
+The folder and ZIP are written to `target/test-release/`. Extract the entire ZIP and run `Cobble Launcher.exe`. Microsoft Edge WebView2 Runtime is required.
 
-Extract the ZIP and open `Cobble Launcher.exe`. The app requires Microsoft Edge WebView2 Runtime. Minecraft requires a compatible Java installation, provided separately. This is a test distribution without a code signature; it does not establish macOS or Linux support. Settings and account credentials use your user profile; game locations are configurable.
+To include Mesh, pass `--mesh-project <path-to-companion-checkout>` using a checkout that provides the `cobble-mesh-companion` target. Mesh is maintained separately from this repository.
 
-## Command line
+CurseForge integration uses the project's own approved API key. The manual **Package Windows client** workflow reads the `COURSE_FORGE_API` Actions secret and enables the release integration. Ordinary builds do not embed a key. For local development, `scripts/launch-desktop-local.mjs` can launch an already-built debug executable with the key from `../.secret.env`; credential files must stay outside Git.
 
-List available versions or install Vanilla 1.21.1 into a new folder:
+## Build a plugin
 
-```sh
-cargo run -p cobble-cli --locked -- versions
-cargo run -p cobble-cli --locked -- install 1.21.1 --dir ./game
-cargo run -p cobble-cli --locked -- play 1.21.1 --dir ./game --name Player
-```
-
-For Fabric, add `--fabric <loader-version>` to the install command. Run `cargo run -p cobble-cli --locked -- fabric-versions 1.21.1` to list loaders.
-
-Forge and NeoForge use their official installers. For Minecraft 1.21.1:
+Install `wasm-tools` 1.262.0 and the `wasm32-unknown-unknown` Rust target. Build the bundled plugins with:
 
 ```sh
-cargo run -p cobble-cli --locked -- loader-versions forge 1.21.1
-cargo run -p cobble-cli --locked -- install 1.21.1 --dir ./forge-game --forge 52.1.0
-cargo run -p cobble-cli --locked -- loader-versions neoforge 1.21.1
-cargo run -p cobble-cli --locked -- install 1.21.1 --dir ./neo-game --neoforge 21.1.264
+pnpm plugins:build
 ```
 
-Search or install Mods with their required dependencies:
+Create and build a Rust viewer plugin:
 
 ```sh
-cargo run -p cobble-cli --locked -- mods-search 1.21.1 "mod menu"
-cargo run -p cobble-cli --locked -- mod-install 1.21.1 modmenu --dir ./game
+cargo run -p cobble-plugin-sdk -- new my-viewer ./my-viewer
+cargo run -p cobble-plugin-sdk -- build ./my-viewer ./my-viewer-package
+cargo run -p cobble-plugin-sdk -- check ./my-viewer-package
 ```
 
-Search defaults to Fabric; add `--loader forge` or `--loader neoforge` for other loaders. Installation detects the target game’s loader.
+The SDK also provides report and provider templates. Implement the generated example before using it with real data. See command help for packaging, fixture testing and catalog validation.
 
-To use BMCLAPI, add `--source bmclapi`. Forge and NeoForge installers currently fetch their remaining libraries from upstream. Install a compatible Java runtime first. Offline profiles cannot authenticate to servers that require a Microsoft account.
+## License and feedback
 
-You can also inspect and install a local Modrinth pack:
+Cobble Launcher is [MIT licensed](LICENSE). Thanks to [CmlLib.Core](https://github.com/CmlLib/CmlLib.Core) and [XMCL](https://github.com/Voxelum/x-minecraft-launcher) for their open-source launcher references.
 
-```sh
-cargo run -p cobble-cli --locked -- pack-info ./pack.mrpack
-cargo run -p cobble-cli --locked -- pack-install ./pack.mrpack --dir ./pack-game
-```
+Report bugs and suggest improvements through [GitHub Issues](https://github.com/CobbleLauncher/CobbleLauncher/issues).
 
-Optional client files are off by default; add `--optional <path>` to include one. Each import creates a separate game, and interrupted imports can be retried.
-
-## License
-
-The project is licensed under the [MIT License](LICENSE).
-
-Thanks to [CmlLib.Core](https://github.com/CmlLib/CmlLib.Core) and [XMCL](https://github.com/Voxelum/x-minecraft-launcher) for their open-source launcher references.
-
-CobbleLauncher is an unofficial community project. It is not affiliated with, endorsed by, or associated with Mojang or Microsoft. Minecraft and related marks belong to their respective owners.
-
-## Get in touch
-
-For questions or bug reports, visit [GitHub Issues](https://github.com/CobbleLauncher/CobbleLauncher/issues).
+Cobble is an unofficial community project, independent of Mojang and Microsoft. Minecraft and related marks belong to their respective owners.

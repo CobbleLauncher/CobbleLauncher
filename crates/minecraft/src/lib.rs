@@ -11,15 +11,16 @@ pub use metadata::{
     VersionMetadata,
 };
 mod java;
-pub use java::{JavaError, JavaRuntime, find_java, probe_java};
+pub use java::{JavaError, JavaRuntime, discover_java, find_java, probe_java, recommend_java};
 mod java_settings;
 pub use java_settings::{
     JavaSettings, read_java_settings, resolve_java, resolve_java_override, save_java_settings,
 };
 mod preferences;
 pub use preferences::{
-    JavaOverride, LaunchOverrides, LauncherPreferences, PreferencesError,
-    read_launcher_preferences, save_launcher_preferences, validate_memory_mb,
+    JavaOverride, LaunchBehavior, LaunchOverrides, LauncherPreferences, PreferencesError,
+    WindowSize, read_launcher_preferences, save_launcher_preferences, validate_advanced_runtime,
+    validate_memory_mb,
 };
 mod source;
 pub use source::{DownloadSource, PublicFetchError, SourceError};

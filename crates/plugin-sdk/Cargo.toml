@@ -1,0 +1,17 @@
+[package]
+name = "cobble-plugin-sdk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+cobble-plugin-api = { path = "../plugin-api" }
+cobble-plugin-host = { path = "../plugin-host" }
+cobble-content.workspace = true
+cobble-modpack-inspector = { path = "../modpack-inspector" }
+serde_json.workspace = true
+
+[lints]
+workspace = true

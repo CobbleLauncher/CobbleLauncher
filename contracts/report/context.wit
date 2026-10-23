@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: MIT
+
+
+// Additive context-aware world. The original report-plugin world is unchanged.
+world report-plugin-context {
+  import resources;
+  import launcher:report-context/context@0.2.0;
+  export reports;
+}

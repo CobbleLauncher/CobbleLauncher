@@ -139,11 +139,14 @@ pub(crate) fn watch_recovered(app: &AppHandle) {
             while alive(&session) {
                 std::thread::sleep(Duration::from_secs(1));
             }
+            tauri::async_runtime::block_on(super::world_snapshots::automatic::after_exit(&app, &session));
             let _ = clear(&session);
             super::update_game(
                 &app,
                 &session.game_id,
-                |game| game.launch_state = super::idle(),
+                |game| {
+                    if game.launch_state == "running" { game.launch_state = super::idle(); }
+                },
                 false,
             );
         });

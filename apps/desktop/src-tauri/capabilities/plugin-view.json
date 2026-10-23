@@ -1,0 +1,6 @@
+{
+  "identifier": "plugin-view",
+  "description": "Plugin view: identity-bound frontend broker only.",
+  "webviews": ["plugin-ui-*"],
+  "permissions": ["allow-frontend-call"]
+}

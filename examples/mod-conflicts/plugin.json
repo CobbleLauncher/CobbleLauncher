@@ -1,0 +1,75 @@
+{
+  "id": "mod-conflicts",
+  "name": "Mod conflicts",
+  "version": "0.1.0",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "report"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:report",
+        "version": "0.2.0"
+      },
+      {
+        "id": "launcher:web-frontend",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "file_extensions": [],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Find duplicate Mods and missing declared dependencies",
+    "zh-CN": "查找重复模组和缺失的已声明依赖"
+  },
+  "tags": [
+    "mods",
+    "inspection"
+  ],
+  "contributions": {
+    "schema_version": 1,
+    "commands": [
+      {
+        "id": "mod-conflicts.inspect",
+        "label": {
+          "en": "Mod conflicts",
+          "zh-CN": "模组冲突"
+        },
+        "workflow": "report",
+        "menus": [
+          {
+            "position": "tools",
+            "when": "always"
+          },
+          {
+            "position": "instance",
+            "when": "instance_selected"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": [
+    {
+      "permission": "launcher:game-inspection/read",
+      "scopes": [
+        "mods"
+      ]
+    },
+    {
+      "permission": "launcher:ui/webview"
+    }
+  ],
+  "frontend": {
+    "api_version": "0.1.0",
+    "entry": "ui/index.html",
+    "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "icon": {
+    "file": "icon.png",
+    "sha256": "b54d9bd6abb4a231e3e9bba8c8878442aeaccf1f3bc08761b6568b202efdb9a8"
+  }
+}

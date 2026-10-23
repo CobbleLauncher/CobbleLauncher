@@ -1,0 +1,10 @@
+{
+  "locale": "en",
+  "columns": 0,
+  "ordering": "selected",
+  "images": [
+    { "id": "landscape", "name": "Morning.png", "width": 256, "height": 144, "modified_at": 100 },
+    { "id": "portrait", "name": "Tower.png", "width": 144, "height": 256, "modified_at": null },
+    { "id": "square", "name": "Garden.png", "width": 256, "height": 256, "modified_at": 200 }
+  ]
+}

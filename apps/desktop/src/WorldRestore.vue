@@ -3,6 +3,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { RadioGroupItem, RadioGroupRoot } from 'reka-ui';
+import { locale, t } from './i18n';
 import type { LocalWorld } from './games';
 import type { WorldBackupPreview, WorldRestoreResult } from './world-backups';
 const props = defineProps<{ gameId: string; worlds: LocalWorld[]; locked: boolean }>();
@@ -22,7 +23,7 @@ function sizeLabel(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const unit = bytes < 1024 ** 2 ? 'KiB' : bytes < 1024 ** 3 ? 'MiB' : 'GiB';
   const divisor = unit === 'KiB' ? 1024 : unit === 'MiB' ? 1024 ** 2 : 1024 ** 3;
-  return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 1 }).format(bytes / divisor)} ${unit}`;
+  return `${new Intl.NumberFormat(locale.value, { maximumFractionDigits: 1 }).format(bytes / divisor)} ${unit}`;
 }
 async function choose() {
   if (busy.value || props.locked) return;
@@ -32,22 +33,22 @@ async function choose() {
     if (disposed) return;
     if (!value) { if (!preview.value) emit('cancel'); return; }
     preview.value = value; folderName.value = value.suggested_folder; mode.value = 'new'; targetFolder.value = ''; confirmed.value = false;
-  } catch (cause) { if (!disposed) error.value = `无法读取世界备份：${String(cause)}`; }
+  } catch (cause) { if (!disposed) error.value = t('worlds.backupReadError', { error: String(cause) }); }
   finally { picking.value = false; emit('busy', false); }
 }
 async function restore() {
   if (!preview.value || busy.value || props.locked) return;
   error.value = '';
   const folder = mode.value === 'replace' ? target.value?.folder_name : folderName.value.trim();
-  if (!folder) { error.value = mode.value === 'replace' ? '请选择目标世界' : '请填写世界文件夹名称'; return; }
+  if (!folder) { error.value = mode.value === 'replace' ? t('worlds.chooseTarget') : t('worlds.enterFolder'); return; }
   if (mode.value === 'replace' && !confirmed.value) return;
-  if (mode.value === 'new' && (/[/\\<>:"|?*]/.test(folder) || [...folder].some((character) => character.charCodeAt(0) < 32) || folder === '.' || folder === '..' || folder.endsWith('.'))) { error.value = '请输入有效的文件夹名称，不含路径或特殊字符'; return; }
-  if (mode.value === 'new' && props.worlds.some((world) => world.folder_name.toLocaleLowerCase() === folder.toLocaleLowerCase())) { error.value = '此世界文件夹已存在，请使用其他名称或选择替换已有世界'; return; }
+  if (mode.value === 'new' && (/[/\\<>:"|?*]/.test(folder) || [...folder].some((character) => character.charCodeAt(0) < 32) || folder === '.' || folder === '..' || folder.endsWith('.'))) { error.value = t('worlds.invalidFolder'); return; }
+  if (mode.value === 'new' && props.worlds.some((world) => world.folder_name.toLocaleLowerCase() === folder.toLocaleLowerCase())) { error.value = t('worlds.folderExists'); return; }
   restoring.value = true; emit('busy', true);
   try {
     const value = await invoke<WorldRestoreResult>('restore_game_world', { id: props.gameId, previewId: preview.value.preview_id, folderName: folder, replaceExisting: mode.value === 'replace' });
     if (!disposed) emit('restored', value, folder);
-  } catch (cause) { if (!disposed) error.value = `恢复世界未完成：${String(cause)}`; }
+  } catch (cause) { if (!disposed) error.value = t('worlds.restoreError', { error: String(cause) }); }
   finally { restoring.value = false; emit('busy', false); }
 }
 watch([mode, targetFolder], () => { confirmed.value = false; error.value = ''; });
@@ -61,10 +62,10 @@ onUnmounted(() => { disposed = true; });
       :disabled="busy"
       @click="emit('cancel')"
     >
-      ← 返回世界列表
+      ← {{ t('worlds.back') }}
     </button>
     <div class="world-restore-heading">
-      <h2>恢复世界</h2>
+      <h2>{{ t('worlds.restoreTitle') }}</h2>
     </div>
     <button
       class="pack-picker"
@@ -76,7 +77,7 @@ onUnmounted(() => { disposed = true; });
         viewBox="0 0 40 40"
         fill="none"
         aria-hidden="true"
-      ><path d="m8 12 12-6 12 6-12 6zM8 12v16l12 6 12-6V12M20 18v16M15 9l12 6" /></svg><span><strong>{{ picking ? '正在读取…' : preview ? '更换备份' : '选择世界备份 ZIP' }}</strong><span class="setting-hint">世界文件夹的 ZIP 备份</span></span><span
+      ><path d="m8 12 12-6 12 6-12 6zM8 12v16l12 6 12-6V12M20 18v16M15 9l12 6" /></svg><span><strong>{{ picking ? t('worlds.loading') : preview ? t('worlds.changeBackup') : t('worlds.selectZip') }}</strong><span class="setting-hint">{{ t('worlds.zipHint') }}</span></span><span
         class="picker-arrow"
         aria-hidden="true"
       >↗</span>
@@ -88,7 +89,7 @@ onUnmounted(() => { disposed = true; });
     >
       <section
         class="pack-summary"
-        aria-label="备份信息"
+        :aria-label="t('worlds.backupInfo')"
       >
         <div class="pack-title">
           <h3>{{ preview.name }}</h3>
@@ -98,17 +99,17 @@ onUnmounted(() => { disposed = true; });
         >
           <span>Minecraft {{ preview.minecraft_version }}</span>
         </div><p class="setting-hint">
-          {{ new Intl.NumberFormat('zh-CN').format(preview.file_count) }} 个文件 · {{ sizeLabel(preview.total_bytes) }}
+          {{ t('worlds.fileCount', { count: new Intl.NumberFormat(locale).format(preview.file_count) }) }} · {{ sizeLabel(preview.total_bytes) }}
         </p>
         <p
           v-if="preview.metadata_error"
           class="world-metadata-warning"
         >
-          无法读取世界信息，请确认备份来源
+          {{ t('worlds.metadataWarning') }}
         </p>
       </section>
       <div class="form-field">
-        <label id="world-restore-mode-label">恢复方式</label><RadioGroupRoot
+        <label id="world-restore-mode-label">{{ t('worlds.restoreMethod') }}</label><RadioGroupRoot
           v-model="mode"
           class="world-restore-modes"
           aria-labelledby="world-restore-mode-label"
@@ -118,13 +119,13 @@ onUnmounted(() => { disposed = true; });
             value="new"
             class="world-restore-mode"
           >
-            恢复为新世界
+            {{ t('worlds.restoreAsNew') }}
           </RadioGroupItem><RadioGroupItem
             value="replace"
             class="world-restore-mode"
             :disabled="!worlds.length"
           >
-            替换已有世界
+            {{ t('worlds.replaceExisting') }}
           </RadioGroupItem>
         </RadioGroupRoot>
       </div>
@@ -132,19 +133,19 @@ onUnmounted(() => { disposed = true; });
         v-if="mode === 'new'"
         class="form-field"
       >
-        <label for="restore-world-folder">世界文件夹</label><input
+        <label for="restore-world-folder">{{ t('worlds.worldFolder') }}</label><input
           id="restore-world-folder"
           v-model="folderName"
           maxlength="128"
           autocomplete="off"
           :disabled="busy || locked"
         ><p class="setting-hint">
-          在存档目录中创建新文件夹，不覆盖已有世界。
+          {{ t('worlds.newFolderHint') }}
         </p>
       </div>
       <template v-else>
         <div class="form-field">
-          <label for="restore-world-target">目标世界</label><select
+          <label for="restore-world-target">{{ t('worlds.targetWorld') }}</label><select
             id="restore-world-target"
             v-model="targetFolder"
             :disabled="busy || locked"
@@ -153,7 +154,7 @@ onUnmounted(() => { disposed = true; });
               value=""
               disabled
             >
-              请选择目标世界
+              {{ t('worlds.chooseTarget') }}
             </option><option
               v-for="world in worlds"
               :key="world.folder_name"
@@ -167,11 +168,11 @@ onUnmounted(() => { disposed = true; });
           v-if="target"
           class="world-replace-confirm"
         >
-          <p>将用备份替换 {{ target.name }}。替换前的世界会单独保留，可在世界列表中恢复。</p><label class="pack-optional"><input
+          <p>{{ t('worlds.replaceWarning', { name: target.name }) }}</p><label class="pack-optional"><input
             v-model="confirmed"
             type="checkbox"
             :disabled="busy || locked"
-          ><span>我确认替换 {{ target.name }}</span></label>
+          ><span>{{ t('worlds.confirmReplace', { name: target.name }) }}</span></label>
         </div>
       </template>
       <button
@@ -180,7 +181,7 @@ onUnmounted(() => { disposed = true; });
         type="submit"
         :disabled="busy || locked || (mode === 'replace' && (!target || !confirmed))"
       >
-        {{ restoring ? '恢复中…' : mode === 'replace' ? '替换并保留备份' : '恢复世界' }}
+        {{ restoring ? t('worlds.restoring') : mode === 'replace' ? t('worlds.replaceAndKeep') : t('worlds.restoreTitle') }}
       </button>
     </form>
     <p

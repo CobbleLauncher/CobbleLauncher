@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: MIT
+wit_bindgen::generate!({path:"wit",world:"viewer-plugin"});
+struct Viewer;
+impl exports::launcher::extensions::viewer::Guest for Viewer {
+    fn read_chunk(_index:u32)->Result<exports::launcher::extensions::viewer::Chunk,launcher::extensions::types::PluginError> {
+        Err(launcher::extensions::types::PluginError{code:"VIEWER_INVALID_CHUNK".into(),message:"No scene has been opened".into()})
+    }
+    fn inspect(_data: Vec<u8>) -> Result<exports::launcher::extensions::viewer::Scene,launcher::extensions::types::PluginError> {
+        Err(launcher::extensions::types::PluginError {code:"VIEWER_UNSUPPORTED_FORMAT".into(),message:"Implement the read-only Viewer parser here".into()})
+    }
+}
+export!(Viewer);

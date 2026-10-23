@@ -1,0 +1,1 @@
+{"formatVersion":1,"game":"minecraft","name":"Synthetic sample","versionId":"sample-1","dependencies":{"minecraft":"1.21.1","fabric-loader":"0.16.0"},"files":[{"fileSize":10},{"fileSize":20,"env":{"client":"optional","server":"unsupported"}}]}

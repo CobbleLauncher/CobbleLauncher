@@ -25,7 +25,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -111,10 +111,18 @@ pub struct ArtifactTransferRequest {
 struct CancellationState {
     cancelled: Arc<AtomicBool>,
     changed: tokio::sync::Notify,
+    received: AtomicU64,
+    active: AtomicUsize,
 }
 #[derive(Clone, Default)]
 pub struct TransferCancellation(Arc<CancellationState>);
 impl TransferCancellation {
+    pub(crate) fn observed_bytes(&self) -> u64 {
+        self.0.received.load(Ordering::Relaxed)
+    }
+    pub(crate) fn active_transfers(&self) -> usize {
+        self.0.active.load(Ordering::Relaxed)
+    }
     pub(crate) fn stop_flag(&self) -> Arc<AtomicBool> {
         self.0.cancelled.clone()
     }
@@ -192,19 +200,56 @@ pub struct TransferReceipt<S> {
 pub(crate) struct SameOriginGrant {
     origin: Origin,
     mirror_redirects: bool,
+    official_origins: Vec<Origin>,
+    official_files_path: bool,
+}
+pub(crate) fn curseforge_endpoint(endpoint: &Endpoint) -> bool {
+    endpoint.credential_path_safe
+        && endpoint.url.scheme() == "https"
+        && matches!(
+            endpoint.url.host_str(),
+            Some("edge.forgecdn.net" | "mediafilez.forgecdn.net" | "media.forgecdn.net")
+        )
+        && endpoint.url.path().starts_with("/files/")
+        && endpoint.url.query().is_none()
+        && endpoint.url.fragment().is_none()
+        && endpoint.url.port().is_none()
 }
 impl SameOriginGrant {
     pub(crate) fn new(endpoint: &Endpoint) -> Self {
         Self {
             origin: endpoint.origin(),
             mirror_redirects: false,
+            official_origins: Vec::new(),
+            official_files_path: false,
         }
     }
     pub(crate) fn with_mirror(mut self, mirror_redirects: bool) -> Self {
         self.mirror_redirects = mirror_redirects;
         self
     }
+    pub(crate) fn with_curseforge(mut self, enabled: bool) -> Self {
+        if enabled {
+            self.official_origins = [
+                "https://edge.forgecdn.net",
+                "https://mediafilez.forgecdn.net",
+                "https://media.forgecdn.net",
+            ]
+            .into_iter()
+            .map(|origin| Origin(origin.into()))
+            .collect();
+            self.official_files_path = true;
+        }
+        self
+    }
     fn permits(&self, endpoint: &Endpoint) -> bool {
+        if self.official_files_path {
+            return endpoint.credential_path_safe
+                && self.official_origins.contains(&endpoint.origin())
+                && endpoint.url.path().starts_with("/files/")
+                && endpoint.url.query().is_none()
+                && endpoint.url.fragment().is_none();
+        }
         // The selected anonymous mirror delegates CDN routing. Every hop still
         // passes the broker's HTTPS/public-IP/TLS limits and final digest checks.
         self.mirror_redirects || self.origin == endpoint.origin()
@@ -630,6 +675,10 @@ impl<S: ArtifactFile> Handler for Worker<S> {
             }
             self.file.write_all(data).map_err(|_| TransferError::Sink)?;
             self.received = next;
+            self.cancel
+                .0
+                .received
+                .fetch_add(data.len() as u64, Ordering::Relaxed);
             self.last_progress = Instant::now();
             Ok(())
         })();
@@ -656,6 +705,14 @@ fn run_hop<S: ArtifactFile>(
     remaining: Duration,
     #[cfg(test)] fixture: (bool, bool),
 ) -> Result<Worker<S>, TransferError> {
+    struct Active(TransferCancellation);
+    impl Drop for Active {
+        fn drop(&mut self) {
+            self.0.0.active.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+    worker.cancel.0.active.fetch_add(1, Ordering::Relaxed);
+    let _active = Active(worker.cancel.clone());
     if remaining.is_zero() {
         return Err(NetError::Timeout(TimeoutPhase::Total).into());
     }
@@ -681,6 +738,9 @@ fn run_hop<S: ArtifactFile>(
         easy.ssl_version(SslVersion::Tlsv12).map_err(set)?;
         easy.http_version(HttpVersion::V11).map_err(set)?;
         easy.http_content_decoding(false).map_err(set)?;
+        // Fixed per-transfer receive buffer amortizes synchronous streaming
+        // writes; active workers remain bounded by the broker/job budgets.
+        easy.buffer_size(64 * 1024).map_err(set)?;
         easy.connect_timeout(connect_timeout).map_err(set)?;
         easy.progress(true).map_err(set)?;
         easy.useragent("CobbleLauncher/0.1").map_err(set)?;
@@ -841,4 +901,108 @@ fn number(headers: &HeaderMap, name: &str) -> Result<Option<u64>, TransferError>
             s.parse().map_err(|_| NetError::Protocol.into())
         })
         .transpose()
+}
+
+#[cfg(test)]
+mod curseforge_redirect_tests {
+    use super::*;
+    use crate::tests::{Server, config, raw};
+    #[test]
+    fn curseforge_grant_is_finite_and_has_no_signed_url_or_path_escape() {
+        let edge = Endpoint::parse("https://edge.forgecdn.net/files/1/a.jar").unwrap();
+        let grant = SameOriginGrant::new(&edge).with_curseforge(true);
+        assert!(
+            grant.permits(
+                &Endpoint::parse("https://mediafilez.forgecdn.net/files/1/a.jar").unwrap()
+            )
+        );
+        for url in [
+            "https://mediafilez.forgecdn.net/other/a.jar",
+            "https://evil.invalid/files/1/a.jar",
+            "https://mediafilez.forgecdn.net/files/1/a.jar?token=synthetic",
+            "https://edge.forgecdn.net.evil.invalid/files/1/a.jar",
+            "https://mediafilez.forgecdn.net/files/%2e%2e/other/a.jar",
+        ] {
+            assert!(!grant.permits(&Endpoint::parse(url).unwrap()));
+        }
+    }
+    #[tokio::test]
+    async fn approved_redirect_strips_key_and_unapproved_origin_or_path_is_never_contacted() {
+        for (target, allowed) in [
+            ("https://two.fixture.invalid/files/a.jar", true),
+            ("https://wrong.fixture.invalid/files/a.jar", false),
+            ("https://two.fixture.invalid/other/a.jar", false),
+        ] {
+            let server=Server::new(move |request| {
+                if request.to_ascii_lowercase().contains("host: one.fixture.invalid") {raw(format!("HTTP/1.1 302 Found\r\nLocation: {target}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))} else {raw(b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nabcdef".to_vec())}
+            }).await;
+            let broker = server.broker(config());
+            let credential = broker
+                .register_credentials(
+                    crate::CredentialScope::new("https://one.fixture.invalid", "/files/").unwrap(),
+                    crate::ProviderCredentials {
+                        bearer: None,
+                        api_key: Some("synthetic-private-key".into()),
+                        cookie: None,
+                    },
+                )
+                .unwrap();
+            let start = Endpoint::parse("https://one.fixture.invalid/files/a.jar").unwrap();
+            let mut grant = SameOriginGrant::new(&start).with_curseforge(true);
+            // The production constructor above is tested against real official
+            // origins; only the local TLS transport fixture uses synthetic names.
+            grant.official_origins = vec![
+                start.origin(),
+                Endpoint::parse("https://two.fixture.invalid/files/a.jar")
+                    .unwrap()
+                    .origin(),
+            ];
+            let path = std::env::temp_dir().join(format!(
+                "cobble-cf-redirect-{}-{}.part",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            struct Cleanup(std::path::PathBuf);
+            impl Drop for Cleanup {
+                fn drop(&mut self) {
+                    let _ = std::fs::remove_file(&self.0);
+                }
+            }
+            let _cleanup = Cleanup(path.clone());
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(path)
+                .unwrap();
+            let result = broker
+                .artifact_transfer_granted(
+                    ArtifactTransferRequest {
+                        url: start.url.to_string(),
+                        credential: Some(credential),
+                        expected_size: 6,
+                        max_bytes: 6,
+                        mode: TransferMode::Full,
+                    },
+                    file,
+                    TransferCancellation::default(),
+                    grant,
+                )
+                .await;
+            let captured = server.captured();
+            assert!(captured[0].contains("synthetic-private-key"));
+            if allowed {
+                assert!(result.is_ok());
+                assert_eq!(captured.len(), 2);
+                assert!(!captured[1].to_ascii_lowercase().contains("x-api-key"));
+                assert!(!captured[1].contains("synthetic-private-key"));
+            } else {
+                assert!(matches!(result, Err(TransferError::SourceNotAuthorized)));
+                assert_eq!(captured.len(), 1);
+            }
+        }
+    }
 }

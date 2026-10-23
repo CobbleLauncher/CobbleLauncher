@@ -1,27 +1,69 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { t, type TranslationKey } from './i18n';
+import { invoke } from '@tauri-apps/api/core';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { avatars } from './appearance';
+import AppIcon from './ui/AppIcon.vue';
+import ProfileAvatar from './ProfileAvatar.vue';
+import ProfileSkinPanel from './ProfileSkinPanel.vue';
 import { DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenuContent, DropdownMenuItem } from 'reka-ui';
-import { profileKindLabel, type ProfileLibrary, type PlayerProfile } from './games';
+import { type ProfileLibrary, type PlayerProfile } from './games';
 const props = defineProps<{ library: ProfileLibrary; busy: boolean; error: string; ready: boolean; choosing: boolean }>();
 defineEmits<{ add: []; select: [id: string]; remove: [id: string]; note: [id: string, note: string | null]; retry: [] }>();
 const editing = ref<string | null>(null);
 const note = ref('');
 const removing = ref<string | null>(null);
+const viewingSkin = ref<string | null>(null);
+const refreshing = ref<string | null>(null);
+const feedback = ref<{ id: string; key: TranslationKey; failed?: boolean } | null>(null);
 watch(() => props.busy, (busy, previous) => { if (previous && !busy && !props.error) editing.value = null; });
 function edit(profile: PlayerProfile) { editing.value = profile.id; note.value = profile.note || ''; removing.value = null; }
+async function refreshAppearance(profile: PlayerProfile) {
+  refreshing.value = profile.id;
+  feedback.value = { id: profile.id, key: 'profiles.refreshingAppearance' };
+  try {
+    const appearance = await invoke<{ skin: { avatar: string } | null }>('get_profile_appearance', { id: profile.id, refresh: true });
+    if (appearance?.skin) avatars.set(profile.id, appearance.skin.avatar);
+    else avatars.delete(profile.id);
+    feedback.value = { id: profile.id, key: 'profiles.appearanceRefreshed' };
+  } catch {
+    feedback.value = { id: profile.id, key: 'profiles.errors.appearanceRefresh', failed: true };
+  } finally {
+    refreshing.value = null;
+  }
+}
+async function copyUuid(profile: PlayerProfile) {
+  feedback.value = null;
+  try {
+    await writeText(profile.uuid);
+    feedback.value = { id: profile.id, key: 'profiles.uuidCopied' };
+  } catch {
+    feedback.value = { id: profile.id, key: 'profiles.errors.uuidCopy', failed: true };
+  }
+}
+function profileError(error: string) {
+  const known: Record<string, string> = {
+    '无法读取玩家档案，请重试': t('profiles.errors.read'),
+    '档案已保存，请重新选择游戏使用的档案。': t('profiles.errors.saved'),
+    '请在桌面应用中保存玩家档案': t('profiles.errors.desktopSave'),
+    '未能保存档案，请重试': t('profiles.errors.save'),
+  };
+  return known[error] ?? error;
+}
 </script>
 <template>
   <div class="page-content profiles-page">
     <div class="profile-page-tools">
       <p class="create-description">
-        {{ choosing ? '选择本次游戏要使用的身份，之后返回游戏。' : '' }}
+        {{ choosing ? t('profiles.chooseForGame') : '' }}
       </p><button
         class="secondary-button"
         :disabled="busy || !ready"
         @click="$emit('add')"
       >
-        ＋ 添加档案
+        <AppIcon name="plus" /> {{ t('profiles.addProfile') }}
       </button>
     </div>
     <p
@@ -29,18 +71,18 @@ function edit(profile: PlayerProfile) { editing.value = profile.id; note.value =
       class="settings-error"
       role="alert"
     >
-      {{ error }}
+      {{ profileError(error) }}
     </p><button
       v-if="!ready"
       class="text-button"
       @click="$emit('retry')"
     >
-      重新读取档案
+      {{ t('profiles.reload') }}
     </button>
     <ul
       v-if="library.profiles.length"
       class="profile-list"
-      aria-label="玩家档案"
+      :aria-label="t('profiles.listLabel')"
     >
       <li
         v-for="profile in library.profiles"
@@ -48,31 +90,32 @@ function edit(profile: PlayerProfile) { editing.value = profile.id; note.value =
         class="profile-row"
       >
         <div class="profile-row-main">
-          <span
+          <ProfileAvatar
+            :id="profile.id"
+            :name="profile.name"
             class="profile-avatar"
-            aria-hidden="true"
-          >{{ profile.name.slice(0, 1).toUpperCase() }}</span><div class="profile-row-info">
-            <h2>{{ profile.name }} <span class="offline-badge">{{ profileKindLabel(profile) }}</span></h2><p v-if="profile.note">
+          /><div class="profile-row-info">
+            <h2>{{ profile.name }} <span class="offline-badge">{{ t(profile.kind === 'microsoft' ? 'profiles.kindMicrosoft' : 'profiles.kindOffline') }}</span></h2><p v-if="profile.note">
               {{ profile.note }}
             </p><span
               v-if="profile.id === library.active_id"
               class="profile-current"
-            >✓ 当前使用</span>
+            ><AppIcon name="check" /> {{ t('profiles.current') }}</span>
           </div><button
             v-if="profile.id !== library.active_id || choosing"
             class="secondary-button"
             :disabled="busy"
-            :aria-label="`使用 ${profile.name}`"
+            :aria-label="t('profiles.useNamed', { name: profile.name })"
             @click="$emit('select', profile.id)"
           >
-            使用
+            {{ t('profiles.use') }}
           </button><DropdownMenuRoot>
             <DropdownMenuTrigger
               class="profile-more"
               :disabled="busy"
-              :aria-label="`管理 ${profile.name}`"
+              :aria-label="t('profiles.manageNamed', { name: profile.name })"
             >
-              •••
+              <AppIcon name="more-horizontal" />
             </DropdownMenuTrigger><DropdownMenuPortal>
               <DropdownMenuContent
                 class="profile-menu"
@@ -81,25 +124,57 @@ function edit(profile: PlayerProfile) { editing.value = profile.id; note.value =
               >
                 <DropdownMenuItem
                   class="profile-menu-item"
+                  @select="viewingSkin = viewingSkin === profile.id ? null : profile.id"
+                >
+                  {{ t('profiles.skin') }}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  v-if="profile.kind === 'microsoft'"
+                  class="profile-menu-item"
+                  :disabled="refreshing === profile.id"
+                  @select="refreshAppearance(profile)"
+                >
+                  <AppIcon name="refresh-cw" /> {{ refreshing === profile.id ? t('profiles.refreshingAppearance') : t('profiles.refreshAppearance') }}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  class="profile-menu-item"
+                  @select="copyUuid(profile)"
+                >
+                  <AppIcon name="copy" /> {{ t('profiles.copyUuid') }}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  class="profile-menu-item"
                   @select="edit(profile)"
                 >
-                  修改备注
+                  {{ t('profiles.editNote') }}
                 </DropdownMenuItem><DropdownMenuItem
                   class="profile-menu-item danger-text"
                   @select="removing = profile.id; editing = null"
                 >
-                  移除档案
+                  {{ t('profiles.remove') }}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenuPortal>
           </DropdownMenuRoot>
         </div>
+        <ProfileSkinPanel
+          v-if="viewingSkin === profile.id"
+          :profile="profile"
+        />
+        <p
+          v-if="feedback?.id === profile.id"
+          class="profile-action-feedback"
+          :class="{ 'danger-text': feedback.failed }"
+          :role="feedback.failed ? 'alert' : 'status'"
+        >
+          {{ t(feedback.key) }}
+        </p>
         <form
           v-if="editing === profile.id"
           class="profile-inline-form"
           @submit.prevent="$emit('note', profile.id, note.trim() || null)"
         >
-          <label :for="`note-${profile.id}`">备注</label><input
+          <label :for="`note-${profile.id}`">{{ t('profiles.note') }}</label><input
             :id="`note-${profile.id}`"
             v-model="note"
             maxlength="160"
@@ -110,14 +185,14 @@ function edit(profile: PlayerProfile) { editing.value = profile.id; note.value =
               type="submit"
               :disabled="busy"
             >
-              保存备注
+              {{ t('profiles.saveNote') }}
             </button><button
               class="text-button"
               type="button"
               :disabled="busy"
               @click="editing = null"
             >
-              取消
+              {{ t('profiles.cancel') }}
             </button>
           </div>
         </form>
@@ -125,19 +200,19 @@ function edit(profile: PlayerProfile) { editing.value = profile.id; note.value =
           v-if="removing === profile.id"
           class="profile-remove-confirm"
         >
-          <p>移除档案 {{ profile.name }}？游戏和存档会保留。</p><div class="profile-form-actions">
+          <p>{{ t('profiles.confirmRemove', { name: profile.name }) }}</p><div class="profile-form-actions">
             <button
               class="secondary-button danger-text"
               :disabled="busy"
               @click="$emit('remove', profile.id)"
             >
-              确认移除
+              {{ t('profiles.confirm') }}
             </button><button
               class="text-button"
               :disabled="busy"
               @click="removing = null"
             >
-              取消
+              {{ t('profiles.cancel') }}
             </button>
           </div>
         </div>
@@ -150,13 +225,20 @@ function edit(profile: PlayerProfile) { editing.value = profile.id; note.value =
       <span
         class="profile-avatar large"
         aria-hidden="true"
-      >＋</span><h2>还没有玩家档案</h2><p>安装和管理游戏无需身份，开始游戏前再添加。</p><button
+      ><AppIcon
+        name="plus"
+        :size="24"
+      /></span><h2>{{ t('profiles.emptyTitle') }}</h2><p>{{ t('profiles.emptyHint') }}</p><button
         class="primary-button"
         :disabled="busy"
         @click="$emit('add')"
       >
-        添加档案
+        {{ t('profiles.addProfile') }}
       </button>
     </div>
   </div>
 </template>
+<style scoped>
+.profile-action-feedback{margin:8px 0 0 58px;font-size:11px;line-height:1.5}
+@media(max-width:560px){.profile-action-feedback{margin-left:0}}
+</style>

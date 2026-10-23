@@ -1,0 +1,49 @@
+{
+  "task": "Tasks",
+  "openTasks": "Open tasks",
+  "window": {
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "restore": "Restore",
+    "close": "Close window"
+  },
+  "back": {
+    "to": "Back to {page}",
+    "market": "Back to market",
+    "gameDetails": "Back to game details",
+    "default": "Back to game library",
+    "return": "Back",
+    "workspace": "Back to workspace",
+    "marketLabel": "Market",
+    "gameDetailsLabel": "Game details",
+    "libraryLabel": "Game library"
+  },
+  "page": {
+    "create": "Create game",
+    "importPack": "Import modpack",
+    "importLauncher": "Import existing game",
+    "market": "Market",
+    "profiles": "Player profiles",
+    "addProfile": "Add player profile",
+    "settings": "Settings"
+  },
+  "action": {
+    "copy": "Copy game",
+    "export": "Export modpack",
+    "remove": "Remove game"
+  },
+  "retry": "Retry",
+  "error": {
+    "quickLaunchUnavailable": "This shortcut's game is no longer installed. Choose a game from the library.",
+    "quickLaunch": "Could not open the game shortcut. Try again from the game library.",
+    "tasksLoad": "Could not load tasks. Try again.",
+    "profileLoad": "Could not load player profiles. Try again.",
+    "profileSavedChoose": "Profile saved. Choose the profile for this game again.",
+    "profileDesktopOnly": "Save player profiles in the desktop app.",
+    "profileSave": "Could not save the profile. Try again.",
+    "gameDesktopOnly": "Start the game in the desktop app.",
+    "gameLibraryLoad": "Could not load the game library. Reopen the app.",
+    "gameRetry": "Could not retry installation: {cause}",
+    "windowAction": "Window action failed. Try again."
+  }
+}

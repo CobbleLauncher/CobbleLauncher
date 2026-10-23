@@ -44,8 +44,19 @@ async function mockRuntimeNative(page: Page) {
         if (command === 'list_games') return [target.__game];
         if (command === 'list_player_profiles') return initialProfiles;
         if (command === 'list_game_mods') return [];
+        if (command === 'get_download_tuning') return { max_concurrent: 12, per_origin: 4 };
+        if (command === 'get_public_cache_stats') return { disk_bytes: 0 };
+        if (command === 'list_java_runtimes') return { runtimes: [], recommendedId: null };
         if (command === 'get_download_settings') return { source: 'official', mirror: '' };
         if (command === 'get_launcher_preferences') return structuredClone(target.__preferences);
+        if (command === 'set_default_advanced_runtime') {
+          target.__preferences = { ...target.__preferences, window_size: args.windowSize as LauncherPreferences['window_size'], jvm_args: args.jvmArgs as string[], launch_behavior: args.launchBehavior as LauncherPreferences['launch_behavior'] };
+          return structuredClone(target.__preferences);
+        }
+        if (command === 'set_game_advanced_runtime') {
+          target.__game = { ...target.__game, runtime_overrides: { ...target.__game.runtime_overrides!, window_size: args.windowSize as LauncherPreferences['window_size'], jvm_args: args.jvmArgs as string[] | null, launch_behavior: args.launchBehavior as LauncherPreferences['launch_behavior'] } };
+          return structuredClone(target.__game);
+        }
         if (command === 'set_default_memory') {
           target.__preferences = { ...target.__preferences, memory_mb: args.memoryMb as number };
           return structuredClone(target.__preferences);
@@ -150,4 +161,39 @@ test('game automatic Java ignores a custom global Java and picker cancellation p
   await expect(page.getByLabel('Java模式')).toHaveValue('automatic');
   expect(await page.evaluate(() => (window as unknown as RuntimeWindow).__calls.filter((call) => call.command === 'set_game_java_mode').map((call) => call.args))).toEqual([{ id: game.id, mode: 'automatic' }]);
   expect(await page.evaluate(() => (window as unknown as RuntimeWindow).__calls.filter((call) => call.command === 'pick_game_java_executable').map((call) => call.args))).toEqual([{ id: game.id }]);
+});
+
+
+test('advanced defaults and game overrides save direct JVM argv and restore inheritance', async ({ page }) => {
+  await mockRuntimeNative(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '打开设置' }).click();
+  await page.getByRole('tab', { name: '默认运行设置', exact: true }).click();
+  await page.locator('.advanced-runtime-settings > summary').click();
+  await page.getByLabel('窗口宽度', { exact: true }).fill('1280');
+  await page.getByLabel('窗口高度', { exact: true }).fill('720');
+  await page.getByLabel('额外 JVM 参数', { exact: true }).fill('-Dlabel=two words\n-XX:+UseG1GC');
+  await page.getByLabel('游戏启动后', { exact: true }).selectOption('minimize');
+  await page.getByRole('button', { name: '保存启动设置', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('启动设置已保存');
+  const defaults = await page.evaluate(() => (window as unknown as RuntimeWindow).__calls.find(call => call.command === 'set_default_advanced_runtime'));
+  expect(defaults?.args).toEqual({ windowSize: { width: 1280, height: 720 }, jvmArgs: ['-Dlabel=two words', '-XX:+UseG1GC'], launchBehavior: 'minimize' });
+  await page.getByRole('button', { name: '返回游戏库', exact: true }).click();
+  await openGameRuntime(page);
+  await page.locator('.advanced-runtime-settings > summary').click();
+  await page.getByLabel('游戏窗口', { exact: true }).selectOption('false');
+  await page.getByLabel('窗口宽度', { exact: true }).fill('854');
+  await page.getByLabel('窗口高度', { exact: true }).fill('480');
+  await page.getByLabel('额外 JVM 参数', { exact: true }).selectOption('false');
+  await page.getByLabel('JVM 参数', { exact: true }).fill('-Dgame=forest');
+  await page.getByLabel('游戏启动后', { exact: true }).selectOption('keep');
+  await page.getByRole('button', { name: '保存启动设置', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as RuntimeWindow).__game.runtime_overrides?.window_size?.width)).toBe(854);
+  await page.getByLabel('游戏窗口', { exact: true }).selectOption('true');
+  await page.getByLabel('额外 JVM 参数', { exact: true }).selectOption('true');
+  await page.getByLabel('游戏启动后', { exact: true }).selectOption('inherit');
+  await page.getByRole('button', { name: '保存启动设置', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as RuntimeWindow).__game.runtime_overrides?.window_size)).toBeNull();
+  const restored = await page.evaluate(() => (window as unknown as RuntimeWindow).__calls.filter(call => call.command === 'set_game_advanced_runtime').at(-1));
+  expect(restored?.args).toEqual({ id: game.id, windowSize: null, jvmArgs: null, launchBehavior: null });
 });

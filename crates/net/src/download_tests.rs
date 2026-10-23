@@ -14,6 +14,47 @@ const URL: &str = "https://one.fixture.invalid/file";
 const BODY: &[u8] = b"abcdef";
 
 #[test]
+fn curseforge_redirect_request_identity_is_explicit_and_cannot_mix_mirror_grants() {
+    let mut expectation = expected();
+    expectation.digests.sha1 = Some([0; 20]);
+    let request = DownloadRequest::new(
+        "https://edge.forgecdn.net/files/1/a.jar",
+        expectation,
+        DownloadAuthority::same_origin("curseforge", "install", "official-v1", None).unwrap(),
+        None,
+    )
+    .unwrap();
+    let granted = request.clone().with_curseforge_redirects().unwrap();
+    assert_ne!(request.key(), granted.key());
+    assert!(granted.clone().with_curseforge_redirects().is_err());
+    assert!(
+        granted
+            .clone()
+            .with_mirror_redirects(MIRROR_ORIGINAL)
+            .is_err()
+    );
+    assert!(granted.with_modpack_redirects().is_err());
+    for url in [
+        "https://evil.invalid/files/1/a.jar",
+        "https://edge.forgecdn.net/files/1/a.jar?key=synthetic",
+        "https://edge.forgecdn.net/other/a.jar",
+    ] {
+        assert!(
+            DownloadRequest::new(
+                url,
+                expectation,
+                DownloadAuthority::same_origin("curseforge", "install", "official-v1", None)
+                    .unwrap(),
+                None
+            )
+            .unwrap()
+            .with_curseforge_redirects()
+            .is_err()
+        );
+    }
+}
+
+#[test]
 fn modpack_redirects_are_limited_to_documented_anonymous_download_hosts() {
     for url in [
         "https://cdn.modrinth.com/data/test/versions/one/mod.jar",
@@ -283,7 +324,8 @@ mod managed {
     async fn manager_two_subscribers_share_one_verified_transfer() {
         let server = Server::new(|_| vec![(Duration::from_millis(100), full())]).await;
         let temp = Temp::new();
-        let manager = DownloadManager::new(temp.downloader(server.broker(config())));
+        let manager =
+            DownloadManager::with_adaptive(temp.downloader(server.broker(config())), false);
         let (a, b) = tokio::join!(
             manager.download(request(), TransferCancellation::default()),
             manager.download(request(), TransferCancellation::default()),
@@ -298,7 +340,8 @@ mod managed {
     async fn manager_cancel_one_subscriber_preserves_the_other() {
         let server = Server::new(|_| vec![(Duration::from_millis(150), full())]).await;
         let temp = Temp::new();
-        let manager = DownloadManager::new(temp.downloader(server.broker(config())));
+        let manager =
+            DownloadManager::with_adaptive(temp.downloader(server.broker(config())), false);
         let cancel = TransferCancellation::default();
         let (a, b, _) = tokio::join!(
             manager.download(request(), cancel.clone()),
@@ -329,7 +372,8 @@ mod managed {
         })
         .await;
         let temp = Temp::new();
-        let manager = DownloadManager::new(temp.downloader(server.broker(config())));
+        let manager =
+            DownloadManager::with_adaptive(temp.downloader(server.broker(config())), false);
         let cancel = TransferCancellation::default();
         let running_manager = manager.clone();
         let running_cancel = cancel.clone();
@@ -392,7 +436,8 @@ mod managed {
         ] {
             let server = Server::new(move |_| raw(response)).await;
             let temp = Temp::new();
-            let manager = DownloadManager::new(temp.downloader(server.broker(config())));
+            let manager =
+                DownloadManager::with_adaptive(temp.downloader(server.broker(config())), false);
             assert!(
                 manager
                     .download(request(), TransferCancellation::default())
@@ -412,7 +457,8 @@ mod managed {
         })
         .await;
         let temp = Temp::new();
-        let manager = DownloadManager::new(temp.downloader(server.broker(config())));
+        let manager =
+            DownloadManager::with_adaptive(temp.downloader(server.broker(config())), false);
         let start = Instant::now();
         assert!(
             manager
@@ -431,7 +477,8 @@ mod managed {
         })
         .await;
         let temp = Temp::new();
-        let manager = DownloadManager::new(temp.downloader(server.broker(config())));
+        let manager =
+            DownloadManager::with_adaptive(temp.downloader(server.broker(config())), false);
         assert!(
             matches!(manager.download(request(), TransferCancellation::default()).await,
             Err(ManagedDownloadError::Download(error)) if matches!(*error, DownloadError::Deadline))
@@ -1144,4 +1191,262 @@ async fn download_explicit_checkpoint_publication_failure_cannot_enter_cas() {
             .open_verified(Sha256::digest(BODY).into(), expected()),
         Err(CasError::NotFound)
     ));
+}
+
+#[tokio::test]
+async fn adaptive_download_admission_grows_on_throughput_and_backs_off_on_503() {
+    use crate::DownloadManager;
+    let throttles = Arc::new(AtomicUsize::new(0));
+    let observed = throttles.clone();
+    let server = Server::new(move |input| {
+        if input.starts_with("GET /throttle ") && observed.fetch_add(1, Ordering::Relaxed) == 0 {
+            vec![(Duration::ZERO, b"HTTP/1.1 503 Service Unavailable\r\nRetry-After: 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec())]
+        } else { vec![(Duration::from_millis(100), full())] }
+    }).await;
+    let temp = Temp::new();
+    let manager = DownloadManager::with_adaptive(temp.downloader(server.broker(config())), true);
+    assert_eq!(manager.current_concurrency(), 2);
+    let request_for = |path: &str| {
+        DownloadRequest::new(
+            &format!("https://one.fixture.invalid/{path}"),
+            expected(),
+            DownloadAuthority::same_origin("fixture", "adaptive", "local-v1", None).unwrap(),
+            None,
+        )
+        .unwrap()
+    };
+    let mut workers = tokio::task::JoinSet::new();
+    let started = Instant::now();
+    for index in 0..12 {
+        let manager = manager.clone();
+        let request = request_for(&format!("warm-{index}"));
+        workers.spawn(async move {
+            manager
+                .download(request, TransferCancellation::default())
+                .await
+                .unwrap();
+        });
+    }
+    while let Some(result) = workers.join_next().await {
+        result.unwrap();
+    }
+    let raised = manager.current_concurrency();
+    let warm_elapsed = started.elapsed();
+    let warm_bytes = manager.metrics().bytes_received;
+    assert_eq!(
+        server.captured().len(),
+        12,
+        "warm-up must perform real local HTTPS transfers"
+    );
+    assert!(
+        raised > 2 && raised <= manager.concurrency(),
+        "measured transfers should grow within ceiling: {raised}"
+    );
+    let manager_copy = manager.clone();
+    let request = request_for("throttle");
+    let throttled_started = Instant::now();
+    let job = tokio::spawn(async move {
+        manager_copy
+            .download(request, TransferCancellation::default())
+            .await
+            .unwrap();
+    });
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while manager.current_concurrency() >= raised {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("503 should reduce admission before retry");
+    let lowered = manager.current_concurrency();
+    assert_eq!(
+        throttles.load(Ordering::Relaxed),
+        1,
+        "Retry-After must still delay the retry"
+    );
+    job.await.unwrap();
+    assert!(throttled_started.elapsed() >= Duration::from_secs(1));
+    manager.wait_idle().await;
+    eprintln!(
+        "adaptive local HTTPS: initial=2 raised={raised} reduced={lowered} warm_bytes={warm_bytes} warm_ms={} retry_after_ms={}",
+        warm_elapsed.as_millis(),
+        throttled_started.elapsed().as_millis()
+    );
+}
+
+#[tokio::test]
+async fn adaptive_download_manual_limit_survives_429_retry() {
+    use crate::DownloadManager;
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let observed = attempts.clone();
+    let server = Server::new(move |_| {
+        if observed.fetch_add(1, Ordering::Relaxed) == 0 { raw(b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()) }
+        else { raw(full()) }
+    }).await;
+    let temp = Temp::new();
+    let mut settings = config();
+    settings.max_concurrent = 3;
+    settings.per_origin = 1;
+    let manager = DownloadManager::with_adaptive(temp.downloader(server.broker(settings)), false);
+    let started = Instant::now();
+    manager
+        .download(request(), TransferCancellation::default())
+        .await
+        .unwrap();
+    assert_eq!(manager.current_concurrency(), 3);
+    assert_eq!(attempts.load(Ordering::Relaxed), 2);
+    assert!(started.elapsed() >= Duration::from_secs(1));
+    manager.wait_idle().await;
+    attempts.store(0, Ordering::Relaxed);
+    let automatic_temp = Temp::new();
+    let automatic =
+        DownloadManager::with_adaptive(automatic_temp.downloader(server.broker(settings)), true);
+    let automatic_copy = automatic.clone();
+    let automatic_job = tokio::spawn(async move {
+        automatic_copy
+            .download(request(), TransferCancellation::default())
+            .await
+            .unwrap();
+    });
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while automatic.current_concurrency() != 1 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        automatic.current_concurrency(),
+        1,
+        "automatic mode must react to the first 429, even when its retry succeeds"
+    );
+    automatic_job.await.unwrap();
+    automatic.wait_idle().await;
+}
+
+#[tokio::test]
+async fn adaptive_download_timeout_reduces_limit_and_cancelled_requests_stay_idle() {
+    use crate::DownloadManager;
+    let server = Server::new(|_| vec![(Duration::from_millis(300), full())]).await;
+    let temp = Temp::new();
+    let mut settings = config();
+    settings.no_progress_timeout = Duration::from_millis(50);
+    let manager = DownloadManager::with_adaptive(temp.downloader(server.broker(settings)), true);
+    assert!(
+        manager
+            .download(request(), TransferCancellation::default())
+            .await
+            .is_err()
+    );
+    assert_eq!(manager.current_concurrency(), 1);
+    manager.wait_idle().await;
+    let cancel = TransferCancellation::default();
+    cancel.cancel();
+    assert!(matches!(
+        manager.download(request(), cancel).await,
+        Err(crate::ManagedDownloadError::Cancelled)
+    ));
+    assert_eq!(manager.metrics().active_downloads, 0);
+}
+
+#[tokio::test]
+async fn download_pipeline_multi_host_metrics_and_local_benchmark() {
+    use crate::DownloadManager;
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let observed = attempts.clone();
+    let server = Server::new(move |input| {
+        if input.starts_with("GET /retry ") && observed.fetch_add(1,Ordering::Relaxed)==0 {
+            vec![(Duration::from_millis(40),b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec())]
+        } else { vec![(Duration::from_millis(100), full())] }
+    }).await;
+    let temp = Temp::new();
+    let baseline_temp = Temp::new();
+    let mut capped = baseline_temp.downloader(server.broker(config()));
+    // Reproduce the previous two-transfer cap without changing disk semantics.
+    capped.jobs = Arc::new(Semaphore::new(2));
+    let baseline_manager = DownloadManager::with_adaptive(capped, false);
+    let manager = DownloadManager::with_adaptive(temp.downloader(server.broker(config())), false);
+    let make_request = |url: &str| {
+        DownloadRequest::new(
+            url,
+            expected(),
+            DownloadAuthority::same_origin("fixture", "benchmark", "local-v1", None).unwrap(),
+            None,
+        )
+        .unwrap()
+    };
+    let urls = [
+        "https://one.fixture.invalid/a",
+        "https://one.fixture.invalid/b",
+        "https://two.fixture.invalid/a",
+        "https://two.fixture.invalid/b",
+    ];
+    let baseline_started = Instant::now();
+    let mut baseline_workers = tokio::task::JoinSet::new();
+    for url in urls {
+        let manager = baseline_manager.clone();
+        let request = make_request(url);
+        baseline_workers.spawn(async move {
+            manager
+                .download(request, TransferCancellation::default())
+                .await
+                .unwrap()
+        });
+    }
+    while let Some(result) = baseline_workers.join_next().await {
+        result.unwrap();
+    }
+    let previous_cap = baseline_started.elapsed();
+    let started = Instant::now();
+    let mut workers = tokio::task::JoinSet::new();
+    for url in urls {
+        let manager = manager.clone();
+        let request = make_request(url);
+        workers.spawn(async move {
+            manager
+                .download(request, TransferCancellation::default())
+                .await
+                .unwrap()
+        });
+    }
+    tokio::time::sleep(Duration::from_millis(65)).await;
+    let live = manager.metrics();
+    assert!(
+        live.active_downloads >= 3,
+        "disk recovery lease must not cap socket concurrency to two: {}",
+        live.active_downloads
+    );
+    assert!(
+        live.items
+            .iter()
+            .all(|item| item.source == "fixture" && !item.item.contains('?'))
+    );
+    while let Some(result) = workers.join_next().await {
+        result.unwrap();
+    }
+    let cold = started.elapsed();
+    assert_eq!(manager.metrics().bytes_received, 24);
+    assert_eq!(manager.metrics().active_downloads, 0);
+    let started = Instant::now();
+    let cached = temp
+        .cas()
+        .open_verified(Sha256::digest(BODY).into(), expected())
+        .unwrap();
+    assert_eq!(cached.size_bytes(), 6);
+    let cached_time = started.elapsed();
+    let started = Instant::now();
+    manager
+        .download(
+            make_request("https://one.fixture.invalid/retry"),
+            TransferCancellation::default(),
+        )
+        .await
+        .unwrap();
+    let retry = started.elapsed();
+    assert_eq!(attempts.load(Ordering::Relaxed), 2);
+    assert_eq!(server.captured().len(), 10);
+    eprintln!(
+        "local TLS fixture: four files/two hosts previous two-transfer cap={previous_cap:?}; cold={cold:?}; verified CAS cache={cached_time:?}; 503+retry={retry:?}; max observed active={}",
+        live.active_downloads
+    );
 }

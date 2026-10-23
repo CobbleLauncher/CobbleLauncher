@@ -1,0 +1,49 @@
+{
+  "id": "mcs-provider",
+  "name": "MCS Blueprint Provider",
+  "version": "0.1.0",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "blueprint-provider"
+  ],
+  "file_extensions": [],
+  "provider_origins": [
+    "https://www.mcschematic.top"
+  ],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Browse and import public Minecraft blueprints",
+    "zh-CN": "浏览和导入公开 Minecraft 蓝图"
+  },
+  "tags": [
+    "blueprints",
+    "catalog"
+  ],
+  "icon": {
+    "file": "icon.png",
+    "sha256": "92342788adc6169582ac947439193fce4ad739c4ca71c01329a79ca4c3a3cbc5"
+  },
+  "interfaces": {
+    "optional": [
+      {
+        "id": "launcher:viewer",
+        "version": "^1.0.0"
+      }
+    ],
+    "provides": [
+      {
+        "id": "launcher:blueprint-provider",
+        "version": "0.2.0"
+      }
+    ]
+  },
+  "permissions": [
+    {
+      "permission": "launcher:provider/https/get",
+      "origins": [
+        "https://www.mcschematic.top"
+      ]
+    }
+  ]
+}

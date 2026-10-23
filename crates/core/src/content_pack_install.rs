@@ -44,6 +44,7 @@ pub async fn install_modrinth_content_pack_controlled(
 
     let progress = control.progress();
     progress(crate::InstallProgress {
+        detail: None,
         phase: "metadata".into(),
         completed: 0,
         total: 1,
@@ -77,6 +78,7 @@ pub async fn install_modrinth_content_pack_controlled(
         return Ok(packs);
     }
     progress(crate::InstallProgress {
+        detail: None,
         phase: "pack-download".into(),
         completed: 0,
         total: 1,
@@ -90,6 +92,7 @@ pub async fn install_modrinth_content_pack_controlled(
     tokio::task::spawn_blocking(move || {
         control.check_cancelled()?;
         progress(crate::InstallProgress {
+            detail: None,
             phase: "pack-install".into(),
             completed: 0,
             total: 1,
@@ -104,6 +107,7 @@ pub async fn install_modrinth_content_pack_controlled(
         );
         if result.is_ok() {
             progress(crate::InstallProgress {
+                detail: None,
                 phase: "complete".into(),
                 completed: 1,
                 total: 1,

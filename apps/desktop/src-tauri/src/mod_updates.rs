@@ -2,6 +2,58 @@
 use super::*;
 
 #[tauri::command]
+pub async fn preview_game_mod_operation_undo(
+    app: AppHandle,
+    id: String,
+    operation_id: String,
+) -> Result<Vec<String>, String> {
+    let directory = game_directory(&app, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        match cobble_core::preview_mod_operation_undo(&directory, &operation_id) {
+            Ok(()) => Vec::new(),
+            Err(error) => vec![error.to_string()],
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_game_mod_history(
+    app: AppHandle,
+    id: String,
+) -> Result<Vec<cobble_core::ModOperationHistory>, String> {
+    let directory = game_directory(&app, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        cobble_core::list_mod_operation_history(&directory).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn undo_game_mod_operation(
+    app: AppHandle,
+    id: String,
+    operation_id: String,
+) -> Result<(), String> {
+    let (game, operation) = management::begin(&app, &id, true)?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let _operation = operation;
+        cobble_core::undo_mod_operation(&game.directory, &operation_id)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    // Invalidate plans even after failure: a partial rollback must never reuse a preview.
+    let state = app.state::<GameLibrary>();
+    let mut library = state.0.lock().map_err(|error| error.to_string())?;
+    library.update_plans.remove(&id);
+    library.mod_plans.remove(&id);
+    result
+}
+
+#[tauri::command]
 pub async fn list_game_mod_versions(
     app: AppHandle,
     id: String,

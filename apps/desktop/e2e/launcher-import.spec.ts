@@ -82,7 +82,8 @@ async function calls(page: Page, command: string) {
   return page.evaluate((name) => (window as unknown as Mock).__calls.filter((call) => call.command === name), command);
 }
 async function openImport(page: Page) {
-  await page.getByRole('button', { name: '导入已有游戏', exact: true }).click();
+  await page.getByRole('button', { name: '添加', exact: true }).click();
+  await page.getByRole('menuitem', { name: '导入已有游戏', exact: true }).click();
   await expect(page.getByRole('heading', { name: '导入已有游戏', exact: true })).toBeVisible();
 }
 async function loadPreview(page: Page) {

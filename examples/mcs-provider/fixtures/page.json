@@ -1,0 +1,28 @@
+{
+  "items": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "slug": "synthetic-planter",
+      "title": "Synthetic Planter",
+      "description": "Fixture, no third-party blueprint bytes included.",
+      "attribution": "repost",
+      "author": { "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "displayName": "Synthetic Author" },
+      "currentVersion": { "number": 1, "sourceFormat": "world_edit", "createdAt": "2026-10-21T13:21:11Z" },
+      "sourceGameVersion": { "edition": "java", "release": "1.21.11", "dataVersion": 4671, "evidence": "data_version", "family": "java-1.21" },
+      "namespaces": ["minecraft"],
+      "previewUrl": "/api/v1/blueprints/11111111-1111-4111-8111-111111111111/versions/1/preview?r=2"
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "slug": "synthetic-future",
+      "title": "Future format",
+      "description": "Unknown format remains visible metadata, not supported bytes.",
+      "attribution": "original",
+      "author": { "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "displayName": "Synthetic Author" },
+      "currentVersion": { "number": 1, "sourceFormat": "future_format" }
+    }
+  ],
+  "nextCursor": "opaque-next-cursor",
+  "totalCount": 2
+}
+

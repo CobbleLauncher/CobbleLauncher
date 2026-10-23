@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: MIT
+package launcher:report-context@0.2.0;
+
+interface context {
+  record snapshot { locale: string, settings-json: string }
+  // Immutable validated invocation snapshot; no file, network or mutation API.
+  get: func() -> snapshot;
+}
+
+world context-import { import context; }

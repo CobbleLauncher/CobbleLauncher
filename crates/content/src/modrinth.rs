@@ -22,6 +22,16 @@ pub struct SearchResults {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModProject {
+    #[serde(default, deserialize_with = "crate::media::modrinth_image")]
+    pub icon_url: Option<String>,
+    #[serde(
+        default,
+        alias = "featured_gallery",
+        deserialize_with = "crate::media::modrinth_image"
+    )]
+    pub preview_url: Option<String>,
+    #[serde(default, deserialize_with = "crate::media::modrinth_gallery")]
+    pub gallery: Vec<String>,
     pub project_id: String,
     pub slug: String,
     pub title: String,
@@ -233,7 +243,10 @@ impl LiveApi {
                 "Modrinth resolution request limit reached; reduce the selected dependency graph",
             ));
         }
-        let response = self.broker.get(url.as_str(), None, MAX_METADATA).await?;
+        let response = self
+            .broker
+            .get_public_metadata(url.as_str(), "modrinth-v2", MAX_METADATA)
+            .await?;
         if response.metadata.status == 404 {
             return Ok(None);
         }
@@ -249,7 +262,17 @@ impl LiveApi {
                 response.metadata.status
             )));
         }
-        Ok(Some(serde_json::from_slice(&response.body)?))
+        match serde_json::from_slice(&response.body) {
+            Ok(value) => Ok(Some(value)),
+            Err(error) => {
+                if let Some(cache) = cobble_net::PublicMetadataCache::shared() {
+                    let _ = cache
+                        .invalidate(url.as_str(), "modrinth-v2", MAX_METADATA)
+                        .await;
+                }
+                Err(error.into())
+            }
+        }
     }
 }
 impl Api for LiveApi {
@@ -263,7 +286,8 @@ impl Api for LiveApi {
         let mut url = Url::parse(&format!("{API}project/{project}/version"))?;
         url.query_pairs_mut()
             .append_pair("game_versions", &serde_json::to_string(&[mc])?)
-            .append_pair("loaders", &serde_json::to_string(&[loader])?);
+            .append_pair("loaders", &serde_json::to_string(&[loader])?)
+            .append_pair("include_changelog", "false");
         self.get(url).await
     }
     async fn version(&mut self, version: &str) -> Result<Version, BoxError> {

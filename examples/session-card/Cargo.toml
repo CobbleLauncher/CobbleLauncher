@@ -1,0 +1,14 @@
+[package]
+name = "cobble-session-card"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cobble-plugin-api = { path = "../../crates/plugin-api" }
+wit-bindgen = "=0.63.0"

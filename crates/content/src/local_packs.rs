@@ -43,7 +43,7 @@ fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)
 }
 
-fn linked(metadata: &Metadata) -> bool {
+pub(crate) fn linked(metadata: &Metadata) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
@@ -55,12 +55,12 @@ fn linked(metadata: &Metadata) -> bool {
     }
 }
 
-fn directory(instance: &Path, kind: LocalPackKind) -> Result<PathBuf, BoxError> {
+pub(crate) fn directory(instance: &Path, folder: &str) -> Result<PathBuf, BoxError> {
     let root = fs::symlink_metadata(instance)?;
     if linked(&root) || !root.is_dir() {
         return Err(invalid("Game must be a real directory").into());
     }
-    let directory = instance.join(kind.folder());
+    let directory = instance.join(folder);
     match fs::symlink_metadata(&directory) {
         Ok(metadata) if linked(&metadata) || !metadata.is_dir() => {
             return Err(invalid("Pack directory must be a real directory, not a link").into());
@@ -75,7 +75,7 @@ fn zip_name(name: &str) -> bool {
     name.to_ascii_lowercase().ends_with(".zip")
 }
 
-fn validate_name(name: &str) -> Result<(), BoxError> {
+pub(crate) fn validate_name(name: &str) -> Result<(), BoxError> {
     let safe = SafeRelativePath::parse(name)?;
     if safe.as_str().contains('/') || name.starts_with('.') || !zip_name(name) {
         return Err(invalid("Expected a ZIP basename").into());
@@ -93,7 +93,15 @@ fn collision_key(name: &str) -> String {
 /// Existing unknown or unreadable ZIPs stay visible. Directories and links are
 /// excluded, and this operation does not claim that a pack is selected or compatible.
 pub fn list_local_packs(instance: &Path, kind: LocalPackKind) -> Result<Vec<LocalPack>, BoxError> {
-    let directory = directory(instance, kind)?;
+    list_packs_in(instance, kind, kind.folder())
+}
+
+pub(crate) fn list_packs_in(
+    instance: &Path,
+    kind: LocalPackKind,
+    folder: &str,
+) -> Result<Vec<LocalPack>, BoxError> {
+    let directory = directory(instance, folder)?;
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -139,7 +147,16 @@ pub fn import_local_packs(
     kind: LocalPackKind,
     files: &[PathBuf],
 ) -> Result<Vec<LocalPack>, BoxError> {
-    let directory = directory(instance, kind)?;
+    import_packs_in(instance, kind, files, kind.folder())
+}
+
+pub(crate) fn import_packs_in(
+    instance: &Path,
+    kind: LocalPackKind,
+    files: &[PathBuf],
+    folder: &str,
+) -> Result<Vec<LocalPack>, BoxError> {
+    let directory = directory(instance, folder)?;
     let mut names = HashSet::new();
     if directory.exists() {
         for entry in fs::read_dir(&directory)? {
@@ -175,7 +192,7 @@ pub fn import_local_packs(
     for (mut input, destination) in imports {
         copy_owned(&mut input, &destination)?;
     }
-    list_local_packs(instance, kind)
+    list_packs_in(instance, kind, folder)
 }
 
 fn copy_owned(input: &mut impl Read, destination: &Path) -> io::Result<()> {
@@ -197,7 +214,7 @@ pub fn remove_local_pack(
     file_name: &str,
 ) -> Result<Vec<LocalPack>, BoxError> {
     validate_name(file_name)?;
-    let target = directory(instance, kind)?.join(file_name);
+    let target = directory(instance, kind.folder())?.join(file_name);
     let metadata = fs::symlink_metadata(&target)?;
     if linked(&metadata) || !metadata.is_file() {
         return Err(invalid("Pack must be a regular ZIP file, not a folder or link").into());

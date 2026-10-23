@@ -1,13 +1,15 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
+import { locale, t } from './i18n';
+import AppIcon from './ui/AppIcon.vue';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { TabsRoot, TabsList, TabsTrigger, TabsContent } from 'reka-ui';
 import DiscoverPacks from './DiscoverPacks.vue';
 import type { LocalPack, LocalPackKind } from './games';
-const props = defineProps<{ gameId: string; kind: LocalPackKind; locked: boolean; revision?: number }>();
+const props = defineProps<{ gameId: string; kind: LocalPackKind; locked: boolean; revision?: number; installedOnly?: boolean }>();
 const emit = defineEmits<{ busy: [value: boolean] }>();
-const label = computed(() => props.kind === 'resource_pack' ? '资源包' : '光影包');
+const label = computed(() => t(props.kind === 'resource_pack' ? 'localPacks.resources' : 'localPacks.shaders'));
 const packs = ref<LocalPack[]>([]);
 const query = ref('');
 const reading = ref(false);
@@ -32,7 +34,7 @@ function sizeLabel(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const unit = bytes < 1024 ** 2 ? 'KiB' : bytes < 1024 ** 3 ? 'MiB' : 'GiB';
   const divisor = unit === 'KiB' ? 1024 : unit === 'MiB' ? 1024 ** 2 : 1024 ** 3;
-  return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 1 }).format(bytes / divisor)} ${unit}`;
+  return `${new Intl.NumberFormat(locale.value, { maximumFractionDigits: 1 }).format(bytes / divisor)} ${unit}`;
 }
 async function load() {
   if (mutating.value) return;
@@ -41,7 +43,7 @@ async function load() {
   try {
     const value = await invoke<LocalPack[]>('list_game_packs', { id: props.gameId, kind: props.kind });
     if (current === request) { packs.value = value; if (!value.some((pack) => pack.file_name === deleting.value)) deleting.value = null; }
-  } catch (cause) { if (current === request) { error.value = `无法读取${label.value}：${String(cause)}`; readFailed.value = true; } }
+  } catch { if (current === request) { error.value = t('localPacks.readError', {kind: label.value}); readFailed.value = true; } }
   finally { if (current === request) reading.value = false; }
 }
 async function importPacks() {
@@ -51,7 +53,7 @@ async function importPacks() {
   try {
     const value = await invoke<LocalPack[] | null>('import_game_packs', { id: props.gameId, kind: props.kind });
     if (current === request && value) packs.value = value;
-  } catch (cause) { if (current === request) error.value = `导入${label.value}未完成：${String(cause)}`; }
+  } catch { if (current === request) error.value = t('localPacks.importError', {kind: label.value}); }
   finally { operation.value = null; emit('busy', false); }
 }
 async function remove(pack: LocalPack) {
@@ -61,14 +63,14 @@ async function remove(pack: LocalPack) {
   try {
     const value = await invoke<LocalPack[]>('remove_game_pack', { id: props.gameId, kind: props.kind, fileName: pack.file_name });
     if (current === request) { packs.value = value; deleting.value = null; }
-  } catch (cause) { if (current === request) error.value = `无法移除${label.value}：${String(cause)}`; }
+  } catch { if (current === request) error.value = t('localPacks.removeError', {kind: label.value}); }
   finally { operation.value = null; emit('busy', false); }
 }
 async function openFolder() {
   if (folderBusy.value) return;
   folderBusy.value = true; error.value = ''; readFailed.value = false;
   try { await invoke('open_game_pack_directory', { id: props.gameId, kind: props.kind }); }
-  catch (cause) { error.value = `无法打开${label.value}文件夹：${String(cause)}`; }
+  catch { error.value = t('localPacks.folderError', {kind: label.value}); }
   finally { folderBusy.value = false; }
 }
 watch(() => props.locked, (locked) => { if (locked && !mutating.value) deleting.value = null; });
@@ -83,61 +85,72 @@ onUnmounted(() => { ++request; });
       :unmount-on-hide="false"
     >
       <TabsList
+        v-if="!installedOnly"
         class="content-tabs local-pack-tabs"
-        :aria-label="`${label}内容`"
+        :aria-label="t('localPacks.tabs', {kind: label})"
       >
         <TabsTrigger
           value="installed"
           :disabled="mutating"
         >
-          已安装 <span class="count">{{ packs.length }}</span>
+          {{ t('localPacks.installed') }} <span class="count">{{ packs.length }}</span>
         </TabsTrigger>
         <TabsTrigger
           value="discover"
           :disabled="mutating"
         >
-          发现{{ label }}
+          {{ t('localPacks.discover', {kind: label}) }}
         </TabsTrigger>
       </TabsList>
-      <TabsContent
+      <component
+        :is="installedOnly ? 'div' : TabsContent"
         value="installed"
         class="local-pack-installed"
       >
         <div class="content-heading">
           <div>
-            <h2>本地{{ label }} <span class="count">{{ packs.length }}</span></h2><p class="setting-hint">
-              {{ kind === 'resource_pack' ? '在游戏内选择资源包。' : '需要支持光影的游戏环境。' }}
+            <p
+              v-if="installedOnly"
+              class="local-packs-count"
+            >
+              {{ t('localPacks.installedCount', {count: packs.length}) }}
+            </p><h2 v-else>
+              {{ t('localPacks.local', {kind: label}) }} <span class="count">{{ packs.length }}</span>
+            </h2><p class="setting-hint">
+              {{ t(kind === 'resource_pack' ? 'localPacks.resourceHelp' : 'localPacks.shaderHelp') }}
             </p>
-          </div><button
-            class="secondary-button"
-            :disabled="locked || mutating || reading"
-            @click="importPacks"
-          >
-            {{ operation === 'import' ? '导入中…' : `导入${label}` }}
-          </button>
-        </div>
-        <div class="pack-folder-actions">
-          <button
-            class="text-button"
-            :disabled="folderBusy"
-            @click="openFolder"
-          >
-            打开{{ label }}文件夹
-          </button>
+          </div>
+          <div class="local-pack-heading-actions">
+            <button
+              class="secondary-button"
+              :disabled="locked || mutating || reading"
+              @click="importPacks"
+            >
+              {{ operation === 'import' ? t('localPacks.importing') : t('localPacks.import', {kind: label}) }}
+            </button><button
+              class="secondary-button"
+              :disabled="folderBusy"
+              :aria-label="t('localPacks.openFolder', {kind: label})"
+              @click="openFolder"
+            >
+              <AppIcon name="folder" />
+            </button>
+          </div>
         </div>
         <div class="content-toolbar">
           <input
             v-model="query"
             type="search"
-            :aria-label="`搜索${label}`"
-            placeholder="搜索名称或描述"
+            :aria-label="t('localPacks.search', {kind: label})"
+            :placeholder="t('localPacks.searchPlaceholder')"
             :disabled="mutating"
           ><button
-            class="text-button"
+            class="secondary-button"
             :disabled="reading || mutating"
+            :aria-label="t('localPacks.refresh')"
             @click="load"
           >
-            {{ reading ? '读取中…' : '刷新' }}
+            <AppIcon :name="reading ? 'loader-circle' : 'refresh-cw'" />
           </button>
         </div>
         <p
@@ -147,10 +160,10 @@ onUnmounted(() => { ++request; });
         >
           {{ error }} <button
             v-if="readFailed"
-            class="text-button"
+            class="secondary-button"
             @click="load"
           >
-            重试读取
+            {{ t('localPacks.retry') }}
           </button>
         </p>
         <p
@@ -158,12 +171,12 @@ onUnmounted(() => { ++request; });
           class="content-empty"
           role="status"
         >
-          正在读取{{ label }}…
+          {{ t('localPacks.reading', {kind: label}) }}
         </p>
         <ul
           v-else-if="filtered.length"
           class="local-pack-list"
-          :aria-label="`本地${label}`"
+          :aria-label="t('localPacks.local', {kind: label})"
         >
           <li
             v-for="pack in filtered"
@@ -174,13 +187,10 @@ onUnmounted(() => { ++request; });
               <span
                 class="local-pack-icon"
                 aria-hidden="true"
-              ><svg viewBox="0 0 24 24"><path
-                v-if="kind === 'resource_pack'"
-                d="m4 7 8-4 8 4-8 4zm0 0v10l8 4 8-4V7M12 11v10"
-              /><path
-                v-else
-                d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z"
-              /></svg></span><div class="mod-info">
+              ><AppIcon
+                name="folder"
+                :size="20"
+              /></span><div class="mod-info">
                 <h3>{{ pack.name }}</h3><p
                   v-if="pack.description"
                   class="mod-description"
@@ -193,30 +203,31 @@ onUnmounted(() => { ++request; });
                 </p>
               </div><button
                 v-if="deleting !== pack.file_name"
-                class="text-button"
-                :aria-label="`移除 ${pack.name}`"
+                class="secondary-button"
+                :aria-label="t('localPacks.removeNamed', {name: pack.name})"
                 :disabled="locked || mutating || reading"
                 @click="deleting = pack.file_name"
               >
-                移除
+                <AppIcon name="trash" />
               </button>
-            </div><div
+            </div>
+            <div
               v-if="deleting === pack.file_name"
               class="local-pack-confirm"
             >
-              <p>移除 {{ pack.name }}？只删除这个 ZIP 文件。</p><div class="profile-form-actions">
+              <p>{{ t('localPacks.confirm', {name: pack.name}) }}</p><div class="profile-form-actions">
                 <button
                   class="secondary-button danger-text"
                   :disabled="locked || mutating || reading"
                   @click="remove(pack)"
                 >
-                  {{ operation === 'remove' ? '移除中…' : '确认移除' }}
+                  {{ t(operation === 'remove' ? 'localPacks.removing' : 'localPacks.confirmRemove') }}
                 </button><button
-                  class="text-button"
+                  class="secondary-button"
                   :disabled="mutating"
                   @click="deleting = null"
                 >
-                  取消
+                  {{ t('localPacks.cancel') }}
                 </button>
               </div>
             </div>
@@ -226,10 +237,13 @@ onUnmounted(() => { ++request; });
           v-else-if="!error"
           class="content-empty"
         >
-          {{ query.trim() ? `没有找到匹配的${label}。` : `还没有${label}，导入本地 ZIP 文件开始。` }}
+          {{ t(query.trim() ? 'localPacks.noMatches' : 'localPacks.empty', {kind: label}) }}
         </p>
-      </TabsContent>
-      <TabsContent value="discover">
+      </component>
+      <TabsContent
+        v-if="!installedOnly"
+        value="discover"
+      >
         <DiscoverPacks
           v-if="discoveryVisited"
           :game-id="gameId"
@@ -243,3 +257,6 @@ onUnmounted(() => { ++request; });
     </TabsRoot>
   </div>
 </template>
+<style scoped>
+.local-packs .content-heading{display:flex;justify-content:space-between;align-items:center;gap:14px;margin:18px 0 12px}.local-packs-count{margin:0;font-size:12px;color:var(--muted)}.local-packs .setting-hint{margin:5px 0 0}.local-pack-heading-actions{display:flex;gap:8px;flex-shrink:0}.local-pack-heading-actions button,.local-packs .content-toolbar button,.local-pack-main>button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:36px;padding:8px 11px}.local-packs .content-toolbar{margin-top:14px}.local-packs .mod-info{min-width:0}.local-packs .local-pack-row{overflow-wrap:anywhere}@media(max-width:560px){.local-packs .content-heading{align-items:flex-start}.local-pack-heading-actions{gap:6px}.local-pack-heading-actions button{font-size:12px;padding:8px 10px}}
+</style>

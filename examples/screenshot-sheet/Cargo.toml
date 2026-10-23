@@ -1,0 +1,16 @@
+[package]
+name = "cobble-screenshot-sheet"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wit-bindgen = "=0.63.0"
+
+[dev-dependencies]
+serde_json.workspace = true

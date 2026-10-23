@@ -1,22 +1,58 @@
 // SPDX-License-Identifier: MIT
+#[path = "blueprint_import.rs"]
+pub mod blueprint_import;
+#[path = "curseforge_install.rs"]
+pub mod curseforge_install;
+#[path = "curseforge_pack.rs"]
+pub mod curseforge_pack;
+#[path = "game_appearance.rs"]
+pub mod game_appearance;
+#[path = "game_config.rs"]
+pub mod game_config;
+#[path = "game_servers.rs"]
+pub mod game_servers;
+#[path = "quick_launch.rs"]
+pub mod quick_launch;
+#[path = "game_diagnostics.rs"]
+pub mod game_diagnostics;
+#[path = "game_inspection.rs"]
+pub mod game_inspection;
 #[path = "launcher_import.rs"]
 pub mod launcher_import;
+#[path = "launch_recovery.rs"]
+pub mod launch_recovery;
 #[path = "local_packs.rs"]
 pub mod local_packs;
 #[path = "management.rs"]
 pub mod management;
 #[path = "marketplace.rs"]
 pub mod marketplace;
+#[path = "mesh.rs"]
+pub mod mesh;
 #[path = "mod_updates.rs"]
 pub mod mod_updates;
+#[path = "pack_origin.rs"]
+pub mod pack_origin;
+#[path = "native_pack_update_preview.rs"]
+pub mod pack_update_preview;
+#[path = "runtime.rs"]
+pub mod runtime;
+#[path = "screenshot_sheet.rs"]
+pub mod screenshot_sheet;
+#[path = "screenshots.rs"]
+pub mod screenshots;
 #[path = "sessions.rs"]
 pub mod sessions;
 #[path = "tasks.rs"]
 pub mod tasks;
+#[path = "world_datapacks.rs"]
+pub mod world_datapacks;
 #[path = "worlds.rs"]
 pub mod worlds;
 use cobble_core::InstallProgress;
 use cobble_minecraft::{DownloadSettings, VersionCatalog, VersionKind};
+#[path = "world_snapshots.rs"]
+pub mod world_snapshots;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -31,6 +67,16 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 pub struct Game {
     id: String,
     name: String,
+    #[serde(default)]
+    last_launched_at: Option<u64>,
+    #[serde(default = "game_appearance::default_preset")]
+    appearance_preset: String,
+    #[serde(default)]
+    icon_ref: Option<String>,
+    #[serde(default)]
+    cover_ref: Option<String>,
+    #[serde(default)]
+    pinned: bool,
     version: String,
     #[serde(default)]
     loader_version: Option<String>,
@@ -61,6 +107,8 @@ pub struct Game {
     pack_version: Option<String>,
     #[serde(default)]
     pack_source_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pack_origin: Option<pack_origin::PackOrigin>,
     #[serde(default)]
     pack_optional_files: Vec<String>,
     #[serde(default)]
@@ -76,6 +124,7 @@ fn idle() -> String {
 struct PackSelection {
     id: String,
     pack: cobble_content::Mrpack,
+    origin: Option<pack_origin::PackOrigin>,
 }
 
 fn pack_archive_path(id: &str) -> Result<PathBuf, String> {
@@ -124,6 +173,7 @@ fn store_pack_preview(
     app: &AppHandle,
     id: String,
     pack: cobble_content::Mrpack,
+    origin: Option<pack_origin::PackOrigin>,
 ) -> Result<PackPreview, String> {
     let preview = PackPreview {
         preview_id: id.clone(),
@@ -149,7 +199,7 @@ fn store_pack_preview(
         .0
         .lock()
         .map_err(|e| e.to_string())?
-        .picked_pack = Some(PackSelection { id, pack });
+        .picked_pack = Some(PackSelection { id, pack, origin });
     Ok(preview)
 }
 
@@ -194,7 +244,7 @@ pub async fn preview_mrpack(
                 return Err(error);
             }
         };
-        store_pack_preview(&app, id, pack).map(Some)
+        store_pack_preview(&app, id, pack, None).map(Some)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -250,6 +300,11 @@ pub fn create_mrpack_game(
         directory: base.join(&id),
         id,
         name: name.trim().into(),
+        last_launched_at: None,
+        appearance_preset: game_appearance::default_preset(),
+        icon_ref: None,
+        cover_ref: None,
+        pinned: false,
         version: selection.pack.minecraft_version.clone(),
         loader_version: selection.pack.loader_version.clone(),
         loader_kind: selection.pack.loader_kind.clone(),
@@ -266,6 +321,7 @@ pub fn create_mrpack_game(
         pack_name: Some(selection.pack.name.clone()),
         pack_version: Some(selection.pack.version_id.clone()),
         pack_source_id: Some(selection.id.clone()),
+        pack_origin: selection.origin.clone(),
         pack_optional_files: optional_files,
         pack_mod_files: Vec::new(),
         launcher_import_id: None,
@@ -288,8 +344,11 @@ struct Library {
     load_error: Option<String>,
     mod_plans: HashMap<String, (String, cobble_content::ModrinthPlan)>,
     mod_preview_ids: HashMap<String, String>,
+    curseforge_plans: HashMap<String, (String, cobble_content::curseforge::InstallPlan)>,
+    curseforge_preview_ids: HashMap<String, String>,
     update_plans: HashMap<String, (String, cobble_core::ModUpdatePlan)>,
     picked_pack: Option<PackSelection>,
+    picked_curseforge_pack: Option<curseforge_pack::Selection>,
     picked_import: Option<launcher_import::ImportSelection>,
     world_previews: HashMap<String, worlds::WorldSelection>,
 }
@@ -401,6 +460,36 @@ pub fn list_games(library: State<'_, GameLibrary>) -> Result<Vec<Game>, String> 
     }
     Ok(library.games.clone())
 }
+
+pub(crate) fn ensure_registered_game(app: &AppHandle, id: &str) -> Result<(), String> {
+    registered_game_stopped(app, id).map(|_| ())
+}
+pub(crate) fn registered_game_version(app: &AppHandle, id: &str) -> Result<String, String> {
+    let state = app.state::<GameLibrary>();
+    let library = state.0.lock().map_err(|_| "游戏库不可用")?;
+    if let Some(error) = &library.load_error {
+        return Err(error.clone());
+    }
+    library
+        .games
+        .iter()
+        .find(|game| game.id == id && game.status == "installed")
+        .map(|game| game.version.clone())
+        .ok_or_else(|| "找不到已安装的游戏".into())
+}
+pub(crate) fn registered_game_stopped(app: &AppHandle, id: &str) -> Result<bool, String> {
+    let state = app.state::<GameLibrary>();
+    let library = state.0.lock().map_err(|_| "游戏库不可用")?;
+    if let Some(error) = &library.load_error {
+        return Err(error.clone());
+    }
+    let game = library
+        .games
+        .iter()
+        .find(|game| game.id == id)
+        .ok_or("找不到这个游戏")?;
+    Ok(game.launch_state == "idle" && !game.content_installing && game.status != "installing")
+}
 #[tauri::command]
 pub fn default_game_directory() -> Result<String, String> {
     Ok(default_directory()?.display().to_string())
@@ -438,6 +527,7 @@ pub fn create_game(
     use_default_directory: bool,
     loader_version: Option<String>,
     loader_kind: Option<String>,
+    automatic_name: Option<bool>,
 ) -> Result<Game, String> {
     if name.trim().is_empty() {
         return Err("请填写游戏名称".into());
@@ -471,10 +561,23 @@ pub fn create_game(
             .map_err(|e| e.to_string())?
             .as_nanos()
     );
+    let name = if automatic_name.unwrap_or(false) {
+        unique_game_name(
+            name.trim(),
+            library.games.iter().map(|game| game.name.as_str()),
+        )
+    } else {
+        name.trim().to_owned()
+    };
     let game = Game {
         directory: base.join(&id),
         id,
-        name: name.trim().into(),
+        name,
+        last_launched_at: None,
+        appearance_preset: game_appearance::default_preset(),
+        icon_ref: None,
+        cover_ref: None,
+        pinned: false,
         version,
         loader_version,
         loader_kind,
@@ -491,6 +594,7 @@ pub fn create_game(
         pack_name: None,
         pack_version: None,
         pack_source_id: None,
+        pack_origin: None,
         pack_optional_files: Vec::new(),
         pack_mod_files: Vec::new(),
         launcher_import_id: None,
@@ -543,10 +647,26 @@ fn update_game(app: &AppHandle, id: &str, change: impl FnOnce(&mut Game), persis
     let Some(game) = library.games.iter_mut().find(|g| g.id == id) else {
         return;
     };
+    let previous_phase = game
+        .progress
+        .as_ref()
+        .map(|progress| progress.phase.clone());
+    let previous_status = game.status.clone();
     change(game);
+    if previous_phase.as_deref()
+        != game
+            .progress
+            .as_ref()
+            .map(|progress| progress.phase.as_str())
+    {
+        tracing::info!(event="install_phase", game_id=%game.id, phase=game.progress.as_ref().map(|progress|progress.phase.as_str()).unwrap_or("idle"));
+    }
+    if previous_status != game.status {
+        tracing::info!(event="install_state", game_id=%game.id, state=%game.status);
+    }
     let snapshot = game.clone();
     if persist && let Err(error) = save(&library.games) {
-        eprintln!("Could not save game library: {error}");
+        tracing::error!(event="library_save_failed", error=%error);
     }
     drop(library);
     let _ = app.emit("game-install", snapshot);
@@ -571,166 +691,6 @@ fn start_install(app: AppHandle, game: Game, _source: cobble_minecraft::Download
             true,
         ),
     }
-}
-
-#[derive(Serialize)]
-pub struct LaunchReadiness {
-    java: crate::java::JavaRuntimeInfo,
-    required_java: u32,
-    main_class: String,
-    classpath_entries: usize,
-}
-
-#[tauri::command]
-pub async fn prepare_game_launch(
-    id: String,
-    library: State<'_, GameLibrary>,
-) -> Result<LaunchReadiness, String> {
-    let (version, directory, java_override) = {
-        let library = library.0.lock().map_err(|e| e.to_string())?;
-        let game = library
-            .games
-            .iter()
-            .find(|game| game.id == id)
-            .ok_or("找不到这个游戏")?;
-        if game.status != "installed" {
-            return Err("请先完成游戏安装".into());
-        }
-        (
-            game.version.clone(),
-            game.directory.clone(),
-            game.runtime_overrides.java.clone(),
-        )
-    };
-    let launch = cobble_core::prepare_launch(&version, &directory)
-        .await
-        .map_err(|e| e.to_string())?;
-    let java = cobble_minecraft::resolve_java_override(launch.required_java, &java_override)
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(LaunchReadiness {
-        java: java.into(),
-        required_java: launch.required_java,
-        main_class: launch.main_class,
-        classpath_entries: launch.classpath_entries,
-    })
-}
-
-#[tauri::command]
-pub fn start_game(
-    app: AppHandle,
-    library: State<'_, GameLibrary>,
-    id: String,
-) -> Result<Game, String> {
-    let mut library = library.0.lock().map_err(|e| e.to_string())?;
-    let game = library
-        .games
-        .iter_mut()
-        .find(|g| g.id == id)
-        .ok_or("找不到这个游戏")?;
-    if game.status != "installed" {
-        return Err("请先完成游戏安装".into());
-    }
-    if game.launch_state != "idle" {
-        return Err("这个游戏已经在启动或运行".into());
-    }
-    if game.content_installing {
-        return Err("Mod 正在安装，请稍候".into());
-    }
-    // Capture the effective identity before spawning; later selection changes
-    // only affect future launches.
-    let profile =
-        cobble_auth::get_player_profile(game.profile_id.as_deref()).map_err(|e| e.to_string())?;
-    game.launch_state = "preparing".into();
-    game.launch_error = None;
-    let snapshot = game.clone();
-    drop(library);
-    let launch = snapshot.clone();
-    tauri::async_runtime::spawn(async move {
-        let result = async {
-            let directory = launch.directory.clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                cobble_core::recover_modrinth_update(&directory).map_err(|e| e.to_string())?;
-                cobble_core::recover_world_operations(&directory).map_err(|e| e.to_string())
-            })
-            .await
-            .map_err(|e| e.to_string())??;
-            let identity = cobble_auth::launch_identity(Some(&profile.id)).await?;
-            cobble_core::start_game_with_identity(
-                &launch.version,
-                &launch.directory,
-                &identity,
-                &launch.runtime_overrides,
-            )
-            .await
-        }
-        .await;
-        match result {
-            Ok(mut running) => {
-                let session = (|| {
-                    let session = sessions::capture(
-                        &launch,
-                        running.child.id().ok_or("游戏进程已退出")?,
-                        &running.natives_directory,
-                    )?;
-                    sessions::persist(&session)?;
-                    Ok::<_, String>(session)
-                })();
-                let session = match session {
-                    Ok(session) => session,
-                    Err(error) => {
-                        let _ = running.child.start_kill();
-                        let _ = running.child.wait().await;
-                        update_game(
-                            &app,
-                            &launch.id,
-                            |game| {
-                                game.launch_state = idle();
-                                game.launch_error =
-                                    Some(format!("无法保存游戏运行记录，已停止本次启动：{error}"));
-                            },
-                            true,
-                        );
-                        return;
-                    }
-                };
-                update_game(
-                    &app,
-                    &launch.id,
-                    |g| {
-                        g.launch_state = "running".into();
-                        g.log_path = Some(running.log_path);
-                    },
-                    false,
-                );
-                let result = running.child.wait().await;
-                let _ = sessions::clear(&session);
-                update_game(
-                    &app,
-                    &launch.id,
-                    |g| {
-                        g.launch_state = idle();
-                        g.launch_error = match result {
-                            Ok(status) if status.success() => None,
-                            Ok(status) => Some(format!("游戏异常退出（{status}），请查看游戏日志")),
-                            Err(error) => Some(error.to_string()),
-                        };
-                    },
-                    true,
-                );
-            }
-            Err(error) => update_game(
-                &app,
-                &launch.id,
-                |g| {
-                    g.launch_state = idle();
-                    g.launch_error = Some(error.to_string());
-                },
-                true,
-            ),
-        }
-    });
-    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -987,6 +947,36 @@ fn save_mod_preview(
     Ok(())
 }
 
+fn unique_game_name<'a>(suggestion: &str, names: impl Iterator<Item = &'a str>) -> String {
+    let names: std::collections::HashSet<_> = names.map(str::to_lowercase).collect();
+    if !names.contains(&suggestion.to_lowercase()) {
+        return suggestion.to_owned();
+    }
+    for number in 2.. {
+        let candidate = format!("{suggestion} ({number})");
+        if !names.contains(&candidate.to_lowercase()) {
+            return candidate;
+        }
+    }
+    unreachable!()
+}
+
+#[cfg(test)]
+mod naming_tests {
+    use super::unique_game_name;
+    #[test]
+    fn suggested_names_skip_existing_suffixes_and_ignore_case() {
+        assert_eq!(
+            unique_game_name(
+                "1.21.1 Fabric",
+                ["1.21.1 fabric", "1.21.1 Fabric (2)"].into_iter()
+            ),
+            "1.21.1 Fabric (3)"
+        );
+        assert_eq!(unique_game_name("1.21.1", [].into_iter()), "1.21.1");
+    }
+}
+
 #[cfg(test)]
 mod mod_preview_tests {
     use super::*;
@@ -1115,7 +1105,7 @@ pub fn rename_game(
     Ok(snapshot)
 }
 
-fn game_directory(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
+pub(crate) fn game_directory(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
     let state = app.state::<GameLibrary>();
     let library = state.0.lock().map_err(|e| e.to_string())?;
     Ok(library
@@ -1196,100 +1186,18 @@ pub fn set_game_profile(
     Ok(snapshot)
 }
 
-fn change_runtime(
-    library: &GameLibrary,
-    id: &str,
-    change: impl FnOnce(&mut cobble_minecraft::LaunchOverrides),
-) -> Result<Game, String> {
-    let mut library = library.0.lock().map_err(|e| e.to_string())?;
-    let game = library
-        .games
-        .iter_mut()
-        .find(|game| game.id == id)
-        .ok_or("找不到这个游戏")?;
-    let previous = game.runtime_overrides.clone();
-    change(&mut game.runtime_overrides);
-    let snapshot = game.clone();
-    if let Err(error) = save(&library.games) {
-        library
-            .games
-            .iter_mut()
-            .find(|game| game.id == id)
-            .unwrap()
-            .runtime_overrides = previous;
-        return Err(error);
-    }
-    Ok(snapshot)
-}
-
-#[tauri::command]
-pub fn set_game_memory(
-    library: State<'_, GameLibrary>,
-    id: String,
-    memory_mb: Option<u32>,
-) -> Result<Game, String> {
-    if let Some(memory) = memory_mb {
-        cobble_minecraft::validate_memory_mb(memory).map_err(|e| e.to_string())?;
-    }
-    change_runtime(&library, &id, |settings| settings.memory_mb = memory_mb)
-}
-
-#[tauri::command]
-pub fn set_game_java_mode(
-    library: State<'_, GameLibrary>,
-    id: String,
-    mode: String,
-) -> Result<Game, String> {
-    let java = match mode.as_str() {
-        "inherit" => cobble_minecraft::JavaOverride::Inherit,
-        "automatic" => cobble_minecraft::JavaOverride::Automatic,
-        _ => return Err("请选择自动选择或跟随默认 Java".into()),
-    };
-    change_runtime(&library, &id, |settings| settings.java = java)
-}
-
-#[tauri::command]
-pub async fn pick_game_java_executable(
-    window: WebviewWindow,
-    library: State<'_, GameLibrary>,
-    id: String,
-) -> Result<Option<Game>, String> {
-    let (version, directory) = {
-        let library = library.0.lock().map_err(|e| e.to_string())?;
-        let game = library
-            .games
-            .iter()
-            .find(|game| game.id == id)
-            .ok_or("找不到这个游戏")?;
-        (game.version.clone(), game.directory.clone())
-    };
-    let bytes = fs::read(directory.join(format!("versions/{version}/{version}.json")))
-        .map_err(|e| e.to_string())?;
-    let required = cobble_minecraft::VersionMetadata::parse_installed(&bytes, &version)
-        .map_err(|e| e.to_string())?
-        .java_version
-        .major_version;
-    let dialog = rfd::AsyncFileDialog::new()
-        .set_parent(&window)
-        .set_title("选择此游戏使用的 Java");
-    #[cfg(windows)]
-    let dialog = dialog.add_filter("Java (java.exe / javaw.exe)", &["exe"]);
-    let Some(file) = dialog.pick_file().await else {
-        return Ok(None);
-    };
-    let java = cobble_minecraft::probe_java(file.path())
-        .await
-        .map_err(|e| format!("无法使用这个 Java：{e}"))?;
-    if java.major != required {
-        return Err(format!(
-            "这个游戏需要 Java {required}，所选版本为 Java {}",
-            java.major
-        ));
-    }
-    change_runtime(&library, &id, |settings| {
-        settings.java = cobble_minecraft::JavaOverride::Custom {
-            executable: java.executable,
-        }
-    })
-    .map(Some)
+pub(crate) fn frontend_game_summaries(app: &AppHandle) -> Result<Vec<serde_json::Value>, String> {
+    let mut games =
+        list_games(app.state::<GameLibrary>()).map_err(|_| "PLUGIN_CONTEXT_UNAVAILABLE")?;
+    games.sort_by(|a, b| {
+        b.last_launched_at
+            .cmp(&a.last_launched_at)
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    Ok(games
+        .into_iter()
+        .take(1024)
+        .map(|game| serde_json::json!({"id":game.id,"name":game.name,"version":game.version}))
+        .collect())
 }

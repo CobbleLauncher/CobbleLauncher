@@ -1,0 +1,21 @@
+{
+  "openFolder": "打开截图文件夹",
+  "refresh": "刷新",
+  "loading": "正在加载截图…",
+  "empty": "还没有截图。",
+  "preview": "预览 {name}",
+  "imageError": "无法加载图片",
+  "previous": "上一页",
+  "next": "下一页",
+  "page": "{first}–{last} / {total}",
+  "close": "关闭预览",
+  "loadingImage": "正在加载图片…",
+  "retry": "重试",
+  "openOriginal": "打开原图",
+  "listFailed": "无法加载截图，请刷新重试。",
+  "previewFailed": "无法加载预览，可刷新图库或打开原图。",
+  "openFailed": "无法打开文件或文件夹。",
+  "previousImage": "上一张",
+  "nextImage": "下一张",
+  "position": "{current} / {total}"
+}

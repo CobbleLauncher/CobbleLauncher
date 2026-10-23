@@ -63,8 +63,10 @@ async function calls(page: Page, command: string) {
   return page.evaluate((name) => (window as unknown as Mock).__calls.filter((call) => call.command === name), command);
 }
 async function openDiscovery(page: Page) {
-  await page.getByRole('button', { name: '发现整合包', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '发现整合包', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '市场', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '市场', exact: true })).toBeVisible();
+  await expect.poll(async () => (await calls(page, 'search_modrinth_packs')).length).toBeGreaterThan(0);
+  await page.locator('.pack-discovery-filter-details summary').click();
 }
 async function search(page: Page, query = 'quiet forest') {
   await page.getByRole('searchbox', { name: '搜索整合包' }).fill(query);
@@ -72,22 +74,23 @@ async function search(page: Page, query = 'quiet forest') {
   await expect(page.getByRole('button', { name: `查看 ${hit.title}`, exact: true })).toBeVisible();
 }
 
-test('discovery makes no initial request and searches only after explicit submit with filters', async ({ page }) => {
+test('market loads a default pack listing, then applies explicit search filters', async ({ page }) => {
   await setup(page);
   expect(await calls(page, 'search_modrinth_packs')).toHaveLength(0);
   expect(await calls(page, 'list_modrinth_pack_versions')).toHaveLength(0);
   await openDiscovery(page);
+  expect((await calls(page, 'search_modrinth_packs'))[0].args).toEqual({ query: '', minecraftVersion: null, loader: null, offset: 0 });
   await page.getByLabel('Minecraft 版本').fill('1.21.1');
   await page.getByLabel('加载器').selectOption('fabric');
   await page.getByRole('searchbox', { name: '搜索整合包' }).fill('quiet forest');
-  expect(await calls(page, 'search_modrinth_packs')).toHaveLength(0);
+  expect(await calls(page, 'search_modrinth_packs')).toHaveLength(1);
   await page.getByRole('button', { name: '搜索', exact: true }).click();
   await expect(page.getByRole('list', { name: '发现整合包' })).toContainText('Quiet Forest');
-  expect((await calls(page, 'search_modrinth_packs'))[0].args).toEqual({ query: 'quiet forest', minecraftVersion: '1.21.1', loader: 'fabric', offset: 0 });
+  expect((await calls(page, 'search_modrinth_packs')).at(-1)?.args).toEqual({ query: 'quiet forest', minecraftVersion: '1.21.1', loader: 'fabric', offset: 0 });
   await page.getByRole('button', { name: '查看 Quiet Forest', exact: true }).click();
   await expect(page.getByLabel('整合包版本')).toBeVisible();
   expect((await calls(page, 'list_modrinth_pack_versions'))[0].args).toEqual({ projectId: hit.project_id, minecraftVersion: '1.21.1', loader: 'fabric' });
-  await expect(page.getByLabel('整合包版本')).toHaveValue(version.version_id);
+  await expect(page.getByLabel('整合包版本')).toHaveValue(new RegExp(version.version_number));
 });
 
 test('preview is explicit, locks controls while loading, and installation requires final confirmation', async ({ page }, testInfo) => {
@@ -119,14 +122,14 @@ test('preview is explicit, locks controls while loading, and installation requir
   await expect(page.getByRole('heading', { name: 'Quiet Forest', exact: true })).toBeVisible();
   expect((await calls(page, 'preview_modrinth_pack'))[0].args).toEqual({ projectId: hit.project_id, versionId: version.version_id });
   expect(await calls(page, 'create_mrpack_game')).toHaveLength(0);
-  await page.getByRole('button', { name: '返回发现整合包', exact: true }).click();
-  await expect(page.getByLabel('整合包版本')).toHaveValue(version.version_id);
+  await page.getByRole('button', { name: '返回市场', exact: true }).click();
+  await expect(page.getByLabel('整合包版本')).toHaveValue(new RegExp(version.version_number));
   await page.getByRole('button', { name: /返回搜索结果/ }).click();
   await expect(page.getByRole('searchbox', { name: '搜索整合包' })).toHaveValue('quiet forest');
   await expect(page.getByLabel('Minecraft 版本')).toHaveValue('1.21.1');
   await expect(page.getByLabel('加载器')).toHaveValue('fabric');
   await page.getByRole('button', { name: '查看 Quiet Forest', exact: true }).click();
-  await expect(page.getByLabel('整合包版本')).toHaveValue(version.version_id);
+  await expect(page.getByLabel('整合包版本')).toHaveValue(new RegExp(version.version_number));
   await page.getByRole('button', { name: '查看安装预览', exact: true }).click();
   await expect(page.getByRole('heading', { name: '导入整合包', exact: true })).toBeVisible();
   await page.setViewportSize({ width: 560, height: 800 });
@@ -174,7 +177,7 @@ test('unsupported filters show no installable version and version lookup can ret
   await expect(page.getByText('没有符合筛选条件的可安装版本。')).toBeVisible();
   await expect(page.getByRole('button', { name: '查看安装预览', exact: true })).toHaveCount(0);
   expect(await calls(page, 'preview_modrinth_pack')).toHaveLength(0);
-  expect((await calls(page, 'search_modrinth_packs'))[0].args).toEqual({ query: 'quiet forest', minecraftVersion: '9.9.9', loader: null, offset: 0 });
+  expect((await calls(page, 'search_modrinth_packs')).at(-1)?.args).toEqual({ query: 'quiet forest', minecraftVersion: '9.9.9', loader: null, offset: 0 });
 });
 
 test('version and preview errors retain the project and retry the selected version', async ({ page }) => {
@@ -186,11 +189,11 @@ test('version and preview errors retain the project and retry the selected versi
   await expect(page.getByRole('alert')).toBeVisible();
   await page.evaluate(() => { (window as unknown as Mock).__failCommand = ''; });
   await page.getByRole('button', { name: '重试读取版本', exact: true }).click();
-  await expect(page.getByLabel('整合包版本')).toHaveValue(version.version_id);
+  await expect(page.getByLabel('整合包版本')).toHaveValue(new RegExp(version.version_number));
   await page.evaluate(() => { (window as unknown as Mock).__failCommand = 'preview_modrinth_pack'; });
   await page.getByRole('button', { name: '查看安装预览', exact: true }).click();
   await expect(page.getByRole('alert')).toBeVisible();
-  await expect(page.getByLabel('整合包版本')).toHaveValue(version.version_id);
+  await expect(page.getByLabel('整合包版本')).toHaveValue(new RegExp(version.version_number));
   await page.evaluate(() => { (window as unknown as Mock).__failCommand = ''; });
   await page.getByRole('button', { name: '重试安装预览', exact: true }).click();
   await expect(page.getByRole('heading', { name: '导入整合包', exact: true })).toBeVisible();

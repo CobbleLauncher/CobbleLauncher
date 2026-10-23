@@ -1,0 +1,53 @@
+{
+  "id": "controls-auditor",
+  "name": "Controls Auditor",
+  "version": "0.1.0",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "report"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:report",
+        "version": "0.2.0"
+      },
+      {
+        "id": "launcher:web-frontend",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "file_extensions": [],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Find conflicting keybindings",
+    "zh-CN": "查找重复使用的按键"
+  },
+  "tags": [
+    "controls",
+    "keybindings",
+    "report"
+  ],
+  "permissions": [
+    {
+      "permission": "launcher:ui/webview"
+    },
+    {
+      "permission": "launcher:game-inspection/read",
+      "scopes": [
+        "options"
+      ]
+    }
+  ],
+  "frontend": {
+    "api_version": "0.1.0",
+    "entry": "ui/index.html",
+    "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "icon": {
+    "file": "icon.png",
+    "sha256": "9ed57513d214b7073b4cf29a9952b25705da93adf534a84a5cb743658e1e04a0"
+  }
+}

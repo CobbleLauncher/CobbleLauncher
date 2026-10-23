@@ -7,7 +7,10 @@ use crate::{
 use std::{
     collections::HashMap,
     fmt,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tokio::sync::watch;
@@ -32,6 +35,9 @@ impl fmt::Display for ManagedDownloadError {
 }
 impl std::error::Error for ManagedDownloadError {}
 struct Job {
+    source: String,
+    item: String,
+    expected_bytes: u64,
     subscribers: usize,
     cancel: TransferCancellation,
     result: watch::Sender<Option<Outcome>>,
@@ -40,6 +46,22 @@ struct Job {
 pub struct DownloadManager {
     downloader: ArtifactDownloader,
     jobs: Arc<Mutex<HashMap<[u8; 32], Job>>>,
+    transferred: Arc<AtomicU64>,
+    admission: Arc<crate::adaptive::Admission>,
+}
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveDownloadProgress {
+    pub source: String,
+    pub item: String,
+    pub bytes_received: u64,
+    pub bytes_total: u64,
+}
+#[derive(Clone, Debug, Default)]
+pub struct DownloadMetrics {
+    pub bytes_received: u64,
+    pub active_downloads: usize,
+    pub items: Vec<ActiveDownloadProgress>,
 }
 struct Subscription {
     manager: DownloadManager,
@@ -61,11 +83,49 @@ impl Drop for Subscription {
     }
 }
 impl DownloadManager {
+    /// Scheduling bound also respects the manager's sixteen unique-job ceiling.
+    pub fn concurrency(&self) -> usize {
+        self.downloader.concurrency().min(16)
+    }
     pub fn new(downloader: ArtifactDownloader) -> Self {
+        Self::with_adaptive(downloader, crate::download_tuning().adaptive)
+    }
+    /// Explicit mode for callers constructing a workflow with its own settings.
+    pub fn with_adaptive(downloader: ArtifactDownloader, adaptive: bool) -> Self {
+        let admission = crate::adaptive::Admission::new(downloader.concurrency().min(16), adaptive);
         Self {
             downloader,
             jobs: Arc::new(Mutex::new(HashMap::new())),
+            transferred: Arc::new(AtomicU64::new(0)),
+            admission,
         }
+    }
+    pub fn current_concurrency(&self) -> usize {
+        self.admission.limit()
+    }
+    pub fn metrics(&self) -> DownloadMetrics {
+        let mut metrics = DownloadMetrics::default();
+        if let Ok(jobs) = self.jobs.lock() {
+            metrics.bytes_received = self.transferred.load(Ordering::Relaxed);
+            for job in jobs.values() {
+                let bytes = job.cancel.observed_bytes();
+                metrics.bytes_received = metrics.bytes_received.saturating_add(bytes);
+                let active = job.cancel.active_transfers();
+                metrics.active_downloads += active;
+                if active > 0 {
+                    metrics.items.push(ActiveDownloadProgress {
+                        source: job.source.clone(),
+                        item: job.item.clone(),
+                        bytes_received: bytes,
+                        bytes_total: job.expected_bytes,
+                    });
+                }
+            }
+        }
+        metrics
+            .items
+            .sort_by(|left, right| left.item.cmp(&right.item));
+        metrics
     }
     /// Call after producers stop scheduling. Cancelled subscriptions can return
     /// before their blocking owners exit; job results are published only after
@@ -122,9 +182,13 @@ impl DownloadManager {
                 }
                 let (result, _) = watch::channel(None);
                 let job_cancel = TransferCancellation::default();
+                let (source, item, expected_bytes) = request.progress_labels();
                 jobs.insert(
                     key,
                     Job {
+                        source,
+                        item,
+                        expected_bytes,
                         subscribers: 1,
                         cancel: job_cancel.clone(),
                         result,
@@ -134,10 +198,22 @@ impl DownloadManager {
                 // One absolute budget includes queueing, retries and backoff.
                 let deadline = Instant::now() + self.downloader.total_timeout();
                 tokio::spawn(async move {
+                    let started = Instant::now();
                     let outcome = manager.run(request, job_cancel, deadline).await;
                     if let Ok(mut jobs) = manager.jobs.lock()
                         && let Some(job) = jobs.remove(&key)
                     {
+                        match &outcome {
+                            Ok(_) => {
+                                tracing::debug!(target: "cobble_net::download", source = %job.source, item = %job.item, elapsed_ms = started.elapsed().as_millis() as u64, bytes_received = job.cancel.observed_bytes(), outcome = "verified", "download finished")
+                            }
+                            Err(error) => {
+                                tracing::warn!(target: "cobble_net::download", source = %job.source, item = %job.item, elapsed_ms = started.elapsed().as_millis() as u64, category = download_category(error), "download failed")
+                            }
+                        }
+                        manager
+                            .transferred
+                            .fetch_add(job.cancel.observed_bytes(), Ordering::Relaxed);
                         job.result.send_replace(Some(outcome));
                     }
                 });
@@ -171,10 +247,30 @@ impl DownloadManager {
         deadline: Instant,
     ) -> Outcome {
         for attempt in 0..3 {
+            let lease = tokio::select! { biased;
+                _ = cancel.cancelled() => return Err(Arc::new(DownloadError::Cancelled)),
+                value = tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), self.admission.acquire()) => match value { Ok(lease) => lease, Err(_) => return Err(Arc::new(DownloadError::Deadline)) },
+            };
+            let before = cancel.observed_bytes();
             let outcome = self
                 .downloader
                 .download_shared_before(request.clone(), cancel.clone(), deadline)
                 .await;
+            let congestion = matches!(
+                &outcome,
+                Err(DownloadError::Deadline
+                    | DownloadError::Transfer(
+                        TransferError::Network(NetError::Timeout(_))
+                            | TransferError::HttpStatus(429 | 503)
+                            | TransferError::HttpRetry {
+                                status: 429 | 503,
+                                ..
+                            }
+                    ))
+            );
+            self.admission
+                .observe(cancel.observed_bytes().saturating_sub(before), congestion);
+            drop(lease);
             let error = match outcome {
                 Ok(result) => return Ok(Arc::new(result)),
                 Err(error) => error,
@@ -195,6 +291,18 @@ impl DownloadManager {
             }
         }
         unreachable!("three attempts always return")
+    }
+}
+fn download_category(error: &DownloadError) -> &'static str {
+    match error {
+        DownloadError::InvalidRequest => "invalid_request",
+        DownloadError::Policy(_) => "policy",
+        DownloadError::Transfer(_) => "transport",
+        DownloadError::Staging(_) => "staging",
+        DownloadError::Integrity(_) => "integrity",
+        DownloadError::Cancelled => "cancelled",
+        DownloadError::Deadline => "deadline",
+        DownloadError::Worker => "worker",
     }
 }
 fn retry_delay(error: &DownloadError, attempt: u32) -> Option<Duration> {

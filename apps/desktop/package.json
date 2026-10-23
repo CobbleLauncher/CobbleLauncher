@@ -15,15 +15,23 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@jsonforms/core": "3.8.0",
+    "@jsonforms/vue": "3.8.0",
+    "@lucide/vue": "1.61.0",
     "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-clipboard-manager": "^2.5.0",
     "reka-ui": "2.11.0",
-    "vue": "3.5.44"
+    "skinview3d": "3.4.2",
+    "three": "0.156.1",
+    "vue": "3.5.44",
+    "vue-i18n": "11.4.16"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.64.1",
     "@tauri-apps/cli": "2.12.3",
     "@types/node": "24.19.2",
+    "@types/three": "0.156.0",
     "@vitejs/plugin-vue": "6.0.10",
     "@vue/test-utils": "2.5.1",
     "ajv": "8.20.0",

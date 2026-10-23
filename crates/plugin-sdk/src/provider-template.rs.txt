@@ -1,0 +1,137 @@
+// SPDX-License-Identifier: MIT
+//! Public JSON catalog example. Planning proposes URLs; only the native broker fetches.
+wit_bindgen::generate!({path: "wit", world: "blueprint-provider"});
+use exports::launcher::blueprint_provider::provider as w;
+use serde::Deserialize;
+const ORIGIN: &str = __PROVIDER_ORIGIN__;
+#[derive(Deserialize)]
+struct Entry {
+    id: String,
+    title: String,
+    version: u32,
+    author: String,
+    bytes: u64,
+    #[serde(default)]
+    license: Option<String>,
+}
+#[derive(Deserialize)]
+struct Catalog {
+    items: Vec<Entry>,
+}
+struct Component;
+fn failure(message: &str) -> w::Failure {
+    w::Failure {
+        code: "CATALOG_INPUT".into(),
+        message: message.into(),
+    }
+}
+fn safe_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+}
+fn resource(item: &Entry) -> w::Resource {
+    w::Resource {
+        id: item.id.clone(),
+        title: item.title.clone(),
+        description: String::new(),
+        version: item.version,
+        format: "schem".into(),
+        author: item.author.clone(),
+        attribution: "original".into(),
+        java_release: None,
+        namespaces: vec![],
+        preview_url: None,
+        license: item.license.clone(),
+    }
+}
+impl w::Guest for Component {
+    fn plan(request: w::Request) -> Result<Vec<w::GetRequest>, w::Failure> {
+        if let Some(key) = request.key {
+            if !safe_id(&key.id) || key.version == 0 {
+                return Err(failure("Invalid resource key"));
+            }
+        }
+        Ok(vec![w::GetRequest {
+            url: format!("{ORIGIN}/catalog.json"),
+            maximum_bytes: 65536,
+        }])
+    }
+    fn normalize(
+        request: w::Request,
+        responses: Vec<w::GetResponse>,
+    ) -> Result<w::Output, w::Failure> {
+        if responses.len() != 1 || responses[0].status != 200 {
+            return Err(failure("Catalog request failed"));
+        }
+        let catalog: Catalog = serde_json::from_slice(&responses[0].body)
+            .map_err(|_| failure("Invalid catalog JSON"))?;
+        if catalog.items.len() > 50
+            || catalog.items.iter().any(|item| {
+                !safe_id(&item.id)
+                    || item.version == 0
+                    || item.bytes == 0
+                    || item.bytes > 8 * 1024 * 1024
+            })
+        {
+            return Err(failure("Catalog exceeds example limits"));
+        }
+        let mut output = w::Output {
+            items: vec![],
+            next_cursor: None,
+            detail: None,
+            download: None,
+        };
+        match request.operation {
+            w::Operation::Search => {
+                let query = request.search.ok_or_else(|| failure("Missing search"))?;
+                if query.cursor.is_some() {
+                    return Err(failure("This small catalog has no cursor"));
+                }
+                output.items = catalog
+                    .items
+                    .iter()
+                    .filter(|item| {
+                        item.title
+                            .to_lowercase()
+                            .contains(&query.text.to_lowercase())
+                            && query.format.as_deref().is_none_or(|f| f == "schem")
+                            && query.mod_namespace.is_none()
+                    })
+                    .take(query.limit as usize)
+                    .map(resource)
+                    .collect();
+            }
+            operation => {
+                let key = request.key.ok_or_else(|| failure("Missing resource key"))?;
+                let item = catalog
+                    .items
+                    .iter()
+                    .find(|item| item.id == key.id && item.version == key.version)
+                    .ok_or_else(|| failure("Resource no longer exists"))?;
+                if matches!(operation, w::Operation::Detail) {
+                    output.detail = Some(resource(item));
+                } else {
+                    output.download = Some(w::FileProposal {
+                        url: format!("{ORIGIN}/files/{}-{}.schem", item.id, item.version),
+                        suggested_filename: format!("{}-{}.schem", item.id, item.version),
+                        original_filename: format!("{}.schem", item.id),
+                        declared_bytes: item.bytes,
+                        format: "schem".into(),
+                        id: item.id.clone(),
+                        version: item.version,
+                        title: item.title.clone(),
+                        author: item.author.clone(),
+                        attribution: "original".into(),
+                        license: item.license.clone(),
+                        sha256: None,
+                    });
+                }
+            }
+        }
+        Ok(output)
+    }
+}
+export!(Component);

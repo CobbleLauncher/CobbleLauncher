@@ -1,0 +1,4 @@
+// Copyright 2018 Parity Technologies (UK) Ltd.
+// Copyright 2021 Protocol Labs.
+// Copyright 2022 Protocol Labs.
+// Copyright 2023 Protocol Labs.

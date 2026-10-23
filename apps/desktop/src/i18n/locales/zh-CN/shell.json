@@ -1,0 +1,49 @@
+{
+  "task": "任务",
+  "openTasks": "打开任务",
+  "window": {
+    "minimize": "最小化",
+    "maximize": "最大化",
+    "restore": "还原",
+    "close": "关闭窗口"
+  },
+  "back": {
+    "to": "返回{page}",
+    "market": "返回市场",
+    "gameDetails": "返回游戏详情",
+    "default": "返回游戏库",
+    "return": "返回",
+    "workspace": "返回工作区",
+    "marketLabel": "市场",
+    "gameDetailsLabel": "游戏详情",
+    "libraryLabel": "游戏库"
+  },
+  "page": {
+    "create": "创建游戏",
+    "importPack": "导入整合包",
+    "importLauncher": "导入已有游戏",
+    "market": "市场",
+    "profiles": "玩家档案",
+    "addProfile": "添加玩家档案",
+    "settings": "设置"
+  },
+  "action": {
+    "copy": "复制游戏",
+    "export": "导出整合包",
+    "remove": "移除游戏"
+  },
+  "retry": "重试",
+  "error": {
+    "quickLaunchUnavailable": "快捷方式对应的游戏已不在本地，请从游戏库选择。",
+    "quickLaunch": "无法打开游戏快捷方式，请从游戏库重试。",
+    "tasksLoad": "无法读取任务，请重试。",
+    "profileLoad": "无法读取玩家档案，请重试",
+    "profileSavedChoose": "档案已保存，请重新选择游戏使用的档案。",
+    "profileDesktopOnly": "请在桌面应用中保存玩家档案",
+    "profileSave": "未能保存档案，请重试",
+    "gameDesktopOnly": "请在桌面应用中启动游戏",
+    "gameLibraryLoad": "无法读取游戏库，请重新打开应用",
+    "gameRetry": "无法重试安装：{cause}",
+    "windowAction": "窗口操作失败，请重试"
+  }
+}

@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: MIT
+package launcher:blueprint-provider@0.2.0;
+
+interface provider {
+  record failure { code: string, message: string }
+  enum operation { search, detail, download }
+  record search-query {
+    java-release: string, text: string, format: option<string>,
+    mod-namespace: option<string>, cursor: option<string>, limit: u8,
+  }
+  record resource-key { id: string, version: u32 }
+  record request { operation: operation, search: option<search-query>, key: option<resource-key> }
+  record get-request { url: string, maximum-bytes: u32 }
+  record get-response { status: u16, body: list<u8> }
+  record %resource {
+    id: string, title: string, description: string, version: u32, format: string,
+    author: string, attribution: string, license: option<string>, java-release: option<string>,
+    namespaces: list<string>, preview-url: option<string>,
+  }
+  record file-proposal {
+    url: string, suggested-filename: string, original-filename: string,
+    declared-bytes: u64, format: string, id: string, version: u32,
+    title: string, author: string, attribution: string,
+    license: option<string>, sha256: option<string>,
+  }
+  record output {
+    items: list<%resource>, next-cursor: option<string>,
+    detail: option<%resource>, download: option<file-proposal>,
+  }
+  // Pure planning only. The native broker approves/fetches at most two GETs.
+  plan: func(request: request) -> result<list<get-request>, failure>;
+  // Ordered bounded responses correspond to the approved plan; no network import.
+  normalize: func(request: request, responses: list<get-response>) -> result<output, failure>;
+}
+world blueprint-provider { export provider; }

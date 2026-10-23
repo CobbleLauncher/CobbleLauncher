@@ -115,7 +115,7 @@ test('resource-pack discovery is on demand, keeps version choice explicit, and i
   await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
   await page.screenshot({ path: testInfo.outputPath('resource-pack-search-dark-560.png'), fullPage: true, animations: 'disabled' });
   await page.getByRole('button', { name: `查看 ${resourceHit.title}`, exact: true }).click();
-  await expect(page.getByLabel('资源包版本')).toHaveValue(resourceVersion.version_id);
+  await expect(page.getByLabel('资源包版本')).toHaveValue(new RegExp(resourceVersion.version_number));
   expect((await calls(page, 'list_game_content_pack_versions'))[0].args).toEqual({ id: game.id, kind: 'resource_pack', projectId: resourceHit.project_id });
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -150,7 +150,7 @@ test('resource and shader searches use their own kinds and search failures can r
   await expect(page.getByRole('alert')).toBeVisible();
   await page.evaluate(() => { (window as unknown as Mock).__failCommand = ''; });
   await page.getByRole('button', { name: '重试读取版本', exact: true }).click();
-  await expect(page.getByLabel('光影包版本')).toHaveValue(shaderVersion.version_id);
+  await expect(page.getByLabel('光影包版本')).toHaveValue(new RegExp(shaderVersion.version_number));
   await expect(page.getByRole('button', { name: '安装光影包', exact: true })).toBeEnabled();
 });
 
@@ -188,7 +188,7 @@ test('install failure retains project and selected version for retry; running pr
   await page.evaluate(() => { (window as unknown as Mock).__failCommand = 'install_game_content_pack'; });
   await page.getByRole('button', { name: '安装资源包', exact: true }).click();
   await expect(page.getByRole('alert')).toBeVisible();
-  await expect(page.getByLabel('资源包版本')).toHaveValue(resourceVersion.version_id);
+  await expect(page.getByLabel('资源包版本')).toHaveValue(new RegExp(resourceVersion.version_number));
   await page.evaluate(() => { (window as unknown as Mock).__failCommand = ''; });
   await page.getByRole('button', { name: '重试安装', exact: true }).click();
   await expect(page.getByRole('list', { name: '本地资源包' })).toContainText(resourceHit.title);

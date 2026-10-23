@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: MIT
+package launcher:resource-report@0.1.0;
+
+interface resources {
+  enum failure { cancelled, revoked, invalid-range, limit, io, unsupported }
+  record metadata { media-type: string, byte-length: u64, sha256: string }
+  resource input {
+    describe: func() -> result<metadata, failure>;
+    read-at: func(offset: u64, maximum-bytes: u32) -> result<list<u8>, failure>;
+  }
+  cancelled: func() -> bool;
+}
+
+interface reports {
+  use resources.{input, failure};
+  enum severity { info, warning, error }
+  record evidence { input-index: u32, first-line: u32, last-line: u32 }
+  record finding {
+    code: string,
+    severity: severity,
+    title: string,
+    message: string,
+    evidence: list<evidence>,
+    suggestions: list<string>,
+  }
+  record table { columns: list<string>, rows: list<list<string>> }
+  record report {
+    schema-version: u32,
+    findings: list<finding>,
+    tables: list<table>,
+  }
+  // Input is borrowed only for this invocation; guest cannot retain ownership.
+  analyze: func(input: borrow<input>) -> result<report, failure>;
+}
+
+world report-plugin {
+  import resources;
+  export reports;
+}

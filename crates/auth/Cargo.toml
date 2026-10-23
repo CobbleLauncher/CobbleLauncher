@@ -17,6 +17,9 @@ curl.workspace = true
 tokio.workspace = true
 url.workspace = true
 getrandom.workspace = true
+cobble-net.workspace = true
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
+base64 = "=0.22.1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "=3.6.3", default-features = false, features = ["windows-native"] }

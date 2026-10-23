@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
 //! Operating-system paths, credentials, locks and process adapters.
 //!
-//! Reserved module boundary; implementation has not started.
+mod shortcut;
+pub use shortcut::create_launch_shortcut;

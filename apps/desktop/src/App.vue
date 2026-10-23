@@ -1,27 +1,67 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { lazyPage } from './lazy-page';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { createCloseGuard } from './window-close';
+import { createPendingLaunchIntentConsumer, type PendingLaunchIntent } from './pending-launch-intent';
 import { applyTheme, readTheme } from './theme';
-import CreateGamePage from './CreateGamePage.vue';
-import ImportPackPage from './ImportPackPage.vue';
-import ImportLauncherPage from './ImportLauncherPage.vue';
-import DiscoverPacksPage from './DiscoverPacksPage.vue';
-import SettingsPage from './SettingsPage.vue';
-import GameCard from './GameCard.vue';
-import GameDetailsPage from './GameDetailsPage.vue';
-import GameActionsPage from './GameActionsPage.vue';
+const CreateGamePage = lazyPage(() => import('./CreateGamePage.vue'));
+const ImportPackPage = lazyPage(() => import('./ImportPackPage.vue'));
+const CfPackInstallPage = lazyPage(() => import('./CfPackInstallPage.vue'));
+import type { CurseForgePackPreview } from './curseforge';
+const ImportLauncherPage = lazyPage(() => import('./ImportLauncherPage.vue'));
+const MarketPage = lazyPage(() => import('./MarketPage.vue'));
+import type { MarketKind } from './market';
+import { pendingBlueprint, type PendingBlueprintRequest } from './blueprints';
+const SettingsPage = lazyPage(() => import('./SettingsPage.vue'));
+import LibraryHome from './LibraryHome.vue';
+import MeshStatusButton from './MeshStatusButton.vue';
+import AppNavigation from './AppNavigation.vue';
+import { activeSection, extensionDetailPage, backPage, enterPage, goToParent, initialNavigation, pageKey, rootPage, returnToGameDetails, toolPage, type AppPage, type ExtensionCandidate, type MainSection, type ToolLocation } from './navigation';
+import { BLUEPRINTS_TOOL_ID } from './tools';
+const PluginsPanel = lazyPage(() => import('./PluginsPanel.vue'));
+const PluginDetails = lazyPage(() => import('./PluginDetails.vue'));
+const ExtensionSettingsPanel = lazyPage(() => import('./ExtensionSettingsPanel.vue'));
+import { pluginLocale, type ExtensionContribution, type ResolvedCommand } from './extensions/contributions';
+const GameDetailsPage = lazyPage(() => import('./GameDetailsPage.vue'));
+const CreatedGamePreferences = lazyPage(() => import('./CreatedGamePreferences.vue'));
+const GameActionsPage = lazyPage(() => import('./GameActionsPage.vue'));
+const MeshPage = lazyPage(() => import('./MeshPage.vue'));
+import { t, locale } from './i18n';
 import ProfileSwitcher from './ProfileSwitcher.vue';
-import ProfilesPage from './ProfilesPage.vue';
-import AddProfilePage from './AddProfilePage.vue';
-import TasksPage from './TasksPage.vue';
+const ProfilesPage = lazyPage(() => import('./ProfilesPage.vue'));
+const AddProfilePage = lazyPage(() => import('./AddProfilePage.vue'));
+const TasksPage = lazyPage(() => import('./TasksPage.vue'));
 import { isActiveTask, type TaskSnapshot } from './tasks';
 import { effectiveProfile, type Game, type GameAction, type PackPreview, type ProfileLibrary } from './games';
+const ToolsPage = lazyPage(() => import('./ToolsPage.vue'));
 const games = ref<Game[]>([]);
+const gamesLoading = ref(true);
+const gamesError = ref('');
 const tasks = ref<TaskSnapshot[]>([]);
 const tasksOpen = ref(false);
+const profileMenuOpen = ref(false);
+const toolsPage = ref<{ suspend: () => Promise<void>; resume: () => void; confirmLeave: () => Promise<boolean> } | null>(null);
+let changingTasks = false;
+async function suspendToolView() {
+  if (view.value === 'tools') await toolsPage.value?.suspend();
+}
+async function toggleTasks() {
+  if (changingTasks) return;
+  changingTasks = true;
+  try {
+    if (!tasksOpen.value) await suspendToolView();
+    tasksOpen.value = !tasksOpen.value;
+  } catch { error.value = t('shell.error.windowAction'); }
+  finally { changingTasks = false; }
+}
+watch([tasksOpen, profileMenuOpen], ([tasksVisible, profileVisible]) => {
+  if (!tasksVisible && !profileVisible && view.value === 'tools') toolsPage.value?.resume();
+});
+const taskPreviewBusy = ref(false);
 const tasksLoading = ref(false);
 const tasksError = ref('');
 const activeTaskCount = computed(() => tasks.value.filter(isActiveTask).length);
@@ -29,6 +69,33 @@ const gameDetailsPage = ref<InstanceType<typeof GameDetailsPage> | null>(null);
 const retriedTasks = new Set<string>();
 const staleContentGames = new Set<string>();
 let unlistenTasks: UnlistenFn | undefined;
+let unlistenSchematic: UnlistenFn | undefined;
+let unlistenClose: UnlistenFn | undefined;
+async function guardWindowClose() {
+  if (!native) return;
+  const stop = await getCurrentWindow().onCloseRequested(createCloseGuard(confirmWorkspaceLeave,()=>{error.value=t('shell.error.windowAction');}));
+  if (disposed) stop(); else unlistenClose = stop;
+}
+let pendingSchematicLoading=false;
+async function loadPendingSchematic() {
+  if (!native || pendingSchematicLoading) return;
+  pendingSchematicLoading=true;
+  try {
+    const value=await invoke<PendingBlueprintRequest | null>('peek_pending_schematic');
+    if (!value || disposed || !await confirmWorkspaceLeave() || disposed) return;
+    // A newer OS-open request may replace the queue while the leave dialog is open.
+    const current=await invoke<PendingBlueprintRequest | null>('peek_pending_schematic');
+    if(!current || disposed) return;
+    pendingBlueprint.value=current;
+    navigation.value = enterPage(enterPage(navigation.value, {view:'tools'}, 'root'), {view:'tools',location:{pluginId:BLUEPRINTS_TOOL_ID,blueprintView:'library'}});
+  } catch { error.value=t('shell.error.windowAction'); }
+  finally {pendingSchematicLoading=false;}
+}
+async function listenSchematics() {
+  if (!native) return;
+  const stop=await listen('schematic-open',()=>{void loadPendingSchematic();});
+  if(disposed){stop();return;} unlistenSchematic=stop; await loadPendingSchematic();
+}
 function updateTask(task: TaskSnapshot) {
   const index = tasks.value.findIndex((item) => item.id === task.id);
   const previous = tasks.value[index];
@@ -62,10 +129,11 @@ async function loadTasks() {
     }
     const value = await invoke<TaskSnapshot[]>('list_tasks');
     if (!disposed && Array.isArray(value)) for (const task of value) updateTask(task);
-  } catch { if (!disposed) tasksError.value = '无法读取任务，请重试。'; }
+  } catch { if (!disposed) tasksError.value = t('shell.error.tasksLoad'); }
   finally { tasksLoading.value = false; }
 }
-function continueTaskPack(preview: PackPreview) { discoverPacksVisited.value = true; openOnlineImport(preview); tasksOpen.value = false; }
+async function continueTaskPack(preview: PackPreview) { if (navigationBusy.value || !await confirmWorkspaceLeave()) return; discoverPacksVisited.value = true; openOnlineImport(preview); tasksOpen.value = false; }
+async function continueTaskCfPack(preview: CurseForgePackPreview) { if (navigationBusy.value || !await confirmWorkspaceLeave()) return; discoverPacksVisited.value = true; openCfImport(preview); tasksOpen.value = false; }
 const profileLibrary = ref<ProfileLibrary>({ profiles: [], active_id: null });
 const profileReady = ref(false);
 const profileBusy = ref(false);
@@ -73,25 +141,25 @@ const authBusy = ref(false);
 const addProfilePage = ref<InstanceType<typeof AddProfilePage> | null>(null);
 const profileError = ref('');
 const pendingGameId = ref<string | null>(null);
-const profileOrigin = ref<'library' | 'details'>('library');
-const addOrigin = ref<'library' | 'details' | 'profiles'>('library');
+const pendingServerId = ref<string | undefined>();
+watch(pendingGameId, value => { if (!value) pendingServerId.value = undefined; });
 const starting = ref<string[]>([]);
 const gameRevisions = new Map<string, number>();
 async function loadProfile() {
   if (!native) { profileReady.value = true; return; }
   profileError.value = '';
   try { profileLibrary.value = await invoke<ProfileLibrary>('list_player_profiles'); profileReady.value = true; }
-  catch { profileError.value = '无法读取玩家档案，请重试'; }
+  catch { profileError.value = t('shell.error.profileLoad'); }
 }
-function openProfiles() {
-  profileOrigin.value = view.value === 'details' ? 'details' : 'library';
+async function openProfiles() {
+  if (!await confirmWorkspaceLeave()) return;
   profileError.value = '';
-  view.value = 'profiles';
+  showPage({view:'profiles'});
 }
-function openAddProfile() {
-  addOrigin.value = view.value === 'profiles' ? 'profiles' : view.value === 'details' ? 'details' : 'library';
+async function openAddProfile() {
+  if (!await confirmWorkspaceLeave()) return;
   profileError.value = '';
-  view.value = 'add-profile';
+  showPage({view:'add-profile'});
 }
 async function leaveProfiles() {
   if (profileBusy.value || authBusy.value) return;
@@ -100,34 +168,37 @@ async function leaveProfiles() {
     if (addProfilePage.value && !await addProfilePage.value.cancelLogin()) return;
     await loadProfile();
   }
-  if (pendingGameId.value) { selectedGameId.value = pendingGameId.value; pendingGameId.value = null; view.value = 'details'; }
-  else view.value = view.value === 'add-profile' ? addOrigin.value : profileOrigin.value;
+  navigation.value=goToParent(navigation.value);
+  if (view.value==='details') pendingGameId.value=null;
 }
 async function finishProfileChoice(returnToGame: boolean) {
   if (returnToGame && pendingGameId.value) {
+    const id = pendingGameId.value;
+    const serverId = pendingServerId.value;
     const game = games.value.find((game) => game.id === pendingGameId.value);
     if (game?.profile_id) updateGame(await invoke<Game>('set_game_profile', { id: game.id, profileId: profileLibrary.value.active_id }));
-    selectedGameId.value = pendingGameId.value;
+    navigation.value=returnToGameDetails(navigation.value,pendingGameId.value);
     pendingGameId.value = null;
-    view.value = 'details';
-  } else if (returnToGame && view.value === 'add-profile') view.value = addOrigin.value;
+    pendingServerId.value = undefined;
+    await startGame(id, serverId);
+  } else if (returnToGame && view.value === 'add-profile') navigation.value=goToParent(navigation.value);
 }
 async function acceptMicrosoftLibrary(library: ProfileLibrary) {
   if (profileBusy.value) return;
   profileLibrary.value = library; profileError.value = ''; profileBusy.value = true;
   try { await finishProfileChoice(true); }
-  catch { profileError.value = '档案已保存，请重新选择游戏使用的档案。'; view.value = 'profiles'; }
+  catch { profileError.value = t('shell.error.profileSavedChoose'); showPage({view:'profiles'},'replace'); }
   finally { profileBusy.value = false; }
 }
 async function changeProfile(command: string, args: Record<string, unknown>, returnToGame = false) {
   if (profileBusy.value || !profileReady.value) return;
   profileError.value = '';
-  if (!native) { profileError.value = '请在桌面应用中保存玩家档案'; return; }
+  if (!native) { profileError.value = t('shell.error.profileDesktopOnly'); return; }
   profileBusy.value = true;
   try {
     profileLibrary.value = await invoke<ProfileLibrary>(command, args);
     await finishProfileChoice(returnToGame);
-  } catch { profileError.value = '未能保存档案，请重试'; }
+  } catch { profileError.value = t('shell.error.profileSave'); }
   finally { profileBusy.value = false; }
 }
 function selectProfile(id: string) { void changeProfile('select_player_profile', { id }, true); }
@@ -139,39 +210,59 @@ function updateGame(game: Game) {
   const index = games.value.findIndex((item) => item.id === game.id);
   if (index < 0) games.value.unshift(game);
   else games.value[index] = game;
+  if (game.launch_error && starting.value.includes(game.id) && view.value === 'library' && !tasksOpen.value) {
+    manageGame(game.id);
+  }
 }
-async function startGame(id: string) {
+async function startGame(id: string, serverId?: string) {
+  if (tasks.value.some(task => task.game_id === id && task.kind === 'game_repair' && isActiveTask(task))) return;
   const current = games.value.find((game) => game.id === id);
   if (!current || current.content_installing || starting.value.includes(id) || current.launch_state === 'preparing' || current.launch_state === 'running') return;
   if (!profileReady.value || !effectiveProfile(current, profileLibrary.value)) {
-    pendingGameId.value = id; selectedGameId.value = id; profileOrigin.value = 'details';
-    if (profileLibrary.value.profiles.length || !profileReady.value) view.value = 'profiles';
-    else { addOrigin.value = 'details'; view.value = 'add-profile'; }
+    if (!await confirmWorkspaceLeave()) return;
+    pendingGameId.value = id;
+    pendingServerId.value = serverId;
+    if (view.value!=='details' || selectedGameId.value!==id) showPage({view:'details',gameId:id});
+    showPage({view:profileLibrary.value.profiles.length || !profileReady.value ? 'profiles' : 'add-profile'});
     return;
   }
   starting.value.push(id);
   const revision = gameRevisions.get(id) ?? 0;
   try {
-    if (!native) throw new Error('请在桌面应用中启动游戏');
-    const game = await invoke<Game>('start_game', { id });
+    if (!native) throw new Error(t('shell.error.gameDesktopOnly'));
+    const game = serverId
+      ? await invoke<Game>('start_game_server', { id, serverId })
+      : await invoke<Game>('start_game', { id });
     if ((gameRevisions.get(id) ?? 0) === revision) updateGame(game);
   } catch (cause) {
-    if ((gameRevisions.get(id) ?? 0) === revision) updateGame({ ...current, launch_state: 'idle', launch_error: String(cause) });
+    if ((gameRevisions.get(id) ?? 0) === revision) updateGame({ ...current, launch_state: 'idle', launch_error: String(cause), log_path: null });
   } finally { starting.value = starting.value.filter((item) => item !== id); }
 }
+const createdPreferenceGameId = ref('');
 function addCreatedGame(game: Game) {
-  view.value = 'library';
+  showPage({view:'library'},'root');
+  createdPreferenceGameId.value = game.id;
   if (!games.value.some((item) => item.id === game.id)) games.value.unshift(game);
 }
+function reuseCreatedGameKeys(targetGameId: string) {
+  openToolLocation({ pluginId: 'config-doctor', keybindingTargetId: targetGameId });
+  createdPreferenceGameId.value = '';
+}
 async function loadGames() {
-  if (!native) return;
+  if (!native) { gamesLoading.value = false; return; }
+  gamesLoading.value = true;
+  gamesError.value = '';
   try {
-    const stop = await listen<Game>('game-install', (event) => updateGame(event.payload));
-    if (disposed) { stop(); return; }
-    unlisten = stop;
+    if (!unlisten) {
+      const stop = await listen<Game>('game-install', (event) => updateGame(event.payload));
+      if (disposed) { stop(); return; }
+      unlisten = stop;
+    }
     const stored = await invoke<Game[]>('list_games');
+    if (disposed) return;
     for (const game of stored) if (!games.value.some((item) => item.id === game.id)) games.value.push(game);
-  } catch { error.value = '无法读取游戏库，请重新打开应用'; }
+  } catch { gamesError.value = t('shell.error.gameLibraryLoad'); }
+  finally { gamesLoading.value = false; }
 }
 async function retryGame(id: string) {
   if (retrying.value.includes(id)) return;
@@ -180,69 +271,206 @@ async function retryGame(id: string) {
     const game = await invoke<Game>('retry_game', { id });
     if (games.value.find((item) => item.id === id)?.status === 'failed') updateGame(game);
   }
-  catch (cause) { error.value = `无法重试安装：${String(cause)}`; }
+  catch (cause) { error.value = t('shell.error.gameRetry', { cause: String(cause) }); }
   finally { retrying.value = retrying.value.filter((item) => item !== id); }
 }
-const view = ref<'library' | 'create' | 'import' | 'import-launcher' | 'settings' | 'details' | 'profiles' | 'add-profile' | 'game-action' | 'discover-packs'>('library');
+const navigation = ref(initialNavigation());
+const page = computed(() => navigation.value.current);
+const view = computed(() => page.value.view);
+const detailsVisited = ref(false);
+watch(view, value => { if (value === 'details') detailsVisited.value = true; }, { flush: 'sync' });
+function showPage(next: AppPage, mode: 'push' | 'replace' | 'root' = 'push') { navigation.value=enterPage(navigation.value,next,mode); }
+const meshVisited = ref(false);
+const meshBusy = ref(false);
+const meshPage=ref<{confirmLeave:()=>Promise<boolean>}|null>(null);
+async function openMesh() { if (!await confirmWorkspaceLeave()) return; meshVisited.value = true; showPage({view:'mesh',gameId:selectedGameId.value}); }
+const pluginDetailsPage=ref<{confirmLeave:()=>Promise<boolean>}|null>(null);
+const settingsPage = ref<InstanceType<typeof SettingsPage> | null>(null);
+async function confirmWorkspaceLeave(): Promise<boolean> {
+  if (view.value === 'tools') return await toolsPage.value?.confirmLeave() ?? true;
+  if (view.value === 'mesh') return await meshPage.value?.confirmLeave() ?? true;
+  if (view.value === 'extension-detail') return await pluginDetailsPage.value?.confirmLeave() ?? true;
+  if (view.value === 'settings') return await settingsPage.value?.confirmLeave() ?? true;
+  if (view.value === 'details') return await gameDetailsPage.value?.confirmLeave() ?? true;
+  return true;
+}
+const toolLocation = computed(() => page.value.view==='tools' ? page.value.location : undefined);
+const extensionCategories = ref<{ id: string; label: string; pluginId: string; categoryId: string }[]>([]);
+const extensionPanels = new Map<string, { confirmLeave: () => Promise<boolean> }>();
+function registerExtensionPanel(id: string, panel: unknown) {
+  if (panel) extensionPanels.set(id, panel as { confirmLeave: () => Promise<boolean> }); else extensionPanels.delete(id);
+}
+async function leaveExtensionSettings() {
+  for (const panel of extensionPanels.values()) if (!await panel.confirmLeave()) return false;
+  return true;
+}
+async function loadExtensionCategories() {
+  try {
+    const items = await invoke<ExtensionContribution[]>('list_extension_contributions', { locale: pluginLocale() });
+    extensionCategories.value = items.flatMap(item => item.settings.filter(category => category.fields?.some(field => field.scope === 'global')).map(category => ({ id: `extension-${item.pluginId}-${category.id}`, label: `${item.pluginName} · ${category.label}`, pluginId: item.pluginId, categoryId: category.id })));
+  } catch { extensionCategories.value = []; }
+}
+watch(locale, () => { if (view.value === 'settings') void loadExtensionCategories(); });
+
+const selectedSection = computed(() => activeSection(page.value,navigation.value.parents));
+const navigationBusy = computed(() => taskPreviewBusy.value || profileBusy.value || authBusy.value || gameActionBusy.value || contentBusy.value || packPreviewBusy.value || launcherImportBusy.value || meshBusy.value);
+async function navigate(section: MainSection) {
+  if (navigationBusy.value) return;
+  if (!await confirmWorkspaceLeave()) return;
+  tasksOpen.value = false;
+  pendingGameId.value=null;
+  if (section === 'settings') await loadExtensionCategories();
+  if (section === 'discover-packs') { discoverPacksVisited.value=true; }
+  if (section === 'mesh') { meshVisited.value=true; }
+  showPage(rootPage(section),'root');
+}
+async function openExtensions(candidate?: ExtensionCandidate) {
+  if (navigationBusy.value || !await confirmWorkspaceLeave()) return;
+  tasksOpen.value=false;
+  showPage({view:'extensions',candidate});
+}
+async function openPluginDetail(pluginId:string) {
+  if(navigationBusy.value || !await confirmWorkspaceLeave()) return;
+  navigation.value=extensionDetailPage(navigation.value,pluginId);
+}
+function pluginDetailTitle(title:string) {
+  if(page.value.view==='extension-detail') showPage({...page.value,title},'replace');
+}
+function pluginRemoved() { navigation.value=goToParent(navigation.value); }
+async function openTool(pluginId: string) { if (!await confirmWorkspaceLeave()) return; openToolLocation({pluginId}); }
+function openToolLocation(location:ToolLocation) { navigation.value=toolPage(navigation.value,location); }
+async function openExtensionCommand(command: ResolvedCommand) { if (!await confirmWorkspaceLeave()) return; openToolLocation({pluginId:command.workflow==='viewer'?BLUEPRINTS_TOOL_ID:command.pluginId,command,instanceId:command.instanceId,blueprintView:command.workflow==='viewer'?'library':undefined,title:command.label}); }
 const launcherImportBusy = ref(false);
 const discoverPacksVisited = ref(false);
 const packPreviewBusy = ref(false);
-const importOrigin = ref<'library' | 'discover-packs'>('library');
 const initialPackPreview = ref<PackPreview | null>(null);
-function openDiscoverPacks() { discoverPacksVisited.value = true; view.value = 'discover-packs'; }
-function openLocalImport() { initialPackPreview.value = null; importOrigin.value = 'library'; view.value = 'import'; }
-function openOnlineImport(preview: PackPreview) { initialPackPreview.value = preview; importOrigin.value = 'discover-packs'; view.value = 'import'; }
-const gameAction = ref<GameAction>('copy');
+const initialCfPackPreview = ref<CurseForgePackPreview | null>(null);
+const marketKind = computed(() => navigation.value.market.kind);
+const marketRevision = ref(0);
+const marketGameId = computed(() => navigation.value.market.gameId);
+async function openGameMarket(kind: MarketKind) { if (!await confirmWorkspaceLeave()) return; ++marketRevision.value; discoverPacksVisited.value = true; showPage({view:'discover-packs',kind,gameId:selectedGameId.value}); }
+function marketInstalled(id: string) { staleContentGames.add(id); }
+async function openBlueprintMarket(target: { gameId: string; query: string }) {
+  if (!await confirmWorkspaceLeave()) return;
+  ++marketRevision.value;
+  discoverPacksVisited.value = true;
+  showPage({ view: 'discover-packs', kind: 'mod', gameId: target.gameId, query: target.query });
+}
+async function locateMarketContent(id: string, kind: MarketKind) {
+  await locateTaskGame(id);
+  await nextTick();
+  if (page.value.view === 'details' && page.value.gameId === id) await gameDetailsPage.value?.openContent(kind);
+}
+function openLocalImport() { initialPackPreview.value = null; showPage({view:'import'}); }
+function ensureMarketParent() { if(view.value!=='discover-packs') showPage(navigation.value.market,'root'); }
+function openCfImport(preview: CurseForgePackPreview | null = null) { initialCfPackPreview.value = preview; if(preview) ensureMarketParent(); showPage({view:'cf-import'},view.value==='import'?'replace':'push'); }
+function openOnlineImport(preview: PackPreview) { initialPackPreview.value = preview; ensureMarketParent(); showPage({view:'import'}); }
+const gameAction = computed<GameAction>(()=>page.value.view==='game-action'?page.value.action:'copy');
 const gameActionBusy = ref(false);
 const contentBusy = ref(false);
-const gameActionTitle = computed(() => ({ copy: '复制游戏', export: '导出整合包', remove: '移除游戏' })[gameAction.value]);
-const selectedGameId = ref('');
+const selectedGameId = computed(()=> 'gameId' in page.value && page.value.gameId ? page.value.gameId : navigation.value.lastGameId);
 const selectedGame = computed(() => games.value.find((game) => game.id === selectedGameId.value));
 function manageGame(id: string) {
   if (games.value.find((game) => game.id === id)?.status !== 'installed') return;
-  selectedGameId.value = id;
-  view.value = 'details';
+  showPage({view:'details',gameId:id});
 }
-function openGameAction(action: GameAction) {
+async function locateTaskGame(id: string) {
+  if (!games.value.some(game => game.id === id && game.status === 'installed')) return;
+  if (!await confirmWorkspaceLeave()) return;
+  tasksOpen.value = false;
+  manageGame(id);
+}
+async function openGameAction(action: GameAction) {
+  if (!await confirmWorkspaceLeave()) return;
   const game = selectedGame.value;
   if (!game || game.status !== 'installed' || game.content_installing || starting.value.includes(game.id) || game.launch_state === 'preparing' || game.launch_state === 'running') return;
-  gameAction.value = action;
-  view.value = 'game-action';
+  showPage({view:'game-action',gameId:game.id,action});
 }
 function removeFromLibrary(id: string) {
   games.value = games.value.filter((game) => game.id !== id);
   gameRevisions.delete(id);
-  selectedGameId.value = '';
+  if(navigation.value.lastGameId===id) navigation.value.lastGameId='';
   if (pendingGameId.value === id) pendingGameId.value = null;
-  view.value = 'library';
+  showPage({view:'library'},'root');
 }
-function goBack() {
-  if (profileBusy.value || authBusy.value || gameActionBusy.value || contentBusy.value || packPreviewBusy.value || launcherImportBusy.value) return;
-  if (view.value === 'import') view.value = importOrigin.value;
-  else if (view.value === 'game-action') view.value = 'details';
-  else if (view.value === 'profiles' || view.value === 'add-profile') leaveProfiles();
-  else view.value = 'library';
+async function goBack() {
+  if(tasksOpen.value) {if(!taskPreviewBusy.value) tasksOpen.value=false;return;}
+  if (!await confirmWorkspaceLeave()) return;
+  if (profileBusy.value || authBusy.value || gameActionBusy.value || contentBusy.value || packPreviewBusy.value || launcherImportBusy.value || meshBusy.value) return;
+  if (view.value === 'profiles' || view.value === 'add-profile') await leaveProfiles();
+  else navigation.value=goToParent(navigation.value);
 }
-watch([view, tasksOpen], async () => {
+const parentPage = computed(()=>backPage(navigation.value));
+function pageTitle(value:AppPage):string {
+  switch(value.view) {
+    case 'library':return t('shell.back.libraryLabel');
+    case 'details':return games.value.find(game=>game.id===value.gameId)?.name ?? t('shell.back.gameDetailsLabel');
+    case 'tools':return value.location?.title ?? value.location?.command?.label ?? (value.location?.blueprintView==='online'?t('blueprintOnline.online'):value.location?.pluginId===BLUEPRINTS_TOOL_ID?t('tools.blueprintsName'):t('navigation.tools'));
+    case 'extension-detail':return value.title ?? t('navigation.extensions');
+    case 'extensions':return t('navigation.extensions');
+    case 'discover-packs':return t('shell.page.market');
+    case 'game-action':return ({copy:t('shell.action.copy'),export:t('shell.action.export'),remove:t('shell.action.remove')})[value.action];
+    case 'mesh':return t('mesh.title');
+    case 'create':return t('shell.page.create');
+    case 'import':case 'cf-import':return t('shell.page.importPack');
+    case 'import-launcher':return t('shell.page.importLauncher');
+    case 'profiles':return t('shell.page.profiles');
+    case 'add-profile':return t('shell.page.addProfile');
+    case 'settings':return t('shell.page.settings');
+  }
+}
+const sharedHeading=ref<HTMLElement|null>(null);
+const workspacePositions = new Map<string, number>();
+let positionRevision = 0;
+watch(() => tasksOpen.value ? 'tasks' : pageKey(page.value), async (key, previous) => {
+  const revision = ++positionRevision;
+  if (previous) {
+    workspacePositions.delete(previous);
+    workspacePositions.set(previous, window.scrollY);
+    if (workspacePositions.size > 32) workspacePositions.delete(workspacePositions.keys().next().value!);
+  }
   await nextTick();
+  if (revision !== positionRevision || disposed) return;
   void refreshReturnedContent();
-  document.querySelector<HTMLElement>(tasksOpen.value ? '.tasks-workspace h1' : '.app-workspace h1')?.focus();
-  window.scrollTo(0, 0);
+  const heading=sharedHeading.value ?? [...document.querySelectorAll<HTMLElement>('.app-workspace h1')].find(element=>element.getClientRects().length>0);
+  heading?.setAttribute('tabindex','-1');heading?.focus({ preventScroll: true });
+  window.scrollTo(0, workspacePositions.get(key) ?? 0);
 });
 const theme = readTheme();
 const native = isTauri();
 const maximized = ref(false);
 const error = ref('');
+const profilesSettled = ref(false);
+const meshNetworkRevision = ref(0);
+let unlistenLaunchIntent: UnlistenFn | undefined;
+const launchIntents = createPendingLaunchIntentConsumer({
+  peek: () => invoke<PendingLaunchIntent | null>('peek_pending_launch'),
+  acknowledge: queueId => invoke<boolean>('acknowledge_pending_launch', { queueId }),
+  hasGame: id => games.value.some(game => game.id === id),
+  confirmWorkspaceLeave,
+  openGame: id => { tasksOpen.value = false; manageGame(id); },
+  startGame: async id => { tasksOpen.value = false; manageGame(id); await startGame(id); },
+  missingGame: () => { error.value = t('shell.error.quickLaunchUnavailable'); },
+  failed: cause => { error.value = t(String(cause).includes('QUICK_LAUNCH_GAME_UNAVAILABLE') ? 'shell.error.quickLaunchUnavailable' : 'shell.error.quickLaunch'); },
+});
+watch([gamesLoading, profilesSettled], ([loading, settled]) => {
+  if (native && !loading && settled && !gamesError.value) launchIntents.markReady();
+});
+async function listenLaunchIntents() {
+  if (!native) return;
+  const stop = await listen('launch-intent', () => launchIntents.notify());
+  if (disposed) stop(); else { unlistenLaunchIntent = stop; launchIntents.notify(); }
+}
 async function syncWindow() {
   if (native) { try { maximized.value = await getCurrentWindow().isMaximized(); } catch { /* Actions surface errors. */ } }
 }
 async function windowAction(action: 'minimize' | 'toggleMaximize' | 'close') {
   if (!native) return;
   try { error.value = ''; await getCurrentWindow()[action](); await syncWindow(); }
-  catch { error.value = '窗口操作失败，请重试'; }
+  catch { error.value = t('shell.error.windowAction'); }
 }
-onMounted(() => { applyTheme(theme); void syncWindow(); void loadGames(); void loadProfile(); void loadTasks(); window.addEventListener('resize', syncWindow); });
-onUnmounted(() => { disposed = true; unlisten?.(); unlistenTasks?.(); window.removeEventListener('resize', syncWindow); });
+onMounted(() => { applyTheme(theme); void syncWindow(); void guardWindowClose().catch(() => {}); void loadGames(); void loadProfile().finally(() => { profilesSettled.value = true; }); void loadTasks(); void listenSchematics().catch(()=>{}); void listenLaunchIntents().catch(() => { error.value = t('shell.error.quickLaunch'); }); window.addEventListener('resize', syncWindow); });
+onUnmounted(() => { disposed = true; launchIntents.dispose(); unlistenLaunchIntent?.(); unlisten?.(); unlistenTasks?.(); unlistenSchematic?.(); unlistenClose?.(); window.removeEventListener('resize', syncWindow); });
 </script>
 <template>
   <div class="launcher">
@@ -256,17 +484,24 @@ onUnmounted(() => { disposed = true; unlisten?.(); unlistenTasks?.(); window.rem
           aria-hidden="true"
         ><i /><i /><i /><i /></span><span class="brand">cobble<span class="brand-dot">.</span></span>
       </div>
+      <MeshStatusButton
+        :active="selectedSection === 'mesh'"
+        :before-change="confirmWorkspaceLeave"
+        @open="navigate('mesh')"
+        @changed="meshNetworkRevision++"
+      />
       <button
         class="tasks-button"
-        aria-label="打开任务"
+        :disabled="taskPreviewBusy"
+        :aria-label="t('shell.openTasks')"
         :aria-expanded="tasksOpen"
-        @click="tasksOpen = !tasksOpen"
+        @click="toggleTasks"
       >
         <svg
           viewBox="0 0 20 20"
           fill="none"
           aria-hidden="true"
-        ><path d="M10 3v9m-3-3 3 3 3-3M4 13v4h12v-4" /></svg><span>任务</span><span
+        ><path d="M10 3v9m-3-3 3 3 3-3M4 13v4h12v-4" /></svg><span>{{ t('shell.task') }}</span><span
           v-if="activeTaskCount"
           class="task-count"
         >{{ activeTaskCount }}</span>
@@ -276,15 +511,15 @@ onUnmounted(() => { disposed = true; unlisten?.(); unlistenTasks?.(); window.rem
         class="window-controls"
       >
         <button
-          aria-label="最小化"
-          title="最小化"
+          :aria-label="t('shell.window.minimize')"
+          :title="t('shell.window.minimize')"
           @click="windowAction('minimize')"
         >
           <svg viewBox="0 0 16 16"><path d="M3 8h10" /></svg>
         </button>
         <button
-          :aria-label="maximized ? '还原' : '最大化'"
-          :title="maximized ? '还原' : '最大化'"
+          :aria-label="maximized ? t('shell.window.restore') : t('shell.window.maximize')"
+          :title="maximized ? t('shell.window.restore') : t('shell.window.maximize')"
           @click="windowAction('toggleMaximize')"
         >
           <svg viewBox="0 0 16 16"><path
@@ -297,330 +532,274 @@ onUnmounted(() => { disposed = true; unlisten?.(); unlistenTasks?.(); window.rem
         </button>
         <button
           class="window-close"
-          aria-label="关闭窗口"
-          title="关闭窗口"
+          :aria-label="t('shell.window.close')"
+          :title="t('shell.window.close')"
           @click="windowAction('close')"
         >
           <svg viewBox="0 0 16 16"><path d="m4 4 8 8m0-8-8 8" /></svg>
         </button>
       </div>
     </header>
-    <main
-      v-show="!tasksOpen"
-      class="app-workspace"
+    <AppNavigation
+      :active="selectedSection"
+      :disabled="navigationBusy"
+      @navigate="navigate"
+      @settings="navigate('settings')"
     >
-      <template v-if="view === 'library'">
-        <div class="library-header">
-          <div>
-            <h1 tabindex="-1">
-              游戏库<span class="count">{{ games.length }}</span>
-            </h1>
-          </div>
-          <div class="library-actions">
-            <ProfileSwitcher
-              :library="profileLibrary"
-              :busy="profileBusy"
-              :ready="profileReady"
-              @select="selectProfile"
-              @add="openAddProfile"
-              @manage="openProfiles"
-            />
-            <button
-              class="settings-button"
-              aria-label="打开设置"
-              title="设置"
-              @click="view = 'settings'"
-            >
-              <svg viewBox="0 0 24 24"><path d="M4 7h16M4 17h16" /><circle
-                cx="9"
-                cy="7"
-                r="3"
-              /><circle
-                cx="15"
-                cy="17"
-                r="3"
-              /></svg>
-            </button>
-          </div>
-        </div>
-        <section
-          v-if="!games.length"
-          class="empty-library"
-          aria-labelledby="empty-title"
+      <ProfileSwitcher
+        :library="profileLibrary"
+        :busy="profileBusy"
+        :ready="profileReady"
+        :before-open="suspendToolView"
+        @open-change="profileMenuOpen = $event"
+        @select="selectProfile"
+        @add="openAddProfile"
+        @manage="openProfiles"
+      />
+    </AppNavigation>
+    <main class="app-workspace">
+      <div
+        v-if="tasksOpen || view !== 'library'"
+        class="page-header"
+      >
+        <button
+          v-if="tasksOpen || parentPage"
+          class="back-button"
+          :aria-label="tasksOpen ? t('shell.back.workspace') : t('shell.back.to', { page: pageTitle(parentPage!) })"
+          :disabled="tasksOpen ? taskPreviewBusy : navigationBusy"
+          @click="goBack"
         >
-          <div
-            class="island-scene"
-            aria-hidden="true"
-          >
-            <svg
-              viewBox="0 0 360 250"
-              fill="none"
-            ><ellipse
-               class="island-shadow"
-               cx="180"
-               cy="214"
-               rx="102"
-               ry="16"
-             /><path
-               class="orbit"
-               d="M32 153 180 70l148 83-148 82z"
-             />
-              <path
-                class="stone-left"
-                d="m75 143 105 60v-63L75 80z"
-              /><path
-                class="stone-right"
-                d="m180 203 105-60V80l-105 60z"
-              /><path
-                class="grass-top"
-                d="m75 80 105-60 105 60-105 60z"
-              /><path
-                class="grass-left"
-                d="m75 80 105 60v18L75 98z"
-              /><path
-                class="grass-right"
-                d="m180 140 105-60v18l-105 60z"
-              />
-              <path
-                class="stone-detail"
-                d="m90 125 24 14v17l-24-14zm42 37 28 16v16l-28-16zm75-3 24-14v17l-24 14zm40-39 23-13v17l-23 13z"
-              />
-              <path
-                class="trunk-left"
-                d="m173 77 9 5v34l-9-5z"
-              /><path
-                class="trunk-right"
-                d="m182 82 9-5v34l-9 5z"
-              />
-              <path
-                class="leaf-left"
-                d="m142 38 40 23v42l-40-23z"
-              /><path
-                class="leaf-right"
-                d="m182 61 40-23v42l-40 23z"
-              /><path
-                class="leaf-top"
-                d="m142 38 40-23 40 23-40 23z"
-              />
-              <path
-                class="flower"
-                d="m116 87 7-4 7 4-7 4zm119 8 7-4 7 4-7 4z"
-              /><path
-                class="grass-stroke"
-                d="M123 91v9m119-1v9"
-              />
-              <path
-                class="spark"
-                d="M70 40v12m-6-6h12M284 42v8m-4-4h8"
-              />
-            </svg>
-          </div>
-          <h2 id="empty-title">
-            还没有游戏
-          </h2><p class="empty-description">
-            创建新游戏，或导入已有的游戏与整合包。
-          </p>
-          <div class="start-actions">
-            <button
-              class="primary-button"
-              @click="view = 'create'"
-            >
-              <span aria-hidden="true">＋</span>创建游戏
-            </button><button
-              class="secondary-button"
-              @click="openLocalImport"
-            >
-              <svg viewBox="0 0 20 20"><path d="M10 3v9m-4-4 4 4 4-4M4 13v4h12v-4" /></svg>导入整合包
-            </button>
-            <button
-              class="secondary-button"
-              @click="openDiscoverPacks"
-            >
-              发现整合包
-            </button>
-            <button
-              class="secondary-button"
-              @click="view = 'import-launcher'"
-            >
-              导入已有游戏
-            </button>
-          </div>
-        </section>
-        <section
-          v-else
-          class="game-library"
-          aria-label="已创建的游戏"
+          <svg viewBox="0 0 20 20"><path d="m11 4-6 6 6 6M5 10h11" /></svg>{{ tasksOpen ? t('shell.back.workspace') : pageTitle(parentPage!) }}
+        </button>
+        <h1
+          v-if="tasksOpen || view !== 'details'"
+          ref="sharedHeading"
+          tabindex="-1"
         >
-          <GameCard
-            v-for="game in games"
-            :key="game.id"
-            :game="game"
-            :retrying="retrying.includes(game.id)"
-            :profile="effectiveProfile(game, profileLibrary)"
-            :starting="starting.includes(game.id)"
-            @retry="retryGame"
-            @play="startGame"
-            @manage="manageGame"
-          />
-          <button
-            class="add-game-button"
-            @click="view = 'create'"
-          >
-            <span aria-hidden="true">＋</span> 创建游戏
-          </button>
-          <button
-            class="add-game-button"
-            @click="openLocalImport"
-          >
-            <span aria-hidden="true">↓</span> 导入整合包
-          </button>
-          <button
-            class="add-game-button"
-            @click="openDiscoverPacks"
-          >
-            发现整合包
-          </button>
-          <button
-            class="add-game-button"
-            @click="view = 'import-launcher'"
-          >
-            导入已有游戏
-          </button>
-        </section>
-      </template>
-      <template v-else>
-        <div class="page-header">
-          <button
-            class="back-button"
-            :aria-label="view === 'import' && importOrigin === 'discover-packs' ? '返回发现整合包' : view === 'game-action' ? '返回游戏详情' : view === 'profiles' || view === 'add-profile' ? '返回' : '返回游戏库'"
-            :disabled="profileBusy || authBusy || gameActionBusy || contentBusy || packPreviewBusy || launcherImportBusy"
-            @click="goBack"
-          >
-            <svg viewBox="0 0 20 20"><path d="m11 4-6 6 6 6M5 10h11" /></svg>{{ view === 'import' && importOrigin === 'discover-packs' ? '发现整合包' : view === 'game-action' ? '游戏详情' : view === 'profiles' || view === 'add-profile' ? '返回' : '游戏库' }}
-          </button>
-          <h1 tabindex="-1">
-            {{ view === 'create' ? '创建游戏' : view === 'import' ? '导入整合包' : view === 'import-launcher' ? '导入已有游戏' : view === 'discover-packs' ? '发现整合包' : view === 'details' ? selectedGame?.name : view === 'game-action' ? gameActionTitle : view === 'profiles' ? '玩家档案' : view === 'add-profile' ? '添加玩家档案' : '设置' }}
-          </h1>
-        </div>
-        <CreateGamePage
-          v-if="view === 'create'"
-          @created="addCreatedGame"
+          {{ tasksOpen ? t('shell.task') : pageTitle(page) }}
+        </h1>
+      </div>
+      <div v-show="!tasksOpen">
+        <CreatedGamePreferences
+          v-if="view === 'library' && createdPreferenceGameId && games.some(game => game.id === createdPreferenceGameId && game.status === 'installed')"
+          :key="createdPreferenceGameId"
+          :game-id="createdPreferenceGameId"
+          @reuse="reuseCreatedGameKeys"
+          @dismiss="createdPreferenceGameId = ''"
         />
-        <ImportPackPage
-          v-else-if="view === 'import'"
-          :key="initialPackPreview?.preview_id ?? 'local'"
-          :initial-preview="initialPackPreview"
-          @created="addCreatedGame"
-        />
-        <ImportLauncherPage
-          v-else-if="view === 'import-launcher'"
-          @created="addCreatedGame"
-          @busy="launcherImportBusy = $event"
+        <LibraryHome
+          v-show="view === 'library'"
+          :games="games"
+          :loading="gamesLoading"
+          :error="gamesError"
+          :profile-library="profileLibrary"
+          :starting="starting"
+          :retrying="retrying"
+          @play="startGame"
+          @manage="manageGame"
+          @retry="retryGame"
+          @reload="loadGames"
+          @create="showPage({ view: 'create' })"
+          @import-pack="openLocalImport"
+          @import-launcher="showPage({ view: 'import-launcher' })"
         />
         <GameDetailsPage
-          v-else-if="view === 'details' && selectedGame"
+          v-if="detailsVisited && selectedGame"
+          v-show="view === 'details'"
+          :key="selectedGame.id"
           ref="gameDetailsPage"
+          :active="view === 'details' && !tasksOpen"
+          :tasks="tasks"
           :game="selectedGame"
           :starting="starting.includes(selectedGame.id)"
           :profile="effectiveProfile(selectedGame, profileLibrary)"
           :library="profileLibrary"
           @play="startGame"
           @renamed="updateGame"
+          @server-play="startGame"
           @profile-changed="updateGame"
           @action="openGameAction"
           @content-busy="contentBusy = $event"
+          @market="openGameMarket"
+          @extensions="openExtensions"
+          @mesh="openMesh"
+          @login="openProfiles"
+          @extension-command="openExtensionCommand"
         />
-        <GameActionsPage
-          v-else-if="view === 'game-action' && selectedGame"
-          :game="selectedGame"
-          :action="gameAction"
-          :starting="starting.includes(selectedGame.id)"
-          @busy="gameActionBusy = $event"
-          @copied="addCreatedGame"
-          @removed="removeFromLibrary"
-          @cancel="goBack"
+        <template v-if="view !== 'library'">
+          <CreateGamePage
+            v-if="view === 'create'"
+            @created="addCreatedGame"
+          />
+          <ImportPackPage
+            v-else-if="view === 'import'"
+            :key="initialPackPreview?.preview_id ?? 'local'"
+            :initial-preview="initialPackPreview"
+            @curseforge="openCfImport()"
+            @created="addCreatedGame"
+          />
+          <CfPackInstallPage
+            v-else-if="view === 'cf-import'"
+            :key="initialCfPackPreview?.preview_id ?? 'local-cf'"
+            :initial-preview="initialCfPackPreview"
+            @created="addCreatedGame"
+            @busy="packPreviewBusy = $event"
+          />
+          <ImportLauncherPage
+            v-else-if="view === 'import-launcher'"
+            @created="addCreatedGame"
+            @busy="launcherImportBusy = $event"
+          />
+          <GameActionsPage
+            v-else-if="view === 'game-action' && selectedGame"
+            :game="selectedGame"
+            :action="gameAction"
+            :starting="starting.includes(selectedGame.id)"
+            @busy="gameActionBusy = $event"
+            @copied="addCreatedGame"
+            @removed="removeFromLibrary"
+            @cancel="goBack"
+          />
+          <ProfilesPage
+            v-else-if="view === 'profiles'"
+            :library="profileLibrary"
+            :busy="profileBusy"
+            :error="profileError"
+            :ready="profileReady"
+            :choosing="!!pendingGameId"
+            @add="openAddProfile"
+            @select="selectProfile"
+            @remove="(id) => changeProfile('remove_player_profile', { id })"
+            @note="(id, note) => changeProfile('update_profile_note', { id, note })"
+            @retry="loadProfile"
+          />
+          <AddProfilePage
+            v-else-if="view === 'add-profile'"
+            ref="addProfilePage"
+            :library="profileLibrary"
+            :busy="profileBusy"
+            :error="profileError"
+            :ready="profileReady"
+            @add="(name, note) => changeProfile('add_offline_profile', { name, note }, true)"
+            @select="selectProfile"
+            @cancel="leaveProfiles"
+            @library-updated="acceptMicrosoftLibrary"
+            @auth-busy="authBusy = $event"
+          />
+          <ToolsPage
+            v-else-if="view === 'tools'"
+            ref="toolsPage"
+            :suspended="tasksOpen || profileMenuOpen"
+            :location="toolLocation"
+            :games="games"
+            :initial-game-id="toolLocation?.instanceId ?? toolLocation?.command?.instanceId ?? ''"
+            @navigate="openToolLocation"
+            @market="openBlueprintMarket"
+            @command="openExtensionCommand"
+            @extensions="openExtensions"
+          />
+          <PluginsPanel
+            v-else-if="view === 'extensions'"
+            :candidate="page.view === 'extensions' ? page.candidate : undefined"
+            @open-tool="openTool"
+            @open-detail="openPluginDetail"
+          />
+          <PluginDetails
+            v-else-if="page.view === 'extension-detail'"
+            :key="page.pluginId"
+            ref="pluginDetailsPage"
+            :plugin-id="page.pluginId"
+            @title="pluginDetailTitle"
+            @open-tool="openTool"
+            @command="openExtensionCommand"
+            @open-detail="openPluginDetail"
+            @browse-catalog="openExtensions"
+            @removed="pluginRemoved"
+          />
+          <SettingsPage
+            v-else-if="view === 'settings'"
+            ref="settingsPage"
+            :extra-categories="extensionCategories"
+            :before-category-leave="leaveExtensionSettings"
+            @profiles="openProfiles"
+          >
+            <template
+              v-for="category in extensionCategories"
+              :key="category.id"
+              #[`category-${category.id}`]
+            >
+              <ExtensionSettingsPanel
+                :ref="panel => registerExtensionPanel(category.id, panel)"
+                :plugin-id="category.pluginId"
+                :category-id="category.categoryId"
+              />
+            </template>
+          </SettingsPage>
+        </template>
+        <MeshPage
+          v-if="meshVisited"
+          v-show="view === 'mesh'"
+          ref="meshPage"
+          :games="games"
+          :initial-game-id="page.view === 'mesh' ? page.gameId : selectedGameId"
+          :active="view === 'mesh'"
+          :network-revision="meshNetworkRevision"
+          @busy="meshBusy = $event"
+          @launch="startGame"
         />
-        <ProfilesPage
-          v-else-if="view === 'profiles'"
-          :library="profileLibrary"
-          :busy="profileBusy"
-          :error="profileError"
-          :ready="profileReady"
-          :choosing="!!pendingGameId"
-          @add="openAddProfile"
-          @select="selectProfile"
-          @remove="(id) => changeProfile('remove_player_profile', { id })"
-          @note="(id, note) => changeProfile('update_profile_note', { id, note })"
-          @retry="loadProfile"
+        <MarketPage
+          v-if="discoverPacksVisited"
+          v-show="view === 'discover-packs'"
+          :key="marketRevision"
+          :games="games"
+          :initial-kind="marketKind"
+          :initial-game-id="marketGameId"
+          :initial-query="navigation.market.query"
+          @installed="marketInstalled"
+          @locate="locateMarketContent"
+          @busy="packPreviewBusy = $event"
+          @selected-pack="openOnlineImport"
+          @selected-cf-pack="openCfImport"
         />
-        <AddProfilePage
-          v-else-if="view === 'add-profile'"
-          ref="addProfilePage"
-          :library="profileLibrary"
-          :busy="profileBusy"
-          :error="profileError"
-          :ready="profileReady"
-          @add="(name, note) => changeProfile('add_offline_profile', { name, note }, true)"
-          @select="selectProfile"
-          @cancel="leaveProfiles"
-          @library-updated="acceptMicrosoftLibrary"
-          @auth-busy="authBusy = $event"
-        />
-        <SettingsPage
-          v-else-if="view === 'settings'"
-          @saved="view = 'library'"
-        />
-      </template>
-      <DiscoverPacksPage
-        v-if="discoverPacksVisited"
-        v-show="view === 'discover-packs'"
-        @busy="packPreviewBusy = $event"
-        @selected-pack="openOnlineImport"
-      />
-      <p
-        v-if="profileError && view === 'library'"
-        role="alert"
-        class="window-error"
-      >
-        {{ profileError }}<button
-          v-if="!profileReady"
-          class="text-button"
-          @click="loadProfile"
+        <p
+          v-if="profileError && view === 'library'"
+          role="alert"
+          class="window-error"
         >
-          重试
-        </button>
-      </p>
-      <p
-        v-if="error"
-        role="alert"
-        class="window-error"
-      >
-        {{ error }}
-      </p>
-    </main>
-    <main
-      v-show="tasksOpen"
-      class="tasks-workspace"
-    >
-      <div class="page-header">
-        <button
-          class="back-button"
-          aria-label="返回工作区"
-          @click="tasksOpen = false"
+          {{ profileError }}<button
+            v-if="!profileReady"
+            class="text-button"
+            @click="loadProfile"
+          >
+            重试
+          </button>
+        </p>
+        <p
+          v-if="error"
+          role="alert"
+          class="window-error"
         >
-          <svg viewBox="0 0 20 20"><path d="m11 4-6 6 6 6M5 10h11" /></svg>返回工作区
-        </button><h1 tabindex="-1">
-          任务
-        </h1>
+          {{ error }}
+        </p>
       </div>
-      <TasksPage
-        :tasks="tasks"
-        :loading="tasksLoading"
-        :error="tasksError"
-        @updated="updateTask"
-        @reload="loadTasks"
-        @selected-pack="continueTaskPack"
-      />
+      <section
+        v-show="tasksOpen"
+        class="tasks-workspace"
+      >
+        <TasksPage
+          :tasks="tasks"
+          :continue-disabled="navigationBusy"
+          :loading="tasksLoading"
+          :error="tasksError"
+          @updated="updateTask"
+          @locate="locateTaskGame"
+          @reload="loadTasks"
+          @selected-pack="continueTaskPack"
+          @selected-cf-pack="continueTaskCfPack"
+          @continuing="taskPreviewBusy = $event"
+        />
+      </section>
     </main>
   </div>
 </template>
+

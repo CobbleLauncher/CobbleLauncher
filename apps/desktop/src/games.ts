@@ -6,17 +6,26 @@ export type LoaderVersion = { version: string; recommended: boolean };
 export type LocalMod = { file_name: string; name: string; version: string | null; authors: string[]; loader: string | null; enabled: boolean; description: string | null; pack_owned?: boolean };
 export type JavaRuntimeInfo = { version: string; major: number; arch: string; vendor: string; executable: string };
 export type JavaSelection = { mode: 'automatic' | 'custom'; executable: string | null; runtime: JavaRuntimeInfo | null };
-export type LauncherPreferences = { memory_mb: number; game_directory: string; custom_game_directory: boolean };
-export type RuntimeOverrides = { java: { mode: 'inherit' | 'automatic' | 'custom'; executable?: string }; memory_mb: number | null };
+export type WindowSize = { width: number | null; height: number | null };
+export type LaunchBehavior = 'keep' | 'minimize';
+export type LauncherPreferences = { memory_mb: number; game_directory: string; custom_game_directory: boolean; window_size?: WindowSize; jvm_args?: string[]; launch_behavior?: LaunchBehavior };
+export type RuntimeOverrides = { java: { mode: 'inherit' | 'automatic' | 'custom'; executable?: string }; memory_mb: number | null; window_size?: WindowSize | null; jvm_args?: string[] | null; launch_behavior?: LaunchBehavior | null };
 export type GameAction = 'copy' | 'export' | 'remove';
+export type PackOrigin = { provider: 'modrinth' | 'curseforge'; project_id: string; version_id: string };
 export type Game = {
   id: string;
   name: string;
+  last_launched_at?: number | null;
+  appearance_preset?: 'grass' | 'stone' | 'dirt' | 'oak' | 'water' | 'lava' | 'end';
+  icon_ref?: string | null;
+  cover_ref?: string | null;
+  pinned?: boolean;
   version: string;
   loader_version?: string | null;
   loader_kind?: LoaderKind | null;
   pack_name?: string | null;
   pack_version?: string | null;
+  pack_origin?: PackOrigin | null;
   profile_id?: string | null;
   runtime_overrides?: RuntimeOverrides;
   directory: string;
@@ -43,7 +52,7 @@ export function gameLoaderLabel(game: Game): string {
   return `${loaderLabel(game.loader_kind ?? 'fabric')} ${game.loader_version}`;
 }
 export function loaderLabel(kind: string): string { return ({ fabric: 'Fabric', forge: 'Forge', neoforge: 'NeoForge' })[kind] ?? '原版'; }
-export type ModSearchHit = { project_id: string; slug: string; title: string; description: string; author: string; downloads: number };
+export type ModSearchHit = { icon_url?: string | null; preview_url?: string | null; gallery?: string[]; project_id: string; slug: string; title: string; description: string; author: string; downloads: number };
 export type ModSearchPage = { hits: ModSearchHit[]; offset: number; total_hits: number };
 export type ModInstallPreview = { plan_id: string; project_id: string; version_id: string; mods: { project_id: string; version_id: string; name: string; version_number: string; required_by: string | null }[] };
 export type ModVersion = { version_id: string; name: string; version_number: string; version_type: string; date_published: string };
@@ -62,3 +71,4 @@ export type LocalWorld = { folder_name: string; name: string; minecraft_version:
 export type LauncherImportContentRoot = { content_id: string; label: string; has_saves: boolean };
 export type LauncherImportCandidate = { candidate_id: string; name: string; minecraft_version: string | null; loader_kind: LoaderKind | null; loader_version: string | null; supported: boolean; unsupported_reason: string | null; content_roots: LauncherImportContentRoot[]; warnings: string[] };
 export type LauncherImportPreview = { preview_id: string; source_display: string; candidates: LauncherImportCandidate[] };
+

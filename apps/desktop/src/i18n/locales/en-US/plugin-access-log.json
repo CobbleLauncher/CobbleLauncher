@@ -1,0 +1,29 @@
+{
+  "title": "Recent access",
+  "refresh": "Refresh",
+  "empty": "No recent access.",
+  "failed": "Could not load access records.",
+  "actions": {
+    "https_get": "Network request",
+    "configs_list": "List game configurations",
+    "configs_read": "Read game configuration",
+    "report_check": "Check configurations",
+    "keybindings_preview": "Read keybindings",
+    "keybindings_apply": "Write keybindings",
+    "keybindings_restore": "Restore keybindings",
+    "diagnostics_read": "Read diagnostic files",
+    "files_read": "Read selected file",
+    "diagnostics_list": "List diagnostic files",
+    "diagnostics_check": "Check diagnostic file",
+    "diagnostics_pick": "Read selected diagnostic file",
+    "inspection_snapshot": "Read game inspection data",
+    "inspection_check": "Analyze game inspection data"
+  },
+  "outcomes": {
+    "allowed": "Allowed",
+    "denied": "Denied",
+    "completed": "Completed",
+    "failed": "Failed",
+    "cancelled": "Cancelled"
+  }
+}

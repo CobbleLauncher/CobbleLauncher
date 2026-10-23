@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: MIT
+import { mount, flushPromises } from '@vue/test-utils';
+import { defineComponent, ref } from 'vue';
+import { afterEach, expect, it, vi } from 'vitest';
+import { invoke } from '@tauri-apps/api/core';
+import PluginReportPanel from './PluginReportPanel.vue';
+import { setLocale } from './i18n';
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+afterEach(() => { vi.mocked(invoke).mockReset(); setLocale('zh-CN'); });
+
+it('mounts declared global inspection options on demand and guards checks and departure while saving or drafting', async () => {
+  setLocale('en-US'); vi.mocked(invoke).mockResolvedValue(null);
+  const dirty = ref(false); const allow = ref(false);
+  const confirmLeave = vi.fn(async () => { if(allow.value) dirty.value=false; return allow.value; });
+  const Settings = defineComponent({name:'ExtensionSettingsPanel',props:{pluginId:{type:String,required:true},scope:{type:String,required:true}},emits:['busy'],setup(_props,{expose}){expose({canLeave:()=>!dirty.value,confirmLeave});return()=>null;}});
+  const manifest={api_version:'0.2.0',report_protocols:['cobble.config-folder@1'],permissions:[{permission:'launcher:resource/selected-folder/read'}],contributions:{settings:{categories:[]}}};
+  const wrapper=mount(PluginReportPanel,{props:{pluginId:'community.checker',instanceId:'game-a',manifest},global:{stubs:{ExtensionSettingsPanel:Settings,ManagedConfigReportPanel:true}}});
+  const button=(label:string)=>wrapper.findAll('button').find(value=>value.text()===label)!;
+  expect(wrapper.findComponent(Settings).exists()).toBe(false);
+  expect(invoke).not.toHaveBeenCalled();
+  await button('Inspection options').trigger('click'); await flushPromises();
+  const child=wrapper.findComponent(Settings);
+  expect(child.props()).toEqual({pluginId:'community.checker',scope:'global'});
+  child.vm.$emit('busy',true); await flushPromises();
+  expect(button('Analyze files…').attributes('disabled')).toBeDefined();
+  expect(wrapper.findComponent({name:'ManagedConfigReportPanel'}).props('disabled')).toBe(true);
+  expect(await wrapper.vm.confirmLeave()).toBe(false);
+  child.vm.$emit('busy',false); dirty.value=true; await flushPromises();
+  expect(wrapper.text()).toContain('Apply or discard inspection options');
+  expect(wrapper.findComponent({name:'ManagedConfigReportPanel'}).props('disabled')).toBe(true);
+  await button('Analyze files…').trigger('click'); await flushPromises();
+  expect(confirmLeave).toHaveBeenCalled(); expect(invoke).not.toHaveBeenCalled();
+  allow.value=true;
+  await button('Analyze files…').trigger('click'); await flushPromises();
+  expect(invoke).toHaveBeenCalledWith('analyze_plugin_report',{pluginId:'community.checker',instanceId:'game-a',locale:'en'});
+  expect(wrapper.text()).not.toContain('Apply or discard inspection options');
+  await button('Inspection options').trigger('click');
+  expect(wrapper.findComponent(Settings).exists()).toBe(true);
+  await wrapper.setProps({manifest:{...manifest,contributions:undefined}});
+  expect(wrapper.findComponent(Settings).exists()).toBe(false);
+  wrapper.unmount();
+});

@@ -60,3 +60,26 @@ world pack-plugin {
   import archive;
   export importer;
 }
+
+// Read-only scoped bytes, no host paths, WASI or executable UI content.
+interface viewer {
+  use types.{plugin-error};
+  record material-count { state: string, count: u32 }
+  record block { x: u32, y: u32, z: u32, palette-index: u32 }
+  record chunk { blocks: list<block> }
+  record scene {
+    format-version: u32,
+    width: u32,
+    height: u32,
+    length: u32,
+    palette: list<string>,
+    materials: list<material-count>,
+    chunk-count: u32,
+  }
+  inspect: func(data: list<u8>) -> result<scene, plugin-error>;
+  read-chunk: func(index: u32) -> result<chunk, plugin-error>;
+}
+
+world viewer-plugin {
+  export viewer;
+}

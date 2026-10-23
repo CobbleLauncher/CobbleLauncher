@@ -1,11 +1,20 @@
 // SPDX-License-Identifier: MIT
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod appearance;
+mod cache;
+mod catalog_install;
+mod curseforge;
 mod games;
 mod java;
+mod logging;
+mod market_images;
 mod microsoft;
 mod offline;
+mod plugin_catalogs;
+mod plugins;
 mod preferences;
-use tauri::Manager;
+mod window_geometry;
+use tauri::{Emitter, Manager};
 
 #[tauri::command]
 fn get_app_info() -> cobble_domain::AppInfo {
@@ -23,8 +32,19 @@ fn set_download_settings(settings: cobble_minecraft::DownloadSettings) -> Result
 }
 
 fn main() {
+    let _logging = logging::init();
+    plugins::queue_file(std::env::args().skip(1));
+    games::quick_launch::queue_arguments(std::env::args().skip(1));
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        .register_uri_scheme_protocol("cobble-plugin", plugins::plugin_views::serve_asset)
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_single_instance::init(|app, arguments, _| {
+            if games::quick_launch::queue_arguments(arguments.iter().skip(1).cloned()) {
+                let _ = app.emit("launch-intent", ());
+            }
+            if plugins::queue_file(arguments.into_iter().skip(1)) {
+                let _ = app.emit("schematic-open", ());
+            }
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
                 let _ = window.show();
@@ -34,11 +54,185 @@ fn main() {
         .manage(games::GameLibrary::load())
         .manage(games::tasks::TaskLibrary::load())
         .setup(|app| {
+            window_geometry::install(app)?;
             games::sessions::watch_recovered(app.handle());
+            games::world_snapshots::automatic::recover_pending(app.handle());
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                plugins::pack_inspection_pages::revoke_window(window.label());
+                plugins::blueprint_provider::revoke_window(window.label());
+                games::screenshot_sheet::revoke_window(window.label());
+                plugins::plugin_reports::folder_report::revoke_window(window.label());
+                plugins::plugin_views::revoke_window(window.label());
+            }
         })
         .invoke_handler(tauri::generate_handler![
             get_app_info,
+            games::quick_launch::peek_pending_launch,
+            games::quick_launch::acknowledge_pending_launch,
+            games::quick_launch::create_game_shortcut,
+            games::game_servers::list_game_servers,
+            games::game_servers::start_game_server,
+            plugins::plugin_views::open_plugin_view,
+            plugins::plugin_views::resize_plugin_view,
+            plugins::plugin_views::close_plugin_view,
+            plugins::plugin_views::set_plugin_view_visible,
+            plugins::plugin_frontend_bridge::frontend_call,
+            plugins::plugin_access_log::plugin_access_log,
+            games::pack_update_preview::get_game_pack_update_context,
+            games::pack_update_preview::preview_game_pack_update,
+            games::mesh::app::mesh_remove_contact,
+            games::mesh::app::mesh_identity_state,
+            games::mesh::app::mesh_set_identity_mode,
+            games::mesh::app::mesh_start_app,
+            games::mesh::app::mesh_app_snapshot,
+            games::mesh::app::mesh_stop_app,
+            games::mesh::app::mesh_set_display_name,
+            games::mesh::app::mesh_create_contact_invitation,
+            games::mesh::app::mesh_accept_contact_invitation,
+            games::mesh::app::mesh_send_message,
+            games::mesh::app::mesh_list_messages,
+            games::mesh::composer::mesh_list_message_composers,
+            games::mesh::composer::mesh_cancel_message_composer,
+            games::mesh::composer::mesh_compose_message,
+            market_images::get_market_image,
+            games::game_config::list_game_configs,
+            games::game_config::read_game_config,
+            games::game_config::save_game_config,
+            games::game_config::restore_game_config_backup,
+            games::screenshots::list_game_screenshots,
+            games::screenshots::get_game_screenshot,
+            games::screenshots::open_game_screenshot,
+            games::screenshots::open_game_screenshots_folder,
+            plugins::blueprint_provider::get_blueprint_provider_availability,
+            plugins::blueprint_viewers::get_blueprint_viewer_choices,
+            plugins::blueprint_provider::search_online_blueprints,
+            plugins::blueprint_provider::online_blueprint_details,
+            plugins::blueprint_provider::open_online_blueprint,
+            plugins::blueprint_provider::download_online_blueprint,
+            plugins::blueprint_provider::cancel_blueprint_provider,
+            plugins::update_plugin,
+            games::world_snapshots::retention::preview_world_snapshot_cleanup,
+            games::world_snapshots::retention::apply_world_snapshot_cleanup,
+            games::world_datapacks::list_world_datapacks,
+            games::world_datapacks::import_world_datapacks,
+            games::world_datapacks::move_world_datapack,
+            games::curseforge_pack::preview_curseforge_pack,
+            games::curseforge_pack::preview_curseforge_online_pack,
+            games::curseforge_pack::prepare_curseforge_pack,
+            games::curseforge_pack::select_curseforge_pack_manual_file,
+            games::curseforge_pack::create_curseforge_pack_game,
+            games::curseforge_pack::get_task_curseforge_pack_preview,
+            curseforge::get_curseforge_availability,
+            curseforge::search_curseforge,
+            curseforge::list_curseforge_files,
+            games::curseforge_install::preview_curseforge_mod_install,
+            games::curseforge_install::select_curseforge_manual_file,
+            games::curseforge_install::install_curseforge_mod_plan,
+            games::curseforge_install::open_curseforge_project,
+            games::curseforge_install::list_game_curseforge_mods,
+            games::curseforge_install::check_game_curseforge_updates,
+            games::game_appearance::set_game_appearance_preset,
+            games::game_appearance::reset_game_icon,
+            games::game_appearance::pick_game_icon,
+            games::game_appearance::get_game_icons,
+            games::game_appearance::set_game_pinned,
+            games::game_appearance::pick_game_cover,
+            games::game_appearance::reset_game_cover,
+            games::game_appearance::get_game_covers,
+            games::game_config::keybindings::preview_game_keybindings,
+            games::game_config::keybindings::apply_game_keybindings,
+            games::game_config::keybindings::restore_game_keybindings,
+            preferences::set_default_game_directory,
+            games::mesh::mesh_availability,
+            games::mesh::overview::mesh_overview,
+            games::mesh::overview::mesh_host_options,
+            games::mesh::overview::mesh_discover,
+            games::mesh::mesh_host,
+            games::mesh::mesh_host_server,
+            games::mesh::mesh_network_status,
+            games::mesh::mesh_set_enabled,
+            games::mesh::mesh_join,
+            games::mesh::mesh_status,
+            games::mesh::mesh_end,
+            logging::open_launcher_logs,
+            logging::export_launcher_diagnostics,
+            plugins::extension_contributions::list_extension_contributions,
+            plugins::extension_contributions::resolve_extension_command,
+            plugins::extension_settings::get_extension_settings,
+            plugins::extension_settings::interchange::export_extension_settings_yaml,
+            plugins::extension_settings::interchange::preview_extension_settings_yaml,
+            plugins::extension_settings::set_extension_setting,
+            plugins::extension_settings::declarative::save_extension_settings_form,
+            plugins::plugin_signatures::get_pending_plugin_signature,
+            plugins::list_plugins,
+            plugins::plugin_details::get_plugin_details,
+            plugins::get_plugin_icon,
+            plugins::bundled_plugins::list_bundled_plugins,
+            plugins::bundled_plugins::preview_bundled_plugin,
+            plugins::plugin_reports::analyze_plugin_report,
+            plugins::plugin_reports::folder_report::analyze_plugin_folder_report,
+            plugins::plugin_reports::managed_config_report::analyze_game_config_batch_report,
+            plugins::plugin_reports::config_diagnosis::analyze_game_config_report,
+            plugins::pack_inspection_pages::begin_pack_inspection,
+            plugins::pack_inspection_pages::query_pack_inspection,
+            plugins::pack_inspection_pages::detail_pack_inspection,
+            plugins::pack_inspection_pages::close_pack_inspection,
+            plugins::plugin_reports::analyze_game_report,
+            games::world_snapshots::list_world_snapshots,
+            games::world_snapshots::insights::get_world_snapshot_storage,
+            games::world_snapshots::insights::compare_world_snapshots,
+            games::screenshot_sheet::list_screenshot_sheet_plugins,
+            games::screenshot_sheet::preview_screenshot_sheet,
+            games::screenshot_sheet::save_screenshot_sheet,
+            games::screenshot_sheet::cancel_screenshot_sheet,
+            games::world_snapshots::create_world_snapshot,
+            games::world_snapshots::restore_world_snapshot,
+            games::world_snapshots::recovery::export_world_snapshot_recovery,
+            games::world_snapshots::recovery::import_world_snapshot_recovery,
+            plugins::plugin_reports::cancel_plugin_report,
+            plugin_catalogs::list_plugin_catalogs,
+            plugin_catalogs::add_plugin_catalog,
+            plugin_catalogs::refresh_plugin_catalog,
+            plugin_catalogs::set_plugin_catalog_enabled,
+            plugin_catalogs::remove_plugin_catalog,
+            plugins::take_pending_schematic,
+            plugins::peek_pending_schematic,
+            plugins::preview_plugin_package,
+            plugins::cancel_plugin_preview,
+            catalog_install::preview_catalog_plugin,
+            plugins::install_plugin,
+            plugins::set_plugin_enabled,
+            plugins::uninstall_plugin,
+            plugins::open_schematic,
+            plugins::read_viewer_chunk,
+            plugins::viewer_textures::load_viewer_textures,
+            plugins::close_viewer,
+            plugins::save_blueprint,
+            plugins::list_blueprints,
+            plugins::open_blueprint,
+            plugins::blueprint_library::rename_blueprint,
+            plugins::blueprint_library::set_blueprint_favorite,
+            plugins::blueprint_library::save_blueprint_thumbnail,
+            plugins::blueprint_library::read_blueprint_thumbnail,
+            plugins::blueprint_library::remove_blueprint,
+            plugins::blueprint_export::export_blueprint_materials,
+            games::blueprint_import::import_blueprint,
+            games::blueprint_import::open_blueprint_destination,
+            games::launch_recovery::get_launch_recovery,
+            games::launch_recovery::open_current_launch_log,
+            games::launch_recovery::repair_game_artifacts,
+            games::world_snapshots::automatic::get_automatic_world_backup,
+            games::world_snapshots::automatic::set_automatic_world_backup,
+            appearance::get_profile_appearance,
+            appearance::pick_profile_skin,
+            appearance::apply_profile_skin,
+            cache::get_public_cache_stats,
+            cache::get_download_tuning,
+            cache::set_download_tuning,
+            cache::clear_public_cache,
             games::tasks::list_tasks,
             games::tasks::cancel_task,
             games::tasks::retry_task,
@@ -49,14 +243,20 @@ fn main() {
             microsoft::open_microsoft_login,
             preferences::get_launcher_preferences,
             preferences::set_default_memory,
+            preferences::set_default_advanced_runtime,
+            games::runtime::set_game_advanced_runtime,
             preferences::pick_default_game_directory,
             preferences::reset_default_game_directory,
-            games::set_game_memory,
-            games::set_game_java_mode,
-            games::pick_game_java_executable,
+            games::runtime::set_game_memory,
+            games::runtime::set_game_java_mode,
+            games::runtime::list_game_java_runtimes,
+            games::runtime::set_game_java_runtime,
+            games::runtime::pick_game_java_executable,
             get_download_settings,
             set_download_settings,
             java::get_java_settings,
+            java::list_java_runtimes,
+            java::select_java_runtime,
             java::pick_java_executable,
             java::use_automatic_java,
             games::list_game_versions,
@@ -65,8 +265,8 @@ fn main() {
             games::pick_game_directory,
             games::create_game,
             games::retry_game,
-            games::prepare_game_launch,
-            games::start_game,
+            games::runtime::prepare_game_launch,
+            games::runtime::start_game,
             games::set_game_profile,
             games::list_fabric_versions,
             games::list_loader_versions,
@@ -81,6 +281,9 @@ fn main() {
             games::search_game_mods,
             games::preview_game_mod_install,
             games::install_game_mod_plan,
+            games::mod_updates::preview_game_mod_operation_undo,
+            games::mod_updates::list_game_mod_history,
+            games::mod_updates::undo_game_mod_operation,
             games::mod_updates::check_game_mod_updates,
             games::mod_updates::list_game_mod_versions,
             games::mod_updates::get_game_mod_version_details,
@@ -121,6 +324,12 @@ fn main() {
             offline::save_offline_profile,
             offline::remove_offline_profile
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run Cobble Launcher");
+        .build(tauri::generate_context!())
+        .expect("failed to build Cobble Launcher")
+        .run(|_app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                window_geometry::flush(_app);
+                games::mesh::shutdown();
+            }
+        });
 }

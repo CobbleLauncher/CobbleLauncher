@@ -190,6 +190,8 @@ pub async fn list_modrinth_pack_versions(
         url.query_pairs_mut()
             .append_pair("loaders", &serde_json::to_string(&[loader])?);
     }
+    url.query_pairs_mut()
+        .append_pair("include_changelog", "false");
     let versions: Vec<Version> = api.get(url).await?;
     let mut versions: Vec<_> = versions
         .iter()

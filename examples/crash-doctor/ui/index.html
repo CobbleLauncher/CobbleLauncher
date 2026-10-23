@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Crash Doctor</title></head>
+<body><main>
+  <div class="toolbar"><label for="game" id="game-label">Recent games</label><select id="game"></select><button id="refresh">Refresh</button><button id="manual" class="secondary">Choose another file…</button></div>
+  <p id="error" role="alert" hidden></p>
+  <div class="workspace"><section class="inventory" aria-label="Diagnostic files"><ul id="files"></ul><p id="empty" role="status"></p></section>
+  <section class="document"><div class="actions"><h2 id="name"></h2><button id="check" disabled>Analyze</button><button id="cancel" hidden>Cancel</button></div><pre id="source" tabindex="0"></pre></section></div>
+  <section id="results" aria-live="polite"><h2 id="result-title">Findings</h2><p id="status" role="status"></p><div id="findings"></div></section>
+</main><script type="module" src="./src/main.ts"></script></body></html>

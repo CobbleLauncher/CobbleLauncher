@@ -1,0 +1,53 @@
+{
+  "id": "serverbook-inspector",
+  "name": "Serverbook Inspector",
+  "version": "0.1.0",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "report"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:report",
+        "version": "0.2.0"
+      },
+      {
+        "id": "launcher:web-frontend",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "permissions": [
+    {
+      "permission": "launcher:ui/webview"
+    },
+    {
+      "permission": "launcher:game-inspection/read",
+      "scopes": [
+        "servers"
+      ]
+    }
+  ],
+  "file_extensions": [],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Find duplicate or unnamed saved servers",
+    "zh-CN": "查找重复或未命名的服务器"
+  },
+  "tags": [
+    "servers",
+    "privacy",
+    "inspection"
+  ],
+  "frontend": {
+    "api_version": "0.1.0",
+    "entry": "ui/index.html",
+    "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "icon": {
+    "file": "icon.png",
+    "sha256": "e4d835a21ac7a64c70ca5c54b53f9e1653a03a84f0f76728fbd31844bd355f03"
+  }
+}

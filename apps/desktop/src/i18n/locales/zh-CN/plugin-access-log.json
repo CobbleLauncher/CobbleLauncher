@@ -1,0 +1,29 @@
+{
+  "title": "最近访问",
+  "refresh": "刷新",
+  "empty": "暂无访问记录。",
+  "failed": "无法加载访问记录。",
+  "actions": {
+    "https_get": "网络请求",
+    "configs_list": "列出游戏配置",
+    "configs_read": "读取游戏配置",
+    "report_check": "检查配置",
+    "keybindings_preview": "读取按键设置",
+    "keybindings_apply": "写入按键设置",
+    "keybindings_restore": "恢复按键设置",
+    "diagnostics_read": "读取诊断文件",
+    "files_read": "读取所选文件",
+    "diagnostics_list": "列出诊断文件",
+    "diagnostics_check": "检查诊断文件",
+    "diagnostics_pick": "读取所选诊断文件",
+    "inspection_snapshot": "读取游戏检查数据",
+    "inspection_check": "分析游戏检查数据"
+  },
+  "outcomes": {
+    "allowed": "已允许",
+    "denied": "已拒绝",
+    "completed": "已完成",
+    "failed": "失败",
+    "cancelled": "已取消"
+  }
+}

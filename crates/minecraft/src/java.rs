@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 //! Probe explicitly selected/local Java executables. No runtime installation.
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fmt, io,
     path::{Path, PathBuf},
     process::Stdio,
-    time::Duration,
+    sync::{Mutex, OnceLock},
+    time::{Duration, SystemTime},
 };
 use tokio::process::Command;
 
@@ -33,7 +34,7 @@ impl fmt::Display for JavaError {
         match self {
             Self::NotFound { required_major } => write!(
                 f,
-                "Java {required_major} was not found in JAVA_HOME or PATH"
+                "Java {required_major} matching this computer's architecture was not found"
             ),
             Self::InvalidRequirement => f.write_str("Java major version must be positive"),
             Self::InvalidExecutable => {
@@ -50,12 +51,169 @@ impl fmt::Display for JavaError {
 }
 impl std::error::Error for JavaError {}
 
-/// JAVA_HOME takes priority over PATH. Probe each distinct executable and use
-/// an exact Java major match; a newer major is not assumed compatible.
+/// Select the newest installed patch with the exact major and host architecture.
 pub async fn find_java(required_major: u32) -> Result<JavaRuntime, JavaError> {
     if required_major == 0 {
         return Err(JavaError::InvalidRequirement);
     }
+    let runtimes = discover_java(false).await;
+    recommend_java(&runtimes, required_major, std::env::consts::ARCH)
+        .cloned()
+        .ok_or(JavaError::NotFound { required_major })
+}
+
+#[derive(Clone)]
+struct CachedProbe {
+    size: u64,
+    modified: SystemTime,
+    runtime: Option<JavaRuntime>,
+}
+static PROBES: OnceLock<Mutex<HashMap<PathBuf, CachedProbe>>> = OnceLock::new();
+
+/// Search bounded, known installation locations. Cache successful and failed
+/// probes only while executable metadata stays unchanged. No recursive disk scan.
+pub async fn discover_java(rescan: bool) -> Vec<JavaRuntime> {
+    let cache = PROBES.get_or_init(Default::default);
+    if rescan {
+        cache.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+    let mut runtimes = Vec::new();
+    let mut seen = HashSet::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    #[allow(unused_mut)]
+    let mut candidates = candidate_paths();
+    #[cfg(windows)]
+    candidates.extend(registry_candidates().await);
+    for path in candidates.into_iter().take(1024) {
+        let Ok(path) = std::fs::canonicalize(path) else {
+            continue;
+        };
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        let Ok(metadata) = path.metadata() else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
+        let cached = cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&path)
+            .filter(|entry| entry.size == metadata.len() && entry.modified == modified)
+            .cloned();
+        let runtime = if let Some(entry) = cached {
+            entry.runtime
+        } else {
+            if tokio::time::Instant::now() >= deadline {
+                break;
+            }
+            let runtime = tokio::time::timeout_at(deadline, probe_java(&path))
+                .await
+                .ok()
+                .and_then(Result::ok);
+            cache.lock().unwrap_or_else(|e| e.into_inner()).insert(
+                path.clone(),
+                CachedProbe {
+                    size: metadata.len(),
+                    modified,
+                    runtime: runtime.clone(),
+                },
+            );
+            runtime
+        };
+        if let Some(runtime) = runtime {
+            runtimes.push(runtime);
+        }
+    }
+    runtimes.sort_by(|a, b| {
+        b.major
+            .cmp(&a.major)
+            .then_with(|| version_numbers(&b.version).cmp(&version_numbers(&a.version)))
+            .then_with(|| a.executable.cmp(&b.executable))
+    });
+    runtimes
+}
+
+#[cfg(windows)]
+async fn registry_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    for key in [
+        r"HKLM\SOFTWARE\JavaSoft",
+        r"HKLM\SOFTWARE\WOW6432Node\JavaSoft",
+        r"HKCU\SOFTWARE\JavaSoft",
+    ] {
+        let mut command = Command::new("reg.exe");
+        command
+            .args(["query", key, "/s", "/v", "JavaHome"])
+            .stdin(Stdio::null())
+            .kill_on_drop(true)
+            .creation_flags(0x0800_0000);
+        if let Ok(Ok(output)) = tokio::time::timeout(Duration::from_secs(1), command.output()).await
+        {
+            for line in String::from_utf8_lossy(&output.stdout).lines().take(256) {
+                if let Some((_, home)) = line.split_once("REG_SZ") {
+                    candidates.push(PathBuf::from(home.trim()).join("bin/java.exe"));
+                }
+            }
+        }
+    }
+    candidates
+}
+
+pub fn recommend_java<'a>(
+    runtimes: &'a [JavaRuntime],
+    required_major: u32,
+    arch: &str,
+) -> Option<&'a JavaRuntime> {
+    runtimes
+        .iter()
+        .filter(|runtime| {
+            runtime.major == required_major
+                && normalized_arch(&runtime.arch) == normalized_arch(arch)
+        })
+        .max_by_key(|runtime| version_numbers(&runtime.version))
+}
+
+fn normalized_arch(arch: &str) -> &str {
+    match arch {
+        "amd64" | "x64" | "x86_64" => "x86_64",
+        "arm64" | "aarch64" => "aarch64",
+        "i386" | "i686" | "x86" => "x86",
+        other => other,
+    }
+}
+fn version_numbers(version: &str) -> Vec<u32> {
+    version
+        .split(|c: char| !c.is_ascii_digit())
+        .filter_map(|part| part.parse().ok())
+        .collect()
+}
+
+fn add_install_root(candidates: &mut Vec<PathBuf>, root: &Path) {
+    let executable = if cfg!(windows) { "java.exe" } else { "java" };
+    candidates.push(root.join("bin").join(executable));
+    candidates.push(root.join("Contents/Home/bin").join(executable));
+    let Ok(children) = std::fs::read_dir(root) else {
+        return;
+    };
+    let mut paths: Vec<_> = children
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .take(128)
+        .collect();
+    paths.sort();
+    for path in paths {
+        candidates.push(path.join("bin").join(executable));
+        candidates.push(path.join("Contents/Home/bin").join(executable));
+    }
+}
+
+fn candidate_paths() -> Vec<PathBuf> {
     let executable = if cfg!(windows) { "java.exe" } else { "java" };
     let mut candidates = Vec::new();
     if let Some(home) = std::env::var_os("JAVA_HOME") {
@@ -64,21 +222,49 @@ pub async fn find_java(required_major: u32) -> Result<JavaRuntime, JavaError> {
     if let Some(paths) = std::env::var_os("PATH") {
         candidates.extend(std::env::split_paths(&paths).map(|path| path.join(executable)));
     }
-    let mut seen = HashSet::new();
-    for path in candidates {
-        let Ok(path) = std::fs::canonicalize(path) else {
-            continue;
-        };
-        if !seen.insert(path.clone()) || !path.is_file() {
-            continue;
-        }
-        if let Ok(runtime) = probe_java(&path).await
-            && runtime.major == required_major
-        {
-            return Ok(runtime);
+    if let Some(home) = dirs::home_dir() {
+        for relative in [
+            ".jdks",
+            ".sdkman/candidates/java",
+            ".asdf/installs/java",
+            ".jenv/versions",
+            ".local/share/mise/installs/java",
+            "scoop/apps/openjdk/current",
+            "scoop/apps/temurin-lts-jdk/current",
+            ".jabba/jdk",
+        ] {
+            add_install_root(&mut candidates, &home.join(relative));
         }
     }
-    Err(JavaError::NotFound { required_major })
+    for root in [
+        "/usr/lib/jvm",
+        "/usr/java",
+        "/opt/java",
+        "/Library/Java/JavaVirtualMachines",
+        "/opt/homebrew/opt/openjdk",
+        "/usr/local/opt/openjdk",
+    ] {
+        if !cfg!(windows) {
+            add_install_root(&mut candidates, Path::new(root));
+        }
+    }
+    #[cfg(windows)]
+    for variable in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
+        if let Some(root) = std::env::var_os(variable) {
+            for vendor in [
+                "Java",
+                "Eclipse Adoptium",
+                "Microsoft",
+                "Zulu",
+                "BellSoft",
+                "Amazon Corretto",
+                "Programs/Eclipse Adoptium",
+            ] {
+                add_install_root(&mut candidates, &PathBuf::from(&root).join(vendor));
+            }
+        }
+    }
+    candidates
 }
 
 /// Direct argv execution, with no shell or inherited JVM option injection.
@@ -154,6 +340,57 @@ fn parse_properties<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recommends_exact_major_architecture_and_newest_numeric_patch() {
+        let mut runtimes = Vec::new();
+        for (version, arch) in [
+            ("21.0.9", "amd64"),
+            ("21.0.10", "x86_64"),
+            ("21.0.99", "aarch64"),
+            ("25.0.1", "amd64"),
+        ] {
+            let properties =
+                format!("java.version = {version}\njava.vendor = fixture\nos.arch = {arch}");
+            runtimes.push(parse_properties(PathBuf::from(version), properties.lines()).unwrap());
+        }
+        assert_eq!(
+            recommend_java(&runtimes, 21, "x86_64").unwrap().version,
+            "21.0.10"
+        );
+        assert_eq!(
+            recommend_java(&runtimes, 21, "arm64").unwrap().version,
+            "21.0.99"
+        );
+        assert!(recommend_java(&runtimes, 17, "x86_64").is_none());
+        assert!(recommend_java(&runtimes, 21, "x86").is_none());
+    }
+
+    #[test]
+    fn installation_root_search_is_shallow_and_handles_macos_bundles() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(directory.path().join("jdk-21/Contents/Home/bin")).unwrap();
+        std::fs::create_dir_all(directory.path().join("unrelated/deep/nested/jdk/bin")).unwrap();
+        let mut candidates = Vec::new();
+        add_install_root(&mut candidates, directory.path());
+        let executable = if cfg!(windows) { "java.exe" } else { "java" };
+        assert!(
+            candidates.contains(
+                &directory
+                    .path()
+                    .join("jdk-21/Contents/Home/bin")
+                    .join(executable)
+            )
+        );
+        assert!(
+            !candidates.contains(
+                &directory
+                    .path()
+                    .join("unrelated/deep/nested/jdk/bin")
+                    .join(executable)
+            )
+        );
+    }
 
     #[test]
     fn parses_modern_and_java8_properties_including_spaces() {

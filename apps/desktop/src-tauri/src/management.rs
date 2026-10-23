@@ -22,6 +22,17 @@ pub(super) fn begin(
     id: &str,
     installed: bool,
 ) -> Result<(Game, Operation), String> {
+    begin_inner(app, id, installed, None)
+}
+
+pub(super) fn begin_after_exit(
+    app: &AppHandle, session: &sessions::Session,
+) -> Result<(Game, Operation), String> {
+    begin_inner(app, &session.game_id, true, Some(session))
+}
+fn begin_inner(
+    app: &AppHandle, id: &str, installed: bool, exited: Option<&sessions::Session>,
+) -> Result<(Game, Operation), String> {
     let state = app.state::<GameLibrary>();
     let mut library = state.0.lock().map_err(|e| e.to_string())?;
     let game = library
@@ -29,6 +40,15 @@ pub(super) fn begin(
         .iter_mut()
         .find(|game| game.id == id)
         .ok_or("找不到这个游戏")?;
+    if let Some(session) = exited {
+        if game.directory != session.directory || sessions::alive(session)
+            || sessions::recover(game)?.is_some() {
+            return Err("游戏仍在运行，稍后重试备份".into());
+        }
+        if game.launch_state == "running" {
+            game.launch_state = idle();
+        }
+    }
     if game.status == "installing" || game.launch_state != "idle" || game.content_installing {
         return Err("请先关闭游戏或等待当前操作完成".into());
     }
@@ -88,6 +108,7 @@ pub async fn copy_game(
     game.launch_state = idle();
     game.launch_error = None;
     game.log_path = None;
+    game.last_launched_at = None;
     let state = app.state::<GameLibrary>();
     let mut library = state.0.lock().map_err(|e| e.to_string())?;
     library.games.push(game.clone());

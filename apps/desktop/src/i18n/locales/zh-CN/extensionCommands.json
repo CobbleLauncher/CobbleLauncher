@@ -1,0 +1,9 @@
+{
+  "title": "扩展操作",
+  "loading": "读取中…",
+  "empty": "没有可用操作",
+  "retry": "重试",
+  "loadError": "无法读取扩展操作，请重试。",
+  "commandError": "此扩展操作暂不可用，请重新打开菜单。",
+  "settings": "扩展设置"
+}

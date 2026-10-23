@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "files": [
+    {
+      "relative_name": "graphics.json",
+      "media_type": "application/json",
+      "text": "{\n\"private-token\": true,\n}"
+    },
+    {
+      "relative_name": "performance.toml",
+      "media_type": "application/toml",
+      "text": "enabled=true\nenabled=false"
+    },
+    {
+      "relative_name": "server.properties",
+      "media_type": "text/x-java-properties",
+      "text": "level-name=private-world\nlevel-name=private-world-2"
+    },
+    {
+      "relative_name": "valid.yaml",
+      "media_type": "application/yaml",
+      "text": "graphics:\n  enabled: true"
+    }
+  ],
+  "skipped": 2,
+  "truncated": false
+}

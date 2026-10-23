@@ -1,0 +1,75 @@
+{
+  "id": "backup-auditor",
+  "name": "Backup Auditor",
+  "version": "0.1.0",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "report"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:report",
+        "version": "0.2.0"
+      },
+      {
+        "id": "launcher:web-frontend",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "file_extensions": [],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Review retained world replacement backups",
+    "zh-CN": "检查保留的世界替换备份"
+  },
+  "tags": [
+    "backups",
+    "inspection"
+  ],
+  "permissions": [
+    {
+      "permission": "launcher:ui/webview"
+    },
+    {
+      "permission": "launcher:game-inspection/read",
+      "scopes": [
+        "backups"
+      ]
+    }
+  ],
+  "frontend": {
+    "entry": "ui/index.html",
+    "api_version": "0.1.0",
+    "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "contributions": {
+    "schema_version": 1,
+    "commands": [
+      {
+        "label": {
+          "zh-CN": "检查备份",
+          "en": "Review backups"
+        },
+        "id": "backup-auditor.inspect",
+        "menus": [
+          {
+            "when": "always",
+            "position": "tools"
+          },
+          {
+            "when": "instance_selected",
+            "position": "instance"
+          }
+        ],
+        "workflow": "report"
+      }
+    ]
+  },
+  "icon": {
+    "file": "icon.png",
+    "sha256": "0940b8a5da0c9f53095cd17d41c524f42e65637953c0b7d2a838f3e170d771df"
+  }
+}

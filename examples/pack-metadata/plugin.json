@@ -1,0 +1,65 @@
+{
+  "id": "pack-metadata",
+  "name": "Pack Metadata",
+  "version": "0.1.1",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "report"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:report",
+        "version": "0.2.0"
+      }
+    ]
+  },
+  "permissions": [
+    {
+      "permission": "launcher:resource/selected/read",
+      "extensions": [
+        "mcmeta",
+        "json",
+        "zip"
+      ]
+    }
+  ],
+  "file_extensions": [
+    "mcmeta",
+    "json",
+    "zip"
+  ],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Inspect resource pack metadata",
+    "zh-CN": "检查资源包元数据"
+  },
+  "tags": [
+    "resourcepacks",
+    "metadata",
+    "diagnostics"
+  ],
+  "contributions": {
+    "schema_version": 1,
+    "commands": [
+      {
+        "id": "pack-metadata.inspect",
+        "label": {
+          "en": "Inspect pack.mcmeta",
+          "zh-CN": "检查 pack.mcmeta"
+        },
+        "workflow": "report",
+        "menus": [
+          {
+            "position": "tools",
+            "when": "always"
+          }
+        ]
+      }
+    ]
+  },
+  "report_protocols": [
+    "cobble.pack-metadata@1"
+  ]
+}

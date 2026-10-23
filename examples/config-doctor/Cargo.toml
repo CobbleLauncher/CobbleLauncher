@@ -1,0 +1,16 @@
+[package]
+name = "cobble-config-doctor-guest"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wit-bindgen = "=0.63.0"
+serde_json.workspace = true
+toml = { version = "=1.1.8", default-features = false, features = ["parse", "serde", "std"] }
+serde-saphyr = { version = "=2.0.0", default-features = false, features = ["deserialize"] }

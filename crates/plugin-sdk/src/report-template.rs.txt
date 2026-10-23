@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: MIT
+//! Original UTF-8 text statistics example. Input is scoped to this invocation.
+wit_bindgen::generate!({path:"wit",world:"report-plugin"});
+use exports::launcher::resource_report::reports::{Report, Table};
+use launcher::resource_report::resources::{self, Failure, Input};
+
+const MAX_BYTES: u64 = 1024 * 1024;
+
+fn summarize(bytes: &[u8]) -> Result<Report, Failure> {
+    let text = std::str::from_utf8(bytes).map_err(|_| Failure::Unsupported)?;
+    Ok(Report {
+        schema_version: 1,
+        findings: vec![],
+        tables: vec![Table {
+            columns: vec!["Measure".into(), "Count".into()],
+            rows: vec![
+                vec!["Bytes".into(), bytes.len().to_string()],
+                vec!["Lines".into(), text.lines().count().to_string()],
+                vec!["Words".into(), text.split_whitespace().count().to_string()],
+            ],
+        }],
+    })
+}
+
+struct TextReport;
+impl exports::launcher::resource_report::reports::Guest for TextReport {
+    fn analyze(input: &Input) -> Result<Report, Failure> {
+        if resources::cancelled() { return Err(Failure::Cancelled); }
+        let metadata = input.describe()?;
+        if metadata.media_type != "text/plain" { return Err(Failure::Unsupported); }
+        if metadata.byte_length > MAX_BYTES { return Err(Failure::Limit); }
+        let mut bytes = Vec::with_capacity(metadata.byte_length as usize);
+        while (bytes.len() as u64) < metadata.byte_length {
+            if resources::cancelled() { return Err(Failure::Cancelled); }
+            let maximum = (metadata.byte_length - bytes.len() as u64).min(65536) as u32;
+            let chunk = input.read_at(bytes.len() as u64, maximum)?;
+            if chunk.is_empty() || chunk.len() > maximum as usize { return Err(Failure::Io); }
+            bytes.extend_from_slice(&chunk);
+        }
+        if resources::cancelled() { return Err(Failure::Cancelled); }
+        summarize(&bytes)
+    }
+}
+export!(TextReport);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn counts_text_without_inventing_findings() {
+        let report = summarize(b"hello world\nsecond line\n").unwrap();
+        assert!(report.findings.is_empty());
+        assert_eq!(report.tables[0].rows[1][1], "2");
+        assert_eq!(report.tables[0].rows[2][1], "4");
+        assert_eq!(summarize(b"").unwrap().tables[0].rows[1][1], "0");
+        assert!(matches!(summarize(&[255]), Err(Failure::Unsupported)));
+    }
+}

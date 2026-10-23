@@ -1,16 +1,30 @@
 // SPDX-License-Identifier: MIT
 //! Local mod files and their optional descriptive metadata.
 
+pub mod curseforge;
+mod curseforge_pack;
 mod local_mods;
 mod local_packs;
+pub mod media;
+mod pack_metadata;
+pub use pack_metadata::{MAX_PACK_ARCHIVE_BYTES, MAX_PACK_METADATA_BYTES, read_pack_metadata_zip};
 mod modrinth;
 mod modrinth_content_packs;
 mod modrinth_packs;
 mod mrpack;
+mod mrpack_inspection;
+pub mod pack_update_preview;
 mod world_archives;
 mod worlds;
 
+pub use curseforge_pack::{
+    CurseForgePack, CurseForgePackFile, CurseForgePackLoader, read_curseforge_pack,
+    read_curseforge_pack_file, validate_curseforge_pack_paths,
+};
 pub use mrpack::{Mrpack, MrpackFile, PackOverride, read_mrpack, read_mrpack_file};
+pub use mrpack_inspection::{
+    MrpackInspectionOverride, MrpackInspectionSnapshot, inspect_mrpack_archive,
+};
 pub use world_archives::{
     MAX_WORLD_ARCHIVE_BYTES, WorldArchiveEntry, WorldArchivePlan, WorldArchivePreview,
     inspect_world_archive, preview_world_archive,
@@ -35,4 +49,9 @@ pub use modrinth_content_packs::{
 pub use modrinth_packs::{
     ModrinthPackDownload, PackVersion, list_modrinth_pack_versions, resolve_modrinth_pack,
     search_modrinth_packs, supported_pack_target,
+};
+
+mod world_datapacks;
+pub use world_datapacks::{
+    WorldDatapacks, import_world_datapacks, list_world_datapacks, move_world_datapack,
 };

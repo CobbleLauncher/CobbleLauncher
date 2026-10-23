@@ -1,0 +1,9 @@
+{
+  "title": "Extension actions",
+  "loading": "Loading…",
+  "empty": "No actions available",
+  "retry": "Retry",
+  "loadError": "Could not load extension actions. Try again.",
+  "commandError": "This extension action is unavailable. Open the menu and try again.",
+  "settings": "Extension settings"
+}

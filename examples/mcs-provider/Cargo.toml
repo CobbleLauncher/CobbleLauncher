@@ -1,0 +1,16 @@
+[package]
+name = "cobble-mcs-provider"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cobble-blueprint-catalog = { path = "../../crates/blueprint-catalog" }
+serde_json.workspace = true
+url.workspace = true
+wit-bindgen = "=0.63.0"

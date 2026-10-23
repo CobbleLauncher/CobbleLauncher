@@ -70,7 +70,7 @@ test('Fabric chooses stable loader and submits selected version and source', asy
   await page.getByRole('button', { name: '创建游戏', exact: true }).click();
   await expect(page.getByLabel('Minecraft 版本')).toHaveValue('1.21.1');
   await page.getByRole('radio', { name: 'Fabric', exact: true }).click();
-  await expect(page.getByLabel('Fabric 版本')).toHaveValue('0.16.14');
+  await expect(page.getByLabel('Fabric 版本')).toHaveValue(new RegExp('^0.16.14'));
   await page.getByRole('button', { name: '创建并安装' }).click();
   await expect(page.getByRole('article')).toContainText('Fabric 0.16.14');
   const calls = await page.evaluate(() => (window as unknown as MockWindow).__calls);
@@ -89,7 +89,7 @@ test('Fabric load failure can retry and return to Vanilla', async ({ page }) => 
   await expect(page.getByRole('button', { name: '创建并安装' })).toBeDisabled();
   await page.evaluate(() => { (window as unknown as MockWindow).__fabricMode = 'normal'; });
   await page.getByRole('button', { name: '重试', exact: true }).click();
-  await expect(page.getByLabel('Fabric 版本')).toHaveValue('0.16.14');
+  await expect(page.getByLabel('Fabric 版本')).toHaveValue(new RegExp('^0.16.14'));
   await page.getByRole('radio', { name: '原版', exact: true }).click();
   await expect(page.getByLabel('Fabric 版本')).toHaveCount(0);
   await page.getByRole('button', { name: '创建并安装' }).click();
@@ -103,11 +103,12 @@ test('late Fabric response cannot overwrite a newly selected Minecraft version',
   await page.evaluate(() => { (window as unknown as MockWindow).__fabricMode = 'race'; });
   await page.getByRole('radio', { name: 'Fabric', exact: true }).click();
   await expect(page.getByLabel('Fabric 版本')).toBeDisabled();
-  await page.getByLabel('Minecraft 版本').selectOption('1.20.6');
-  await expect(page.getByLabel('Fabric 版本')).toHaveValue('0.15.11');
+  await page.getByLabel('Minecraft 版本').fill('1.20.6');
+  await page.getByRole('option', { name: '1.20.6', exact: true }).click();
+  await expect(page.getByLabel('Fabric 版本')).toHaveValue(new RegExp('^0.15.11'));
   await expect(page.getByLabel('Fabric 版本').getByRole('option', { name: 'stale' })).toHaveCount(0);
   await page.waitForTimeout(700);
-  await expect(page.getByLabel('Fabric 版本')).toHaveValue('0.15.11');
+  await expect(page.getByLabel('Fabric 版本')).toHaveValue(new RegExp('^0.15.11'));
 });
 
 test('manage local Mods imports, searches, toggles, refreshes and confirms deletion', async ({ page }, testInfo) => {
@@ -231,7 +232,7 @@ for (const [kind, label, selected] of [['forge', 'Forge', '52.0.28'], ['neoforge
     await page.goto('/');
     await page.getByRole('button', { name: '创建游戏', exact: true }).click();
     await page.getByRole('radio', { name: label, exact: true }).click();
-    await expect(page.getByLabel(`${label} 版本`)).toHaveValue(selected);
+    await expect(page.getByLabel(`${label} 版本`)).toHaveValue(new RegExp(`^${selected}`));
     await expect(page.getByText('安装时会运行官方安装器。', { exact: false })).toBeVisible();
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: testInfo.outputPath(`${kind}-create.png`), fullPage: true });
@@ -253,13 +254,54 @@ test('unsupported Forge version shows the host reason and cannot submit an empty
   await page.goto('/');
   await page.getByRole('button', { name: '创建游戏', exact: true }).click();
   await page.getByRole('radio', { name: 'Forge', exact: true }).click();
-  await page.getByLabel('Minecraft 版本').selectOption('1.20.6');
+  await page.getByLabel('Minecraft 版本').fill('1.20.6');
+  await page.getByRole('option', { name: '1.20.6', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('暂不支持此 Minecraft 版本');
   await expect(page.getByLabel('Forge 版本')).toBeDisabled();
   await expect(page.getByRole('button', { name: '创建并安装' })).toBeDisabled();
   await page.getByRole('button', { name: '重试', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('目前支持 1.21.1');
-  await page.getByLabel('Minecraft 版本').selectOption('1.21.1');
-  await expect(page.getByLabel('Forge 版本')).toHaveValue('52.0.28');
+  await page.getByLabel('Minecraft 版本').fill('1.21.1');
+  await page.getByRole('option', { name: '1.21.1', exact: true }).click();
+  await expect(page.getByLabel('Forge 版本')).toHaveValue(new RegExp('^52.0.28'));
   await expect(page.getByRole('button', { name: '创建并安装' })).toBeEnabled();
+});
+
+
+test('suggested game names follow versions until edited and blank restores automatic naming', async ({ page }) => {
+  await mock(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '创建游戏', exact: true }).click();
+  await expect(page.getByLabel('游戏名称')).toHaveValue('Minecraft 1.21.1');
+  await page.getByRole('radio', { name: 'Fabric', exact: true }).click();
+  await expect(page.getByLabel('游戏名称')).toHaveValue('Minecraft 1.21.1 Fabric 0.16.14');
+  await page.getByLabel('游戏名称').fill('My forest');
+  await page.getByLabel('Minecraft 版本').fill('1.20.6');
+  await page.getByRole('option', { name: '1.20.6', exact: true }).click();
+  await expect(page.getByLabel('Fabric 版本')).toHaveValue(/^0.15.11/);
+  await expect(page.getByLabel('游戏名称')).toHaveValue('My forest');
+  await page.getByLabel('游戏名称').fill('');
+  await expect(page.getByLabel('游戏名称')).toHaveValue('Minecraft 1.20.6 Fabric 0.15.11');
+  await page.getByRole('button', { name: '创建并安装' }).click();
+  const call = await page.evaluate(() => (window as unknown as MockWindow).__calls.find(call => call.command === 'create_game'));
+  expect(call?.args.automaticName).toBe(true);
+});
+
+test('market carries game and content kind from details and returns to that game', async ({ page }) => {
+  await mock(page, [game]);
+  await page.goto('/');
+  await page.getByRole('button', { name: '管理内容' }).click();
+  await page.getByRole('tab', { name: '内容', exact: true }).click();
+  await page.getByRole('button', { name: '添加内容', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '市场', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Mod', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByLabel('安装到游戏')).toHaveValue(game.id);
+  await expect(page.getByText('Minecraft 1.21.1', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: '资源包', exact: true }).click();
+  await expect(page.getByLabel('安装到游戏')).toHaveValue(game.id);
+  await expect(page.getByLabel('搜索 Modrinth 资源包')).toBeVisible();
+  await page.getByRole('button', { name: '返回游戏详情', exact: true }).click();
+  await expect(page.getByRole('heading', { name: game.name, exact: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: '添加内容', exact: true }).click();
+  await expect(page.getByRole('tab', { name: 'Mod', exact: true })).toHaveAttribute('aria-selected', 'true');
 });

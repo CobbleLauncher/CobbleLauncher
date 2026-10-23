@@ -26,10 +26,22 @@ const MARKER: &str = ".cobble-install.json";
 /// Resource counts for the current installation phase.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstallProgress {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<DownloadProgressDetail>,
     pub phase: String,
     pub completed: usize,
     pub total: usize,
     pub reused: usize,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadProgressDetail {
+    pub bytes_completed: u64,
+    pub bytes_total: u64,
+    pub bytes_received: u64,
+    pub bytes_per_second: u64,
+    pub active_downloads: usize,
+    pub items: Vec<cobble_net::ActiveDownloadProgress>,
 }
 
 /// Successfully installed resources and the Java requirement for a later launch.
@@ -101,6 +113,7 @@ pub async fn install_resources_controlled(
     let on_progress = control.progress();
 
     on_progress(InstallProgress {
+        detail: None,
         phase: "metadata".into(),
         completed: 0,
         total: 1,
@@ -117,6 +130,7 @@ pub async fn install_resources_controlled(
     let mut plan = metadata.download_plan(&PlatformContext::current()?)?;
     control.check_cancelled()?;
     on_progress(InstallProgress {
+        detail: None,
         phase: "metadata".into(),
         completed: 1,
         total: 1,
@@ -185,6 +199,7 @@ pub async fn install_resources_controlled(
         },
     )?;
     on_progress(InstallProgress {
+        detail: None,
         phase: "complete".into(),
         completed: 1,
         total: 1,
@@ -290,7 +305,9 @@ async fn download_files(
     let (phase, control) = progress;
     let on_progress = control.progress();
     let total = files.len();
+    let bytes_total = files.iter().map(|file| file.size).sum();
     on_progress(InstallProgress {
+        detail: None,
         phase: phase.into(),
         completed: 0,
         total,
@@ -300,9 +317,18 @@ async fn download_files(
     let mut pending = tokio::task::JoinSet::new();
     let mut completed = 0;
     let mut reused = 0;
+    let mut bytes_completed = 0u64;
+    let mut tick = tokio::time::interval(std::time::Duration::from_millis(250));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let baseline = downloader.metrics().bytes_received;
+    let mut previous = (std::time::Instant::now(), baseline);
+    let mut bytes_per_second = 0;
     let mut failure: Option<Error> = None;
     loop {
-        while pending.len() < 4 && !control.is_cancelled() && failure.is_none() {
+        while pending.len() < downloader.concurrency()
+            && !control.is_cancelled()
+            && failure.is_none()
+        {
             let Some(file) = files.next() else { break };
             let (downloader, content, root) = (downloader.clone(), content.clone(), root.clone());
             let index = index.clone();
@@ -310,8 +336,10 @@ async fn download_files(
             let control = control.clone();
             pending.spawn(async move {
                 let path = file.path.as_str().to_owned();
+                let size = file.size;
                 download_file(file, downloader, content, root, index, source, control)
                     .await
+                    .map(|reused| (reused, size))
                     .map_err(|error| -> Error {
                         if error.is::<crate::OperationCancelled>() {
                             error
@@ -321,33 +349,55 @@ async fn download_files(
                     })
             });
         }
-        let Some(result) = pending.join_next().await else {
+        if pending.is_empty() {
             break;
+        }
+        let result = tokio::select! {
+            result = pending.join_next() => result,
+            _ = tick.tick() => None,
         };
-        match result {
-            Ok(Ok(hit)) => {
-                reused += usize::from(hit);
-                completed += 1;
-            }
-            Ok(Err(error)) => {
-                if failure.is_none()
-                    || (!error.is::<crate::OperationCancelled>()
-                        && failure
-                            .as_ref()
-                            .is_some_and(|previous| previous.is::<crate::OperationCancelled>()))
-                {
-                    failure = Some(error);
+        if let Some(result) = result {
+            match result {
+                Ok(Ok((hit, size))) => {
+                    reused += usize::from(hit);
+                    completed += 1;
+                    bytes_completed = bytes_completed.saturating_add(size);
                 }
-                control.cancel();
-            }
-            Err(error) => {
-                if failure.is_none() {
-                    failure = Some(error.into());
+                Ok(Err(error)) => {
+                    if failure.is_none()
+                        || (!error.is::<crate::OperationCancelled>()
+                            && failure
+                                .as_ref()
+                                .is_some_and(|previous| previous.is::<crate::OperationCancelled>()))
+                    {
+                        failure = Some(error);
+                    }
+                    control.cancel();
                 }
-                control.cancel();
+                Err(error) => {
+                    if failure.is_none() {
+                        failure = Some(error.into());
+                    }
+                    control.cancel();
+                }
             }
         }
+        let metrics = downloader.metrics();
+        let elapsed = previous.0.elapsed();
+        if elapsed >= std::time::Duration::from_millis(200) {
+            bytes_per_second = (metrics.bytes_received.saturating_sub(previous.1) as f64
+                / elapsed.as_secs_f64()) as u64;
+            previous = (std::time::Instant::now(), metrics.bytes_received);
+        }
         on_progress(InstallProgress {
+            detail: Some(DownloadProgressDetail {
+                bytes_completed,
+                bytes_total,
+                bytes_received: metrics.bytes_received.saturating_sub(baseline),
+                bytes_per_second,
+                active_downloads: metrics.active_downloads,
+                items: metrics.items,
+            }),
             phase: phase.into(),
             completed,
             total,
@@ -591,13 +641,38 @@ mod tests {
                 .unwrap();
                 {
                     let events = events.lock().unwrap();
-                    assert_eq!(events.len(), 3);
-                    for (completed, event) in events.iter().enumerate() {
+                    let mut completions = Vec::new();
+                    for event in events.iter() {
                         assert_eq!(event.phase, "files");
-                        assert_eq!(event.completed, completed);
                         assert_eq!(event.total, 2);
-                        assert_eq!(event.reused, completed);
+                        assert_eq!(event.reused, event.completed);
+                        if completions.last() != Some(&event.completed) {
+                            completions.push(event.completed);
+                        } else {
+                            assert!(
+                                event.detail.is_some(),
+                                "heartbeat carries current transfer detail"
+                            );
+                        }
+                        if let Some(detail) = &event.detail {
+                            assert_eq!(detail.bytes_completed, event.completed as u64 * 3);
+                            assert_eq!(detail.bytes_total, 6);
+                            assert_eq!(
+                                detail.bytes_received, 0,
+                                "verified local files need no transport"
+                            );
+                            assert_eq!(detail.active_downloads, 0);
+                            assert!(detail.items.is_empty());
+                        }
                     }
+                    assert_eq!(
+                        completions,
+                        [0, 1, 2],
+                        "every file completion appears exactly once and in order"
+                    );
+                    let final_event = events.last().unwrap();
+                    assert_eq!(final_event.completed, final_event.total);
+                    assert_eq!(final_event.detail.as_ref().unwrap().bytes_completed, 6);
                 }
                 drop((downloader, content, root, index));
                 std::fs::remove_dir_all(path).unwrap();

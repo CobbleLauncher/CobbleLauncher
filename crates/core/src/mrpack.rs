@@ -199,8 +199,17 @@ fn apply_overrides<R: Read + Seek>(
     content: &ContentStore,
     final_files: &mut BTreeMap<String, VerifiedArtifact>,
 ) -> Result<(), Error> {
+    apply_pack_overrides(zip, &pack.overrides, content, final_files)
+}
+
+pub(super) fn apply_pack_overrides<R: Read + Seek>(
+    zip: &mut zip::ZipArchive<R>,
+    overrides: &[cobble_content::PackOverride],
+    content: &ContentStore,
+    final_files: &mut BTreeMap<String, VerifiedArtifact>,
+) -> Result<(), Error> {
     for layer in [0, 1] {
-        for entry in pack.overrides.iter().filter(|entry| entry.layer == layer) {
+        for entry in overrides.iter().filter(|entry| entry.layer == layer) {
             let mut file = zip.by_index(entry.entry_index)?;
             if file.unix_mode().is_some_and(|mode| {
                 let kind = mode & 0o170000;
@@ -228,6 +237,7 @@ fn apply_overrides<R: Read + Seek>(
 }
 
 pub(crate) fn ensure_pack_complete(directory: &Path) -> Result<(), Error> {
+    crate::curseforge_pack::ensure_complete(directory)?;
     let root = Dir::open_ambient_dir(directory, cap_std::ambient_authority())?;
     let mut options = OpenOptions::new();
     options.read(true).follow(FollowSymlinks::No);
@@ -332,7 +342,7 @@ fn hash_reader(input: &mut impl Read) -> Result<String, Error> {
     hash_reader_controlled(input, &crate::OperationControl::new(Arc::new(|_| {})))
 }
 
-fn hash_reader_controlled(
+pub(super) fn hash_reader_controlled(
     input: &mut impl Read,
     control: &crate::OperationControl,
 ) -> Result<String, Error> {
@@ -364,7 +374,7 @@ fn publish(
     )
 }
 
-fn publish_controlled(
+pub(super) fn publish_controlled(
     root: &Dir,
     content: &ContentStore,
     files: &BTreeMap<String, VerifiedArtifact>,
@@ -440,6 +450,7 @@ fn write_state(root: &Dir, state: &State) -> Result<(), Error> {
 
 fn progress(phase: &str, completed: usize, total: usize) -> InstallProgress {
     InstallProgress {
+        detail: None,
         phase: phase.into(),
         completed,
         total,

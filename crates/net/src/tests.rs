@@ -156,6 +156,8 @@ pub(crate) fn root() -> native_tls::Certificate {
 }
 pub(crate) fn config() -> BrokerConfig {
     BrokerConfig {
+        max_concurrent: 12,
+        per_origin: 4,
         connect_timeout: Duration::from_secs(2),
         no_progress_timeout: Duration::from_millis(500),
         total_timeout: Duration::from_secs(4),

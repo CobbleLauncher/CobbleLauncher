@@ -20,6 +20,11 @@ curl.workspace = true
 sysproxy = "=0.3.0"
 cobble-store.workspace = true
 sha2.workspace = true
+moka = { version = "=0.12.11", features = ["future"] }
+serde.workspace = true
+serde_json.workspace = true
+dirs = "=7.0.0"
+tracing = "=0.1.44"
 
 [dev-dependencies]
 cap-std.workspace = true

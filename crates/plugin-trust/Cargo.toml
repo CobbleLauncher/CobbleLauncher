@@ -1,0 +1,25 @@
+[package]
+name = "cobble-plugin-trust"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+tough = { version = "=0.24.0", default-features = false }
+aws-lc-rs = "=1.18.2"
+jiff = "=0.2.38"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+url.workspace = true
+tokio.workspace = true
+cobble-plugin-api = { path = "../plugin-api" }
+futures = "=0.3.34"
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+
+[lints]
+workspace = true

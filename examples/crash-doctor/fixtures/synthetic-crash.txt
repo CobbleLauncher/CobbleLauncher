@@ -1,0 +1,3 @@
+Synthetic redacted fixture
+java.lang.OutOfMemoryError: Java heap space
+  - Mod 'Synthetic' (synthetic) 1 requires any version of fixture, which is missing!

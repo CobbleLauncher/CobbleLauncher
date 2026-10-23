@@ -610,6 +610,7 @@ fn copy_content_controlled(
             // Re-evaluate only root names after an interrupted copy. No content digests.
             state.entries = selected_entries(&source, state.include_saves)?;
             progress(InstallProgress {
+                detail: None,
                 phase: "import-copy".into(),
                 completed: 0,
                 total: state.entries.len(),
@@ -618,6 +619,7 @@ fn copy_content_controlled(
             for (index, name) in state.entries.iter().enumerate() {
                 copy_entry(&source.join(name), &staging.join(name), false, 0, control)?;
                 progress(InstallProgress {
+                    detail: None,
                     phase: "import-copy".into(),
                     completed: index + 1,
                     total: state.entries.len(),

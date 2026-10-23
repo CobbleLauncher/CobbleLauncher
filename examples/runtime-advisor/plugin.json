@@ -1,0 +1,52 @@
+{
+  "id": "runtime-advisor",
+  "name": "Runtime Advisor",
+  "version": "0.1.0",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "report"
+  ],
+  "file_extensions": [],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Review Java and memory settings",
+    "zh-CN": "检查 Java 与内存设置"
+  },
+  "tags": [
+    "runtime",
+    "java"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:report",
+        "version": "0.2.0"
+      },
+      {
+        "id": "launcher:web-frontend",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "permissions": [
+    {
+      "permission": "launcher:game-inspection/read",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "permission": "launcher:ui/webview"
+    }
+  ],
+  "frontend": {
+    "api_version": "0.1.0",
+    "entry": "ui/index.html",
+    "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "icon": {
+    "file": "icon.png",
+    "sha256": "718d736d678bd34cbc94211f5d3fc305c80f8a94b43fdb90524727f8e4e77966"
+  }
+}

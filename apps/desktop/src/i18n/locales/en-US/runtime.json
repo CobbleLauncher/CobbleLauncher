@@ -1,0 +1,22 @@
+{
+  "advanced": "Advanced launch settings",
+  "window": "Game window",
+  "inherit": "Use defaults",
+  "custom": "Customize",
+  "width": "Window width",
+  "height": "Window height",
+  "gameDefault": "Game default",
+  "afterLaunch": "After game starts",
+  "keep": "Keep launcher open",
+  "minimize": "Minimize launcher",
+  "extraJvm": "Extra JVM arguments",
+  "jvm": "JVM arguments",
+  "jvmHelp": "One argument per line. Adjust maximum memory in memory settings.",
+  "loadError": "Could not read launch settings. Try again.",
+  "dimensionsError": "Width must be an integer from 320 to 16384; height from 240 to 16384.",
+  "saveError": "Could not save launch settings: {error}",
+  "saved": "Launch settings saved",
+  "retry": "Reload settings",
+  "save": "Save launch settings",
+  "saving": "Saving…"
+}

@@ -1,0 +1,24 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Config Doctor</title></head>
+<body>
+<main>
+  <header class="page-header"><label class="game-choice"><span id="game-label"></span><select id="game" disabled></select></label></header>
+  <p id="error" class="error" role="alert" hidden></p>
+  <nav class="tool-tabs" aria-label="Tools"><button id="configs-tab" type="button" aria-pressed="true">Configs</button><button id="bindings-tab" type="button" aria-pressed="false">Keybindings</button></nav>
+  <section id="bindings-panel" hidden></section>
+  <section id="configs-panel">
+  <div class="toolbar"><div class="selection"><label><input id="select-all" type="checkbox" disabled><span id="select-label"></span></label><span id="count" class="muted"></span></div><div class="actions"><button id="refresh" type="button" disabled></button><button id="check" class="primary" type="button" disabled></button><button id="cancel" type="button" hidden></button></div></div>
+  <div class="layout">
+    <aside class="inventory"><input id="search" type="search" disabled><p id="list-status" role="status"></p><ul id="files"></ul></aside>
+    <section class="workspace">
+      <section class="preview"><div class="pane-heading"><h2 id="preview-title"></h2><span id="preview-size" class="muted"></span></div><p id="preview-status" role="status"></p><pre id="source" tabindex="0" hidden></pre><p id="preview-note" class="muted" hidden></p></section>
+      <section class="results"><div class="pane-heading"><h2 id="results-title"></h2><select id="severity" hidden></select></div><p id="result-status" role="status"></p><div id="report"></div></section>
+    </section>
+  </div>
+  </section>
+</main>
+<script type="module" src="./src/main.ts"></script>
+</body>
+</html>

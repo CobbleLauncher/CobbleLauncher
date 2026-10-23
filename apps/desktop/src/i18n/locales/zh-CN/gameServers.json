@@ -1,0 +1,15 @@
+{
+  "title": "服务器",
+  "refresh": "刷新",
+  "search": "搜索服务器",
+  "loading": "正在读取服务器",
+  "running": "游戏正在运行，可复制地址后在 Minecraft 中连接。",
+  "unsupported": "直接加入支持 Minecraft 1.20–1.21 正式版，此版本可复制地址后连接。",
+  "copyError": "无法复制服务器地址。",
+  "copyNamed": "复制 {name} 的地址",
+  "copy": "复制地址",
+  "copied": "已复制",
+  "join": "加入",
+  "noMatches": "没有匹配的服务器。",
+  "empty": "暂无已保存的服务器。在 Minecraft 多人游戏中添加后会显示在这里。"
+}

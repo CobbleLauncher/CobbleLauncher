@@ -76,9 +76,10 @@ pub struct BrokerConfig {
 }
 impl Default for BrokerConfig {
     fn default() -> Self {
+        let tuning = crate::download_tuning();
         Self {
-            max_concurrent: 12,
-            per_origin: 4,
+            max_concurrent: tuning.max_concurrent,
+            per_origin: tuning.per_origin,
             max_redirects: 5,
             connect_timeout: Duration::from_secs(5),
             no_progress_timeout: Duration::from_secs(10),
@@ -104,6 +105,7 @@ impl BrokerConfig {
     }
 }
 /// No Debug: opaque response validators may contain server-controlled secrets.
+#[derive(Clone)]
 pub struct ResponseMetadata {
     pub status: u16,
     pub body_bytes: u64,
@@ -115,9 +117,14 @@ pub struct ResponseMetadata {
     pub last_modified: Option<String>,
     pub content_range: Option<String>,
 }
+#[derive(Clone)]
 pub struct BufferedResponse {
     pub metadata: ResponseMetadata,
     pub body: Vec<u8>,
+}
+pub(crate) struct Revalidation {
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
 }
 struct Inner {
     config: BrokerConfig,
@@ -247,10 +254,29 @@ impl Broker {
         let endpoint = Endpoint::parse(url)?;
         timeout(
             self.inner.config.total_timeout,
-            self.get_inner(endpoint, credential, max_bytes, output),
+            self.get_inner(endpoint, credential, max_bytes, output, None),
         )
         .await
         .map_err(|_| NetError::Timeout(TimeoutPhase::Total))?
+    }
+    pub(crate) async fn get_revalidated(
+        &self,
+        url: &str,
+        max_bytes: u64,
+        validators: Revalidation,
+    ) -> Result<BufferedResponse, NetError> {
+        if max_bytes > HARD_BUFFER_BYTES {
+            return Err(NetError::BodyLimit);
+        }
+        let endpoint = Endpoint::parse(url)?;
+        let mut body = Vec::new();
+        let metadata = timeout(
+            self.inner.config.total_timeout,
+            self.get_inner(endpoint, None, max_bytes, &mut body, Some(&validators)),
+        )
+        .await
+        .map_err(|_| NetError::Timeout(TimeoutPhase::Total))??;
+        Ok(BufferedResponse { metadata, body })
     }
     async fn get_inner<W: AsyncWrite + Unpin>(
         &self,
@@ -258,6 +284,7 @@ impl Broker {
         credential: Option<CredentialId>,
         max_bytes: u64,
         output: &mut W,
+        validators: Option<&Revalidation>,
     ) -> Result<ResponseMetadata, NetError> {
         let _request = self
             .inner
@@ -269,7 +296,11 @@ impl Broker {
         let mut stripped = false;
         for hop in 0..=self.inner.config.max_redirects {
             let (mut response, connection) = self
-                .send(&endpoint, credential.as_ref().filter(|_| !stripped))
+                .send(
+                    &endpoint,
+                    credential.as_ref().filter(|_| !stripped),
+                    validators.filter(|_| !stripped),
+                )
                 .await?;
             check_headers(response.headers())?;
             let status = response.status();
@@ -328,6 +359,7 @@ impl Broker {
         &self,
         endpoint: &Endpoint,
         credential: Option<&CredentialId>,
+        validators: Option<&Revalidation>,
     ) -> Result<(hyper::Response<Incoming>, ConnectionGuard), NetError> {
         let addresses = self.resolve(endpoint).await?;
         let origin = self.origin_semaphore(endpoint.origin())?;
@@ -381,6 +413,19 @@ impl Broker {
             .header(CONNECTION, "close")
             .body(Empty::<Bytes>::new())
             .map_err(|_| NetError::Protocol)?;
+        if let Some(validators) = validators {
+            for (name, value) in [
+                ("if-none-match", validators.etag.as_ref()),
+                ("if-modified-since", validators.last_modified.as_ref()),
+            ] {
+                if let Some(value) = value {
+                    request.headers_mut().insert(
+                        http::header::HeaderName::from_static(name),
+                        http::HeaderValue::from_str(value).map_err(|_| NetError::Protocol)?,
+                    );
+                }
+            }
+        }
         if let Some(id) = credential {
             let entries = self
                 .inner

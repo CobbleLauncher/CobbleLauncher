@@ -80,7 +80,7 @@ async function addProfile(page: Page) {
 }
 async function beginMicrosoft(page: Page) {
   await page.getByRole('button', { name: 'Microsoft 登录', exact: true }).click();
-  await expect(page.getByLabel('登录代码')).toHaveText(flow.user_code);
+  await expect(page.getByLabel('复制登录代码')).toHaveText(flow.user_code);
 }
 
 test('Microsoft sign-in begins only after choice, opens the device page, and uses the returned library on completion', async ({ page }, testInfo) => {
@@ -94,6 +94,10 @@ test('Microsoft sign-in begins only after choice, opens the device page, and use
   expect((await calls(page, 'begin_microsoft_login'))[0].args).toEqual({});
   await expect.poll(async () => (await calls(page, 'open_microsoft_login')).length).toBe(1);
   expect((await calls(page, 'open_microsoft_login'))[0].args).toEqual({ flowId: flow.flow_id });
+  expect((await calls(page, 'plugin:clipboard-manager|write_text'))[0].args).toEqual({ text: flow.user_code });
+  await expect(page.getByRole('status').filter({ hasText: '已复制' })).toBeVisible();
+  await page.getByLabel('复制登录代码').click();
+  expect(await calls(page, 'plugin:clipboard-manager|write_text')).toHaveLength(2);
   await expect.poll(async () => (await calls(page, 'poll_microsoft_login')).length).toBeGreaterThan(0);
   expect((await calls(page, 'poll_microsoft_login'))[0].args).toEqual({ flowId: flow.flow_id });
   await expect(page.getByText('等待浏览器授权…')).toBeVisible();
@@ -150,7 +154,7 @@ test('a failed begin can retry without losing the offline option', async ({ page
   await expect(page.getByRole('button', { name: '离线档案', exact: true })).toBeVisible();
   await page.evaluate(() => { (window as unknown as Mock).__failCommand = ''; });
   await page.getByRole('button', { name: '重试登录', exact: true }).click();
-  await expect(page.getByLabel('登录代码')).toHaveText(flow.user_code);
+  await expect(page.getByLabel('复制登录代码')).toHaveText(flow.user_code);
   expect(await calls(page, 'begin_microsoft_login')).toHaveLength(2);
 });
 

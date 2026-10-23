@@ -110,7 +110,7 @@ async function searchFor(page: Page, query = 'map') {
 test('discovery prefers a stable default and previews the explicitly selected beta with its dependencies', async ({ page }, testInfo) => {
   await setup(page);
   await searchFor(page);
-  await expect(page.getByLabel('Mod 版本')).toHaveValue(stable.version_id);
+  await expect(page.getByLabel('Mod 版本')).toHaveValue(new RegExp(stable.version_number));
   expect((await calls(page, 'list_game_mod_versions'))[0].args).toEqual({ id: game.id, projectId: hit.project_id });
   await expect(page.getByText(`${hit.title} 的必需依赖`)).toBeVisible();
   expect((await calls(page, 'preview_game_mod_install'))[0].args).toEqual({ id: game.id, projectId: hit.project_id, versionId: stable.version_id });
@@ -120,7 +120,8 @@ test('discovery prefers a stable default and previews the explicitly selected be
   await page.screenshot({ path: testInfo.outputPath('mod-versions-light-560.png'), fullPage: true, animations: 'disabled' });
   await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
   await page.screenshot({ path: testInfo.outputPath('mod-versions-dark-560.png'), fullPage: true, animations: 'disabled' });
-  await page.getByLabel('Mod 版本').selectOption(beta.version_id);
+  await page.getByLabel('Mod 版本').fill(beta.version_number);
+  await page.getByRole('option').filter({ hasText: beta.version_number }).click();
   await expect(page.getByText(`${hit.title} 的必需依赖`)).toBeVisible();
   expect((await calls(page, 'preview_game_mod_install')).at(-1)?.args).toEqual({ id: game.id, projectId: hit.project_id, versionId: beta.version_id });
   await expect(page.getByRole('list', { name: '安装内容' })).toContainText('Fabric API');
@@ -133,7 +134,8 @@ test('changelog is fetched on request, escaped as text, and empty and failed det
   expect(await calls(page, 'get_game_mod_version_details')).toHaveLength(0);
   await page.getByRole('button', { name: '查看更新日志', exact: true }).click();
   await expect(page.getByRole('region', { name: '更新日志' })).toContainText('此版本没有提供更新日志。');
-  await page.getByLabel('Mod 版本').selectOption(beta.version_id);
+  await page.getByLabel('Mod 版本').fill(beta.version_number);
+  await page.getByRole('option').filter({ hasText: beta.version_number }).click();
   await page.getByRole('button', { name: '查看更新日志', exact: true }).click();
   await expect(page.getByRole('region', { name: '更新日志' })).toContainText('<img src=x onerror=alert(1)>');
   await expect(page.locator('[role="tabpanel"] img')).toHaveCount(0);
@@ -147,8 +149,10 @@ test('changelog is fetched on request, escaped as text, and empty and failed det
     { id: game.id, projectId: hit.project_id, versionId: stable.version_id },
     { id: game.id, projectId: hit.project_id, versionId: beta.version_id },
   ]);
-  await page.getByLabel('Mod 版本').selectOption(stable.version_id);
-  await page.getByLabel('Mod 版本').selectOption(beta.version_id);
+  await page.getByLabel('Mod 版本').fill(stable.version_number);
+  await page.getByRole('option').filter({ hasText: stable.version_number }).click();
+  await page.getByLabel('Mod 版本').fill(beta.version_number);
+  await page.getByRole('option').filter({ hasText: beta.version_number }).click();
   await page.evaluate(() => { (window as unknown as Mock).__fail = 'get_game_mod_version_details'; });
   await page.getByRole('button', { name: '查看更新日志', exact: true }).click();
   await expect(page.getByRole('alert')).toBeVisible();
@@ -170,7 +174,7 @@ test('unsupported projects show no compatible versions and version lookup can re
   await expect(page.getByRole('alert')).toContainText('无法读取 Mod 版本');
   await page.evaluate(() => { (window as unknown as Mock).__fail = ''; });
   await page.getByRole('button', { name: '重试读取版本', exact: true }).click();
-  await expect(page.getByLabel('Mod 版本')).toHaveValue(stable.version_id);
+  await expect(page.getByLabel('Mod 版本')).toHaveValue(new RegExp(stable.version_number));
 });
 
 test('late version lookup cannot replace the newest selected project', async ({ page }) => {
@@ -183,7 +187,7 @@ test('late version lookup cannot replace the newest selected project', async ({ 
   await page.getByRole('searchbox', { name: '搜索 Modrinth' }).fill('fast');
   await page.getByRole('button', { name: '搜索', exact: true }).click();
   await page.getByRole('button', { name: '查看 Fast Mod', exact: true }).click();
-  await expect(page.getByLabel('Mod 版本')).toHaveValue(stable.version_id);
+  await expect(page.getByLabel('Mod 版本')).toHaveValue(new RegExp(stable.version_number));
   await page.waitForTimeout(400);
   expect((await calls(page, 'list_game_mod_versions')).map((call) => call.args.projectId)).toEqual(['slow-project', hit.project_id]);
   await expect(page.getByRole('heading', { name: 'Fast Mod', exact: true })).toBeVisible();
@@ -200,8 +204,9 @@ test('version management loads only on demand and previews an older version with
   expect((await calls(page, 'list_managed_game_mods'))[0].args).toEqual({ id: game.id });
   await expect(page.getByRole('list', { name: '可管理版本的 Mod' })).toContainText('已停用');
   await page.getByRole('button', { name: '管理版本 Forest Map', exact: true }).click();
-  await expect(page.getByLabel('Mod 版本')).toHaveValue(stable.version_id);
-  await page.getByLabel('Mod 版本').selectOption(older.version_id);
+  await expect(page.getByLabel('Mod 版本')).toHaveValue(new RegExp(stable.version_number));
+  await page.getByLabel('Mod 版本').fill(older.version_number);
+  await page.getByRole('option').filter({ hasText: older.version_number }).click();
   await page.getByRole('button', { name: '预览版本变更', exact: true }).click();
   await expect(page.getByRole('heading', { name: /^更换版本/ })).toBeVisible();
   expect((await calls(page, 'preview_game_mod_version_changes')).at(-1)?.args).toEqual({ id: game.id, selections: [{ project_id: hit.project_id, version_id: older.version_id }] });
@@ -224,6 +229,6 @@ test('the update row can open version and changelog management for its preferred
   await page.getByRole('tab', { name: '更新', exact: true }).click();
   await page.getByRole('button', { name: '检查更新', exact: true }).click();
   await page.getByRole('button', { name: `版本与日志 ${hit.title}`, exact: true }).click();
-  await expect(page.getByLabel('Mod 版本')).toHaveValue(beta.version_id);
+  await expect(page.getByLabel('Mod 版本')).toHaveValue(new RegExp(beta.version_number));
   expect((await calls(page, 'list_managed_game_mods')).at(-1)?.args).toEqual({ id: game.id });
 });

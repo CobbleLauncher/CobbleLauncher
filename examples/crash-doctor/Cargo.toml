@@ -1,0 +1,16 @@
+[package]
+name = "cobble-crash-doctor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cobble-diagnostics = { path = "../../crates/diagnostics" }
+wit-bindgen = "=0.63.0"
+
+

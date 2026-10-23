@@ -1,0 +1,21 @@
+{
+  "details": "Details",
+  "loading": "Loading extension…",
+  "loadFailed": "Could not load extension details.",
+  "actionFailed": "Could not complete this action.",
+  "combinations": "Works with",
+  "optional": "Optional",
+  "required": "Required",
+  "viewer": "Blueprint previews",
+  "report": "File reports",
+  "provider": "Online blueprints",
+  "available": "Available",
+  "inactive": "Inactive",
+  "selection_required": "Choose an extension to use.",
+  "optional_missing": "Optional extensions are not enabled.",
+  "required_missing": "Enable a compatible extension to use this feature.",
+  "unsupported": "This interface is unavailable in this version.",
+  "reviewInstall": "Review installation",
+  "manifest": "Manifest",
+  "moreCandidates": "View more in Sources"
+}

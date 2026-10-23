@@ -1,0 +1,53 @@
+{
+  "id": "screenshot-timeline",
+  "name": "Screenshot Timeline",
+  "version": "0.1.0",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "report"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:report",
+        "version": "0.2.0"
+      },
+      {
+        "id": "launcher:web-frontend",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "file_extensions": [],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Group screenshots by date",
+    "zh-CN": "按日期整理截图清单"
+  },
+  "tags": [
+    "screenshots",
+    "timeline",
+    "report"
+  ],
+  "permissions": [
+    {
+      "permission": "launcher:ui/webview"
+    },
+    {
+      "permission": "launcher:game-inspection/read",
+      "scopes": [
+        "screenshots"
+      ]
+    }
+  ],
+  "frontend": {
+    "api_version": "0.1.0",
+    "entry": "ui/index.html",
+    "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "icon": {
+    "file": "icon.png",
+    "sha256": "dafcf0ec7428d5b2eb38e8cdf1925a51f8d42d99ad3dc9650a32f683e969ca75"
+  }
+}

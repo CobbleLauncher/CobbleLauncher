@@ -1,0 +1,11 @@
+{
+  "title": "Tools",
+  "search": "Search tools",
+  "clearSearch": "Clear search",
+  "noResults": "No tools found.",
+  "back": "All tools",
+  "tags": "Tags",
+  "blueprintsName": "Blueprint library",
+  "blueprintsDescription": "Browse, preview, and import schematics.",
+  "blueprintsTags": "Blueprints|Schematics"
+}

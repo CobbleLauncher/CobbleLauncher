@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: MIT
+package launcher:message-composer@0.1.0;
+interface composer {
+  record failure { code: string, message: string }
+  record public-identity { id: string, display-name: option<string> }
+  enum peer-source { contact, discovery, session }
+  record selected-peer { identity: public-identity, source: peer-source }
+  record selected-session { game-name: string, game-version: string, loader: option<string> }
+  record context {
+    locale: string,
+    public-self: option<public-identity>,
+    selected-peer: option<selected-peer>,
+    selected-session: option<selected-session>,
+  }
+  record request { context: context, note: string }
+  record draft { text: string }
+  // Pure draft generation only. Host retains recipient and requires explicit Send.
+  compose: func(request: request) -> result<draft, failure>;
+}
+world message-composer { export composer; }

@@ -12,12 +12,16 @@ use serde::{Deserialize, Serialize};
 
 mod microsoft;
 mod protocol;
+mod skins;
 mod vault;
 pub use microsoft::{
     DeviceLogin, LaunchIdentity, LoginPoll, begin_microsoft_login, cancel_microsoft_login,
     launch_identity, microsoft_login_url, poll_microsoft_login,
 };
 pub use protocol::AuthError;
+pub use skins::{
+    ProfileAppearance, SkinPreview, get_profile_appearance, preview_skin, save_profile_skin,
+};
 
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -130,11 +134,19 @@ pub fn update_profile_note(id: &str, note: Option<&str>) -> Result<ProfileLibrar
 
 pub fn remove_player_profile(id: &str) -> Result<ProfileLibrary, BoxError> {
     with_library(|directory, mut library| {
+        let removed_uuid = find_profile(&library, id)?.uuid.clone();
         if find_profile(&library, id)?.kind == "microsoft" {
             microsoft::revoke(id)?;
         }
         remove_from_library(&mut library, id)?;
         save_library_at(directory, &library)?;
+        if !library
+            .profiles
+            .iter()
+            .any(|profile| profile.uuid == removed_uuid)
+        {
+            skins::clear_local(&removed_uuid);
+        }
         Ok(library)
     })
 }

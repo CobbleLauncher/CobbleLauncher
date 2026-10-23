@@ -99,16 +99,24 @@ test('download source selection persists and custom mirrors are validated', asyn
   await page.getByRole('button', { name: '打开设置' }).click();
   await page.getByRole('tab', { name: '下载与目录', exact: true }).click();
   await expect(page.getByRole('radio', { name: 'BMCLAPI', exact: true })).toHaveAttribute('aria-checked', 'true');
-  await page.getByRole('radio', { name: '自定义镜像', exact: true }).click();
+  await expect(page.getByRole('radio', { name: '自定义镜像', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '添加镜像', exact: true }).click();
   await page.getByLabel('镜像地址', { exact: true }).fill('http://mirror.example.invalid/');
-  await page.getByRole('button', { name: '保存并返回' }).click();
+  await page.getByRole('button', { name: '保存镜像', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('HTTPS');
   await page.getByLabel('镜像地址', { exact: true }).fill('https://mirror.example.invalid/minecraft/');
+  await page.getByRole('button', { name: '保存镜像', exact: true }).click();
+  await page.getByRole('button', { name: '打开设置' }).click();
+  await page.getByRole('tab', { name: '下载与目录', exact: true }).click();
+  await expect(page.getByRole('radio', { name: 'BMCLAPI', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('radio', { name: 'mirror.example.invalid', exact: true }).click();
   await page.getByRole('button', { name: '保存并返回' }).click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await page.reload();
   await page.getByRole('button', { name: '打开设置' }).click();
   await page.getByRole('tab', { name: '下载与目录', exact: true }).click();
+  await expect(page.getByRole('radio', { name: 'mirror.example.invalid', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('button', { name: '编辑镜像', exact: true }).click();
   await expect(page.getByLabel('镜像地址', { exact: true })).toHaveValue('https://mirror.example.invalid/minecraft/');
   await page.getByRole('tab', { name: '外观', exact: true }).click();
   for (const theme of ['浅色', '深色']) {
@@ -131,4 +139,30 @@ test('returning from settings discards unsaved download source', async ({ page }
   await page.getByRole('button', { name: '打开设置' }).click();
   await page.getByRole('tab', { name: '下载与目录', exact: true }).click();
   await expect(page.getByRole('radio', { name: '自动（推荐）', exact: true })).toHaveAttribute('aria-checked', 'true');
+});
+
+
+test('language changes persist and market features switch without external requests', async ({ page }) => {
+  const remoteRequests: string[] = [];
+  page.on('request', request => { if (new URL(request.url()).hostname !== '127.0.0.1') remoteRequests.push(request.url()); });
+  await page.goto('/');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
+  await page.getByRole('button', { name: '打开设置', exact: true }).click();
+  await page.getByLabel('语言', { exact: true }).selectOption('en-US');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en-US');
+  await expect(page.getByLabel('Language', { exact: true })).toHaveValue('en-US');
+  await page.getByRole('button', { name: '返回游戏库', exact: true }).click();
+  await page.getByRole('button', { name: '市场', exact: true }).click();
+  await expect(page.getByRole('tab', { name: 'Modpacks', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Mods', exact: true }).click();
+  await expect(page.getByText('Create a game with a mod loader first.', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Resource packs', exact: true }).click();
+  await expect(page.getByText('Create or import a game first.', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en-US');
+  await page.getByRole('button', { name: '打开设置', exact: true }).click();
+  await page.getByLabel('Language', { exact: true }).selectOption('zh-CN');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
+  await expect(page.getByLabel('语言', { exact: true })).toHaveValue('zh-CN');
+  expect(remoteRequests).toEqual([]);
 });

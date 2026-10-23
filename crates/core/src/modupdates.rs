@@ -2,10 +2,13 @@
 //! Explicit updates of locally recorded Modrinth Mods. The caller holds the
 //! stopped-instance write guard during apply. One pending marker and backups
 //! recover interrupted replacement; this is not an atomic multi-file transaction.
+#[cfg(test)]
+use crate::modrinth::write_provenance;
 use crate::{
     InstallProgress,
     modrinth::{
-        ManagedMod, ModDownloads, Provenance, read_provenance, validate_plan, write_provenance,
+        ManagedMod, ModDownloads, ModProvider, Provenance, read_provenance,
+        read_provider_provenance, validate_provider_plan, write_provider_provenance,
     },
 };
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
@@ -26,6 +29,11 @@ use std::{
 };
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
+pub(crate) mod history;
+pub use history::{
+    ModOperationFile, ModOperationHistory, list_mod_operation_history, preview_mod_operation_undo,
+    undo_mod_operation,
+};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ModUpdateCandidate {
@@ -58,6 +66,8 @@ pub struct ModUpdateChange {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModUpdatePlan {
+    #[serde(default)]
+    provider: ModProvider,
     pub changes: Vec<ModUpdateChange>,
     directory: PathBuf,
     provenance: Provenance,
@@ -217,6 +227,7 @@ pub async fn prepare_modrinth_version_changes(
     let present = present_mods(&root, &provenance)?;
     if !validate_selections(&present, selections)? {
         return Ok(ModUpdatePlan {
+            provider: ModProvider::Modrinth,
             changes: Vec::new(),
             directory: dunce::canonicalize(directory)?,
             provenance,
@@ -337,7 +348,63 @@ fn build_plan(
     graph: ModrinthPlan,
     labels: &BTreeMap<String, String>,
 ) -> Result<ModUpdatePlan, Error> {
-    validate_plan(&graph)?;
+    build_provider_plan(
+        directory,
+        provenance,
+        present,
+        graph,
+        labels,
+        ModProvider::Modrinth,
+    )
+}
+pub fn prepare_curseforge_update(
+    directory: &Path,
+    plan: &cobble_content::curseforge::InstallPlan,
+) -> Result<ModUpdatePlan, Error> {
+    crate::curseforge::check_curseforge_incompatibilities(directory, plan)?;
+    let root = open_root(directory)?;
+    let provenance = read_provider_provenance(&root, ModProvider::CurseForge)?;
+    let present = present_mods(&root, &provenance)?;
+    if !present.contains_key(&plan.graph.project_id) {
+        return Err("Only present managed CurseForge Mods can be updated".into());
+    }
+    let labels = present
+        .iter()
+        .map(|(id, item)| (id.clone(), item.recorded.version_id.clone()))
+        .collect();
+    build_provider_plan(
+        directory,
+        provenance,
+        present,
+        plan.graph.clone(),
+        &labels,
+        ModProvider::CurseForge,
+    )
+}
+pub fn list_managed_curseforge_mods(directory: &Path) -> Result<Vec<ManagedModSummary>, Error> {
+    let root = open_root(directory)?;
+    Ok(present_mods(
+        &root,
+        &read_provider_provenance(&root, ModProvider::CurseForge)?,
+    )?
+    .into_iter()
+    .map(|(project_id, item)| ManagedModSummary {
+        project_id,
+        version_id: item.recorded.version_id,
+        filename: item.recorded.filename,
+        enabled: item.enabled,
+    })
+    .collect())
+}
+fn build_provider_plan(
+    directory: &Path,
+    provenance: Provenance,
+    present: BTreeMap<String, PresentMod>,
+    graph: ModrinthPlan,
+    labels: &BTreeMap<String, String>,
+    provider: ModProvider,
+) -> Result<ModUpdatePlan, Error> {
+    validate_provider_plan(&graph, provider)?;
     let any_enabled_root = graph
         .mods
         .iter()
@@ -375,6 +442,7 @@ fn build_plan(
         });
     }
     let plan = ModUpdatePlan {
+        provider,
         changes,
         directory: dunce::canonicalize(directory)?,
         provenance,
@@ -412,7 +480,8 @@ fn verify_old(mods: &Dir, old: &PresentMod) -> Result<(), Error> {
 }
 
 fn preflight(root: &Dir, plan: &ModUpdatePlan) -> Result<(), Error> {
-    if read_provenance(root)? != plan.provenance {
+    crate::modrinth::check_provider_ownership(root, &plan.graph, plan.provider)?;
+    if read_provider_provenance(root, plan.provider)? != plan.provenance {
         return Err("Managed Mods changed since preview; check updates again".into());
     }
     let present = present_mods(root, &plan.provenance)?;
@@ -468,6 +537,28 @@ pub async fn apply_modrinth_updates_controlled(
     plan: &ModUpdatePlan,
     control: crate::OperationControl,
 ) -> Result<ModUpdateOutcome, Error> {
+    if plan.provider != ModProvider::Modrinth {
+        return Err("incorrect update provider".into());
+    }
+    apply_provider_updates_controlled(directory, plan, control, None).await
+}
+pub async fn apply_curseforge_updates_controlled(
+    directory: &Path,
+    plan: &ModUpdatePlan,
+    key: String,
+    control: crate::OperationControl,
+) -> Result<ModUpdateOutcome, Error> {
+    if plan.provider != ModProvider::CurseForge {
+        return Err("incorrect update provider".into());
+    }
+    apply_provider_updates_controlled(directory, plan, control, Some(key)).await
+}
+async fn apply_provider_updates_controlled(
+    directory: &Path,
+    plan: &ModUpdatePlan,
+    control: crate::OperationControl,
+    key: Option<String>,
+) -> Result<ModUpdateOutcome, Error> {
     control.check_cancelled()?;
     let on_progress = control.progress();
 
@@ -476,12 +567,15 @@ pub async fn apply_modrinth_updates_controlled(
     }
     recover_modrinth_update(directory)?;
     let root = open_root(directory)?;
-    if read_provenance(&root)? != plan.provenance && already_applied(&root, plan)? {
+    if read_provider_provenance(&root, plan.provider)? != plan.provenance
+        && already_applied(&root, plan)?
+    {
         return Ok(requested_outcome(plan));
     }
     preflight(&root, plan)?;
     if plan.changes.is_empty() {
         on_progress(InstallProgress {
+            detail: None,
             phase: "complete".into(),
             completed: 0,
             total: 0,
@@ -492,7 +586,7 @@ pub async fn apply_modrinth_updates_controlled(
             added: 0,
         });
     }
-    let downloads = ModDownloads::open()?;
+    let downloads = ModDownloads::open_for(plan.provider, key)?;
     let mut artifacts = Vec::new();
     for (index, change) in plan.changes.iter().enumerate() {
         control.check_cancelled()?;
@@ -503,6 +597,7 @@ pub async fn apply_modrinth_updates_controlled(
                 .await?,
         );
         on_progress(InstallProgress {
+            detail: None,
             phase: "mod-download".into(),
             completed: index + 1,
             total: plan.changes.len(),
@@ -513,6 +608,7 @@ pub async fn apply_modrinth_updates_controlled(
     preflight(&root, plan)?;
     let change_count = plan.changes.len();
     on_progress(InstallProgress {
+        detail: None,
         phase: "mod-install".into(),
         completed: 0,
         total: change_count,
@@ -537,6 +633,7 @@ pub async fn apply_modrinth_updates_controlled(
                     &SafeRelativePath::parse(&change.filename)?,
                 )?;
                 stage_progress(InstallProgress {
+                    detail: None,
                     phase: "mod-install".into(),
                     completed: index + 1,
                     total: change_count,
@@ -550,6 +647,7 @@ pub async fn apply_modrinth_updates_controlled(
     })
     .await??;
     on_progress(InstallProgress {
+        detail: None,
         phase: "complete".into(),
         completed: change_count,
         total: change_count,
@@ -574,7 +672,7 @@ fn requested_outcome(plan: &ModUpdatePlan) -> ModUpdateOutcome {
 }
 
 fn already_applied(root: &Dir, plan: &ModUpdatePlan) -> Result<bool, Error> {
-    let provenance = read_provenance(root)?;
+    let provenance = read_provider_provenance(root, plan.provider)?;
     for item in &plan.graph.mods {
         let Some(current) = provenance.get(&item.project_id) else {
             return Ok(false);
@@ -664,6 +762,7 @@ fn publish_updates_inner(
         control.check_cancelled()?;
     }
     let pending = PendingUpdate {
+        provider: plan.provider,
         backup_id: id.clone(),
         changes: plan
             .changes
@@ -715,7 +814,8 @@ fn publish_updates_inner(
                 },
             );
         }
-        write_provenance(root, &provenance)?;
+        write_provider_provenance(root, &provenance, plan.provider)?;
+        history::record_update(&backup, &id, plan)?;
         Ok(ModUpdateOutcome {
             updated: plan
                 .changes
@@ -737,7 +837,7 @@ fn publish_updates_inner(
             for filename in moved.iter().rev() {
                 old_files.rename(filename, &mods, filename)?;
             }
-            write_provenance(root, &plan.provenance)?;
+            write_provider_provenance(root, &plan.provenance, plan.provider)?;
             Ok(())
         })();
         return match rollback { Ok(()) => { root.remove_file(PENDING)?; Err(error) }, Err(restore) => Err(format!("Update failed: {error}; rollback incomplete: {restore}. Recover from .cobble-mod-backups/{id}").into()) };
@@ -749,6 +849,12 @@ fn publish_updates_inner(
 const PENDING: &str = ".cobble-mod-update.json";
 
 pub(crate) fn ensure_update_complete(directory: &Path) -> Result<(), Error> {
+    if list_mod_operation_history(directory)?
+        .iter()
+        .any(|record| record.status == "undoing")
+    {
+        return Err("Mod undo is incomplete; recover retained files from .cobble-mod-backups before continuing".into());
+    }
     match std::fs::symlink_metadata(directory.join(PENDING)) {
         Ok(_) => Err("Mod 更新尚未恢复，请先重试任务或恢复更新".into()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -764,6 +870,8 @@ struct PendingChange {
 }
 #[derive(Serialize, Deserialize)]
 struct PendingUpdate {
+    #[serde(default)]
+    provider: ModProvider,
     backup_id: String,
     changes: Vec<PendingChange>,
 }
@@ -873,7 +981,8 @@ pub fn recover_modrinth_update(directory: &Path) -> Result<bool, Error> {
             .open_with("provenance.json", &options)?
             .take(4 * 1024 * 1024),
     )?;
-    write_provenance(&root, &provenance)?;
+    write_provider_provenance(&root, &provenance, pending.provider)?;
+    history::mark_recovered(&backup)?;
     root.remove_file(PENDING)?;
     Ok(true)
 }
@@ -978,6 +1087,250 @@ mod tests {
             },
         )?;
         Ok(())
+    }
+
+    #[test]
+    fn history_undo_restores_disabled_root_and_removes_only_added_dependency() {
+        let fixture = Fixture::new();
+        let plan = fixture_plan(&fixture, true);
+        publish_updates(&fixture.root(), &plan, stage).unwrap();
+        let history = list_mod_operation_history(&fixture.0).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].files.len(), 2);
+        undo_mod_operation(&fixture.0, &history[0].operation_id).unwrap();
+        let root = fixture.root();
+        assert_eq!(root.read("mods/root-old.jar.disabled").unwrap(), b"old-one");
+        assert!(!root.exists("mods/root-new.jar.disabled"));
+        assert!(!root.exists("mods/dep.jar.disabled"));
+        assert_eq!(root.read("mods/unmanaged.jar").unwrap(), b"leave-me");
+        assert_eq!(read_provenance(&root).unwrap(), plan.provenance);
+        assert_eq!(
+            list_mod_operation_history(&fixture.0).unwrap()[0].status,
+            "undone"
+        );
+    }
+
+    #[test]
+    fn history_undo_keeps_unchanged_managed_dependency() {
+        let fixture = Fixture::new();
+        let original = fixture_plan(&fixture, true);
+        let root = fixture.root();
+        root.write("mods/dep.jar.disabled", b"new-dep").unwrap();
+        let mut provenance = original.provenance.clone();
+        provenance.insert(
+            "Dep".into(),
+            ManagedMod {
+                version_id: "Dep-new".into(),
+                filename: "dep.jar".into(),
+                sha1: format!("{:x}", Sha1::digest(b"new-dep")),
+            },
+        );
+        write_provenance(&root, &provenance).unwrap();
+        let plan = build_plan(
+            &fixture.0,
+            provenance.clone(),
+            present_mods(&root, &provenance).unwrap(),
+            original.graph,
+            &BTreeMap::from([("Root".into(), "1.0".into())]),
+        )
+        .unwrap();
+        assert_eq!(plan.changes.len(), 1);
+        publish_updates(&root, &plan, stage).unwrap();
+        let id = list_mod_operation_history(&fixture.0).unwrap()[0]
+            .operation_id
+            .clone();
+        undo_mod_operation(&fixture.0, &id).unwrap();
+        assert_eq!(root.read("mods/dep.jar.disabled").unwrap(), b"new-dep");
+        assert_eq!(read_provenance(&root).unwrap(), provenance);
+    }
+
+    #[test]
+    fn history_undo_refuses_changed_dependency_and_new_local_collision_before_writes() {
+        for changed_dependency in [true, false] {
+            let fixture = Fixture::new();
+            let plan = fixture_plan(&fixture, false);
+            let root = fixture.root();
+            publish_updates(&root, &plan, stage).unwrap();
+            let id = list_mod_operation_history(&fixture.0).unwrap()[0]
+                .operation_id
+                .clone();
+            if changed_dependency {
+                root.write("mods/dep.jar", b"locally changed").unwrap();
+            } else {
+                root.write("mods/root-old.jar.disabled", b"local collision")
+                    .unwrap();
+            }
+            assert!(undo_mod_operation(&fixture.0, &id).is_err());
+            assert_eq!(root.read("mods/root-new.jar").unwrap(), b"new-one");
+            assert_eq!(
+                root.read("mods/dep.jar").unwrap(),
+                if changed_dependency {
+                    b"locally changed".as_slice()
+                } else {
+                    b"new-dep".as_slice()
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn history_undo_failure_rolls_back_and_can_retry() {
+        let fixture = Fixture::new();
+        let plan = fixture_plan(&fixture, true);
+        let root = fixture.root();
+        publish_updates(&root, &plan, stage).unwrap();
+        let id = list_mod_operation_history(&fixture.0).unwrap()[0]
+            .operation_id
+            .clone();
+        let error = history::undo_inner(&fixture.0, &id, |_| Err("synthetic disk failure".into()))
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("original operation remains applied"),
+            "{error}"
+        );
+        assert_eq!(root.read("mods/root-new.jar.disabled").unwrap(), b"new-one");
+        assert_eq!(root.read("mods/dep.jar.disabled").unwrap(), b"new-dep");
+        assert!(!root.exists("mods/root-old.jar.disabled"));
+        undo_mod_operation(&fixture.0, &id).unwrap();
+    }
+
+    #[test]
+    fn interrupted_undo_resumes_from_retained_outputs_without_overwriting_local_changes() {
+        let fixture = Fixture::new();
+        let plan = fixture_plan(&fixture, true);
+        let root = fixture.root();
+        publish_updates(&root, &plan, stage).unwrap();
+        let id = list_mod_operation_history(&fixture.0).unwrap()[0]
+            .operation_id
+            .clone();
+        let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = history::undo_inner(&fixture.0, &id, |_| {
+                panic!("synthetic process interruption")
+            });
+        }));
+        assert!(interrupted.is_err());
+        assert_eq!(
+            list_mod_operation_history(&fixture.0).unwrap()[0].status,
+            "undoing"
+        );
+        assert!(ensure_update_complete(&fixture.0).is_err());
+        root.write("mods/dep.jar.disabled", b"later-local-file")
+            .unwrap();
+        assert!(preview_mod_operation_undo(&fixture.0, &id).is_err());
+        assert!(undo_mod_operation(&fixture.0, &id).is_err());
+        assert_eq!(
+            root.read("mods/dep.jar.disabled").unwrap(),
+            b"later-local-file"
+        );
+        root.remove_file("mods/dep.jar.disabled").unwrap();
+        preview_mod_operation_undo(&fixture.0, &id).unwrap();
+        undo_mod_operation(&fixture.0, &id).unwrap();
+        assert_eq!(root.read("mods/root-old.jar.disabled").unwrap(), b"old-one");
+        assert!(!root.exists("mods/dep.jar.disabled"));
+        assert_eq!(read_provenance(&root).unwrap(), plan.provenance);
+        ensure_update_complete(&fixture.0).unwrap();
+    }
+
+    #[test]
+    fn curseforge_publication_keeps_provider_and_disabled_state_and_rolls_back_failure() {
+        let fixture = Fixture::new();
+        let mut plan = fixture_plan(&fixture, true);
+        plan.provider = ModProvider::CurseForge;
+        for item in &mut plan.graph.mods {
+            item.file.url = String::new();
+        }
+        let root = fixture.root();
+        write_provider_provenance(&root, &plan.provenance, ModProvider::CurseForge).unwrap();
+        let other = BTreeMap::from([(
+            "other-provider".into(),
+            ManagedMod {
+                version_id: "unchanged".into(),
+                filename: "other.jar".into(),
+                sha1: "a".repeat(40),
+            },
+        )]);
+        write_provenance(&root, &other).unwrap();
+        let failed = publish_updates_with_hook(&root, &plan, stage, |_| {
+            Err("synthetic publication failure".into())
+        });
+        assert!(failed.is_err());
+        assert_eq!(root.read("mods/root-old.jar.disabled").unwrap(), b"old-one");
+        assert_eq!(
+            read_provider_provenance(&root, ModProvider::CurseForge).unwrap(),
+            plan.provenance
+        );
+        assert_eq!(read_provenance(&root).unwrap(), other);
+        let outcome = publish_updates(&root, &plan, stage).unwrap();
+        assert_eq!((outcome.updated, outcome.added), (1, 1));
+        assert_eq!(root.read("mods/root-new.jar.disabled").unwrap(), b"new-one");
+        assert_eq!(root.read("mods/dep.jar.disabled").unwrap(), b"new-dep");
+        assert_eq!(read_provenance(&root).unwrap(), other);
+        assert_eq!(list_managed_curseforge_mods(&fixture.0).unwrap().len(), 2);
+        assert!(!root.symlink_metadata(PENDING).is_ok());
+    }
+
+    #[test]
+    fn interrupted_curseforge_update_recovers_only_its_own_provenance() {
+        let fixture = Fixture::new();
+        let mut plan = fixture_plan(&fixture, true);
+        plan.provider = ModProvider::CurseForge;
+        let root = fixture.root();
+        write_provider_provenance(&root, &plan.provenance, ModProvider::CurseForge).unwrap();
+        let modrinth_before = root.read(crate::modrinth::MARKER).unwrap();
+        root.create_dir_all(".cobble-mod-backups/interrupted/old")
+            .unwrap();
+        root.create_dir_all(".cobble-mod-backups/interrupted/new")
+            .unwrap();
+        let backup = root
+            .open_dir_nofollow(".cobble-mod-backups/interrupted")
+            .unwrap();
+        backup
+            .write(
+                "provenance.json",
+                serde_json::to_vec(&plan.provenance).unwrap(),
+            )
+            .unwrap();
+        let old = backup.open_dir_nofollow("old").unwrap();
+        let new = backup.open_dir_nofollow("new").unwrap();
+        for change in &plan.changes {
+            stage(change, &new).unwrap();
+        }
+        write_pending(
+            &root,
+            &PendingUpdate {
+                provider: ModProvider::CurseForge,
+                backup_id: "interrupted".into(),
+                changes: plan
+                    .changes
+                    .iter()
+                    .map(|change| PendingChange {
+                        old_filename: plan
+                            .originals
+                            .get(&change.project_id)
+                            .map(|item| item.actual_filename.clone()),
+                        staged_filename: change.filename.clone(),
+                        new_filename: format!("{}.disabled", change.filename),
+                    })
+                    .collect(),
+            },
+        )
+        .unwrap();
+        let mods = root.open_dir_nofollow("mods").unwrap();
+        mods.rename("root-old.jar.disabled", &old, "root-old.jar.disabled")
+            .unwrap();
+        new.rename("root-new.jar", &mods, "root-new.jar.disabled")
+            .unwrap();
+        assert!(recover_modrinth_update(&fixture.0).unwrap());
+        assert_eq!(mods.read("root-old.jar.disabled").unwrap(), b"old-one");
+        assert!(!mods.symlink_metadata("root-new.jar.disabled").is_ok());
+        assert_eq!(
+            read_provider_provenance(&root, ModProvider::CurseForge).unwrap(),
+            plan.provenance
+        );
+        assert_eq!(root.read(crate::modrinth::MARKER).unwrap(), modrinth_before);
+        assert!(!recover_modrinth_update(&fixture.0).unwrap());
     }
 
     #[test]
@@ -1175,6 +1528,7 @@ mod tests {
             write_pending(
                 &root,
                 &PendingUpdate {
+                    provider: plan.provider,
                     backup_id: "interrupted".into(),
                     changes: plan
                         .changes

@@ -72,7 +72,7 @@ test('discovery is on demand, resolves dependencies and installs with a host pla
   expect((await calls(page, 'search_game_mods'))[0].args).toEqual({ id: game.id, query: 'map', offset: 0 });
   await expect(page.locator('.discover-list img')).toHaveCount(0);
   await page.getByRole('button', { name: '查看 map' }).click();
-  await expect(page.getByLabel('Mod 版本')).toHaveValue('release-v1');
+  await expect(page.getByLabel('Mod 版本')).toHaveValue(/Mod · 1\.0 · 正式版/);
   await expect(page.getByText('map 的必需依赖')).toBeVisible();
   await page.screenshot({ path: info.outputPath('modrinth-plan-light.png'), fullPage: true });
   await page.emulateMedia({ colorScheme: 'dark' });
@@ -143,7 +143,7 @@ test('failed installation shows its cause and can retry the same plan', async ({
   await page.getByRole('tab', { name: '发现 Mod' }).click();
   await page.getByRole('button', { name: '搜索', exact: true }).click();
   await page.getByRole('button', { name: '查看 Forest Map' }).click();
-  await expect(page.getByLabel('Mod 版本')).toHaveValue('release-v1');
+  await expect(page.getByLabel('Mod 版本')).toHaveValue(/Mod · 1\.0 · 正式版/);
   await expect(page.getByText('map 的必需依赖')).toBeVisible();
   await page.evaluate(() => { (window as unknown as Mock).__fail = 'install_game_mod_plan'; });
   await page.getByRole('button', { name: '安装 2 个 Mod' }).click();
@@ -174,3 +174,21 @@ for (const [kind, label] of [['forge', 'Forge'], ['neoforge', 'NeoForge']] as co
     expect(searchCalls.at(-1)?.args).toEqual({ id: game.id, query: 'map', offset: 0 });
   });
 }
+
+
+test('market reuses compatible Mod plans and locks navigation until installation finishes', async ({ page }) => {
+  await setup(page);
+  await page.getByRole('button', { name: '添加内容', exact: true }).click();
+  await expect(page.getByLabel('安装到游戏')).toHaveValue(game.id);
+  await page.getByRole('button', { name: '搜索', exact: true }).click();
+  await page.getByRole('button', { name: '查看 Forest Map', exact: true }).click();
+  await page.getByRole('button', { name: '安装 2 个 Mod', exact: true }).click();
+  await expect(page.getByLabel('安装到游戏')).toBeDisabled();
+  await expect(page.getByRole('tab', { name: '资源包', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '返回游戏详情', exact: true })).toBeDisabled();
+  expect((await calls(page, 'install_game_mod_plan'))[0].args).toEqual({ id: game.id, planId: 'plan-map-release-v1' });
+  await page.evaluate(() => (window as unknown as Mock).__finish());
+  await expect(page.getByRole('status')).toContainText(`已安装到 ${game.name}`);
+  await page.getByRole('button', { name: '返回游戏详情', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Forest Map', exact: true })).toBeVisible();
+});

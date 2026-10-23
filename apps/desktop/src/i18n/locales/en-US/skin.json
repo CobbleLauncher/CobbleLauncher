@@ -1,0 +1,14 @@
+{
+  "previewError": "Could not display the 3D preview",
+  "loadError": "Could not read skin. Try again.",
+  "preview": "Skin 3D preview",
+  "localOnly": "Shown in the launcher only",
+  "choose": "Choose PNG skin",
+  "model": "Model",
+  "classic": "Classic",
+  "slim": "Slim",
+  "apply": "Apply to Microsoft account",
+  "save": "Save skin",
+  "cancel": "Cancel",
+  "refresh": "Refresh skin"
+}

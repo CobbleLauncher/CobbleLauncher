@@ -1,0 +1,14 @@
+{
+  "pack": {
+    "description": "Synthetic overlay metadata",
+    "pack_format": 18
+  },
+  "overlays": {
+    "entries": [
+      {
+        "directory": "variant",
+        "formats": 18
+      }
+    ]
+  }
+}

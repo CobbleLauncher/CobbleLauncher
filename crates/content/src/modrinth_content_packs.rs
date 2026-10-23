@@ -137,6 +137,8 @@ pub async fn list_modrinth_content_pack_versions(
     let mut url = Url::parse(&format!("{API}project/{}/version", project.id))?;
     url.query_pairs_mut()
         .append_pair("game_versions", &serde_json::to_string(&[mc])?);
+    url.query_pairs_mut()
+        .append_pair("include_changelog", "false");
     let versions: Vec<Version> = api.get(url).await?;
     let mut versions: Vec<_> = versions
         .iter()

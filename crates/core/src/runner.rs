@@ -3,8 +3,8 @@
 use crate::{LaunchPreparation, prepare_launch};
 use cobble_auth::{LaunchIdentity, OfflineProfile};
 use cobble_minecraft::{
-    LaunchOverrides, read_launcher_preferences, resolve_java_override, substitute,
-    validate_memory_mb,
+    LaunchBehavior, LaunchOverrides, WindowSize, read_launcher_preferences, resolve_java_override,
+    substitute, validate_advanced_runtime, validate_memory_mb,
 };
 use std::{
     collections::HashMap,
@@ -22,6 +22,7 @@ pub struct RunningGame {
     pub child: Child,
     pub log_path: PathBuf,
     pub natives_directory: PathBuf,
+    pub launch_behavior: LaunchBehavior,
 }
 
 pub async fn start_offline_game(
@@ -48,14 +49,35 @@ pub async fn start_game_with_identity(
     identity: &LaunchIdentity,
     options: &LaunchOverrides,
 ) -> Result<RunningGame, BoxError> {
-    let memory_mb = match options.memory_mb {
-        Some(memory_mb) => memory_mb,
-        None => read_launcher_preferences()?.memory_mb,
-    };
+    start_game_with_identity_and_server(version, directory, identity, options, None).await
+}
+
+pub async fn start_game_with_identity_and_server(
+    version: &str,
+    directory: &Path,
+    identity: &LaunchIdentity,
+    options: &LaunchOverrides,
+    server: Option<&str>,
+) -> Result<RunningGame, BoxError> {
+    let server_arguments = server
+        .map(|address| crate::server_launch::direct_connect_arguments(version, address))
+        .transpose()?;
+    let defaults = read_launcher_preferences()?;
+    let memory_mb = options.memory_mb.unwrap_or(defaults.memory_mb);
+    let window_size = options
+        .window_size
+        .as_ref()
+        .unwrap_or(&defaults.window_size);
+    let jvm_args = options.jvm_args.as_ref().unwrap_or(&defaults.jvm_args);
+    validate_advanced_runtime(window_size, jvm_args)?;
     validate_memory_mb(memory_mb)?;
     let plan = prepare_launch(version, directory).await?;
     let java = resolve_java_override(plan.required_java, &options.java).await?;
-    let arguments = prepare_identity_arguments(&plan, identity, memory_mb)?;
+    let mut arguments =
+        prepare_identity_arguments_with_runtime(&plan, identity, memory_mb, window_size, jvm_args)?;
+    if let Some(server_arguments) = server_arguments {
+        arguments.extend(server_arguments);
+    }
     let directory = dunce::canonicalize(directory)?;
     let logs = directory.join(".cobble-logs");
     fs::create_dir_all(&logs)?;
@@ -82,7 +104,30 @@ pub async fn start_game_with_identity(
         child,
         log_path,
         natives_directory: plan.natives_directory,
+        launch_behavior: options.launch_behavior.unwrap_or(defaults.launch_behavior),
     })
+}
+
+/// Host-only argv preparation with explicit runtime settings. Each extra JVM
+/// option stays a single argument and is never interpreted by a shell.
+pub fn prepare_identity_arguments_with_runtime(
+    plan: &LaunchPreparation,
+    identity: &LaunchIdentity,
+    memory_mb: u32,
+    window: &WindowSize,
+    jvm_args: &[String],
+) -> Result<Vec<String>, BoxError> {
+    validate_advanced_runtime(window, jvm_args)?;
+    let mut arguments = prepare_identity_arguments(plan, identity, memory_mb)?;
+    let main_index = arguments.len() - plan.game_arguments.len() - 1;
+    arguments.splice(main_index..main_index, jvm_args.iter().cloned());
+    if let Some(width) = window.width {
+        arguments.extend(["--width".into(), width.to_string()]);
+    }
+    if let Some(height) = window.height {
+        arguments.extend(["--height".into(), height.to_string()]);
+    }
+    Ok(arguments)
 }
 
 /// Prepare argv without spawning a game or accessing launcher configuration.
@@ -172,6 +217,54 @@ fn prepare_bound_arguments(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extra_runtime_arguments_preserve_argv_and_window_dimensions() {
+        let identity = LaunchIdentity::offline(&OfflineProfile::new("Notch").unwrap()).unwrap();
+        let window = WindowSize {
+            width: Some(1280),
+            height: Some(720),
+        };
+        let arguments = prepare_identity_arguments_with_runtime(
+            &plan(),
+            &identity,
+            4096,
+            &window,
+            &["-Dlabel=two words; $(ignored)".into()],
+        )
+        .unwrap();
+        let main = arguments
+            .iter()
+            .position(|value| value == "net.minecraft.client.main.Main")
+            .unwrap();
+        assert_eq!(arguments[0], "-Xmx4096M");
+        assert_eq!(arguments[main - 1], "-Dlabel=two words; $(ignored)");
+        assert_eq!(
+            &arguments[arguments.len() - 4..],
+            ["--width", "1280", "--height", "720"]
+        );
+        assert!(
+            prepare_identity_arguments_with_runtime(
+                &plan(),
+                &identity,
+                4096,
+                &window,
+                &["-Xmx10G".into()]
+            )
+            .is_err()
+        );
+        assert_eq!(
+            prepare_identity_arguments_with_runtime(
+                &plan(),
+                &identity,
+                2048,
+                &WindowSize::default(),
+                &[]
+            )
+            .unwrap(),
+            prepare_identity_arguments(&plan(), &identity, 2048).unwrap()
+        );
+    }
 
     fn plan() -> LaunchPreparation {
         LaunchPreparation {

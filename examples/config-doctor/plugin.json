@@ -1,0 +1,180 @@
+{
+  "id": "config-doctor",
+  "name": "Config Doctor",
+  "version": "0.2.4",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "report"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:report",
+        "version": "0.2.0"
+      },
+      {
+        "id": "launcher:web-frontend",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "file_extensions": [
+    "json",
+    "toml",
+    "properties",
+    "yaml",
+    "yml",
+    "txt"
+  ],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Check configuration syntax locally",
+    "zh-CN": "在本地检查配置语法"
+  },
+  "tags": [
+    "configs",
+    "diagnostics"
+  ],
+  "contributions": {
+    "schema_version": 1,
+    "commands": [
+      {
+        "id": "config-doctor.check-config",
+        "label": {
+          "en": "Check config",
+          "zh-CN": "检查配置"
+        },
+        "workflow": "report",
+        "menus": [
+          {
+            "position": "tools",
+            "when": "always"
+          },
+          {
+            "position": "instance",
+            "when": "instance_selected"
+          }
+        ]
+      }
+    ],
+    "settings": {
+      "form": {
+        "schema_version": 1,
+        "scope": "global",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "json",
+                "toml",
+                "properties",
+                "yaml"
+              ],
+              "title": "Text file format",
+              "default": "auto"
+            },
+            "warn_duplicate_properties": {
+              "type": "boolean",
+              "title": "Warn about repeated properties keys",
+              "default": true
+            }
+          },
+          "required": [
+            "format",
+            "warn_duplicate_properties"
+          ]
+        },
+        "ui_schema": {
+          "type": "VerticalLayout",
+          "elements": [
+            {
+              "type": "Control",
+              "scope": "#/properties/format"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/warn_duplicate_properties"
+            }
+          ]
+        },
+        "translations": {
+          "en": {
+            "format.label": "Text file format",
+            "format.auto": "From file type",
+            "format.json": "JSON",
+            "format.toml": "TOML",
+            "format.properties": "Java properties",
+            "format.yaml": "YAML",
+            "warn_duplicate_properties.label": "Warn about repeated properties keys"
+          },
+          "zh-CN": {
+            "format.label": "文本文件格式",
+            "format.auto": "按文件类型",
+            "format.json": "JSON",
+            "format.toml": "TOML",
+            "format.properties": "Java properties",
+            "format.yaml": "YAML",
+            "warn_duplicate_properties.label": "提示 properties 重复键"
+          }
+        }
+      }
+    }
+  },
+  "permissions": [
+    {
+      "permission": "launcher:resource/selected/read",
+      "extensions": [
+        "json",
+        "toml",
+        "properties",
+        "yaml",
+        "yml",
+        "txt"
+      ]
+    },
+    {
+      "permission": "launcher:settings/read",
+      "keys": [
+        "global:format",
+        "global:warn_duplicate_properties"
+      ]
+    },
+    {
+      "permission": "launcher:resource/selected-folder/read",
+      "extensions": [
+        "json",
+        "toml",
+        "properties",
+        "yaml",
+        "yml",
+        "txt"
+      ]
+    },
+    {
+      "permission": "launcher:ui/webview"
+    },
+    {
+      "permission": "launcher:game-config/read"
+    },
+    {
+      "permission": "launcher:game-keybindings/read"
+    },
+    {
+      "permission": "launcher:game-keybindings/write"
+    }
+  ],
+  "report_protocols": [
+    "cobble.config-folder@1"
+  ],
+  "frontend": {
+    "api_version": "0.1.0",
+    "entry": "ui/index.html",
+    "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

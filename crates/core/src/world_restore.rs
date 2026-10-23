@@ -42,6 +42,11 @@ enum Request {
     Restore {
         backup_id: String,
     },
+    Snapshot {
+        snapshot_id: String,
+        folder_name: String,
+        replace: bool,
+    },
 }
 #[derive(Serialize, Deserialize)]
 struct State {
@@ -145,7 +150,7 @@ fn world_metadata(path: &Path, folder: &str) -> Result<LocalWorld, Error> {
     }
     Ok(read_world_metadata(File::open(level)?, folder))
 }
-fn lock_world(path: &Path) -> Result<Option<File>, Error> {
+pub(crate) fn lock_world(path: &Path) -> Result<Option<File>, Error> {
     if !exists(path)? {
         return Ok(None);
     }
@@ -248,7 +253,10 @@ fn begin(
             return Err("已存在同名世界，请使用新名称或明确选择替换".into());
         }
         world_directory(game, folder)?;
-    } else if matches!(request, Request::Import { replace: true, .. }) {
+    } else if matches!(
+        request,
+        Request::Import { replace: true, .. } | Request::Snapshot { replace: true, .. }
+    ) {
         return Err("选定的原世界已不存在，请重新选择".into());
     }
     let state = State {
@@ -292,6 +300,7 @@ fn extract(archive: &Path, staging: &Path, control: &OperationControl) -> Result
     fs::create_dir(staging)?;
     let progress = control.progress();
     progress(InstallProgress {
+        detail: None,
         phase: "world-extract".into(),
         completed: 0,
         total: plan.preview.file_count,
@@ -330,6 +339,7 @@ fn extract(archive: &Path, staging: &Path, control: &OperationControl) -> Result
         }
         completed += 1;
         progress(InstallProgress {
+            detail: None,
             phase: "world-extract".into(),
             completed,
             total: plan.preview.file_count,
@@ -499,6 +509,7 @@ fn commit(
 ) -> Result<WorldImportOutcome, Error> {
     let progress = control.progress();
     progress(InstallProgress {
+        detail: None,
         phase: "world-commit".into(),
         completed: 0,
         total: 1,
@@ -516,6 +527,7 @@ fn commit(
     match result {
         Ok(result) => {
             progress(InstallProgress {
+                detail: None,
                 phase: "world-complete".into(),
                 completed: 1,
                 total: 1,
@@ -585,6 +597,52 @@ pub async fn import_world_archive(
         commit(&game, &operation, &mut state, &control)
     })
     .await?
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn publish_repository_snapshot(
+    game_dir: &Path,
+    folder_name: &str,
+    snapshot_id: &str,
+    replace: bool,
+    operation_id: &str,
+    control: &OperationControl,
+    populate: impl FnOnce(&Path) -> Result<(), Error>,
+) -> Result<WorldImportOutcome, Error> {
+    control.check_cancelled()?;
+    let game = real_dir(game_dir)?;
+    let request = Request::Snapshot {
+        snapshot_id: snapshot_id.into(),
+        folder_name: folder_name.into(),
+        replace,
+    };
+    let (operation, mut state) = begin(&game, operation_id, request, folder_name, replace)?;
+    if state.complete {
+        return Ok(outcome(&state));
+    }
+    if !state.staging_complete {
+        let stage = operation.join("stage");
+        let _lock = lock_world(&saves(&game)?.join(folder_name))?;
+        if exists(&stage)? {
+            real_dir(&stage)?;
+            fs::remove_dir_all(&stage)?;
+        }
+        let prepared = populate(&stage).and_then(|()| {
+            control.check_cancelled()?;
+            validate_tree(&stage, 0)?;
+            world_metadata(&stage, folder_name)?;
+            Ok(())
+        });
+        if let Err(error) = prepared {
+            if exists(&stage)? {
+                let _ = fs::remove_dir_all(&stage);
+            }
+            return Err(error);
+        }
+        state.staging_complete = true;
+        write_json(&operation.join("state.json"), &state)?;
+    }
+    commit(&game, &operation, &mut state, control)
 }
 
 pub fn list_world_replacement_backups(
@@ -792,6 +850,95 @@ mod tests {
         }));
         *token.lock().unwrap() = Some(control.cancellation());
         control
+    }
+
+    #[test]
+    fn repository_snapshot_publication_preserves_old_world_and_replays_without_population() {
+        let fixture = Fixture::new();
+        fixture.old_world();
+        let result = publish_repository_snapshot(
+            &fixture.game(),
+            "World",
+            "snapshot-a",
+            true,
+            "repository-restore",
+            &control(),
+            |stage| {
+                fs::create_dir(stage)?;
+                fs::write(stage.join("level.dat"), b"snapshot metadata")?;
+                fs::write(stage.join("new.dat"), b"restored bytes")?;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(result.backup_id.as_deref(), Some("repository-restore"));
+        assert_eq!(
+            fs::read(fixture.game().join("saves/World/new.dat")).unwrap(),
+            b"restored bytes"
+        );
+        assert_eq!(
+            fs::read(
+                fixture
+                    .game()
+                    .join(".cobble-world-backups/repository-restore/world/region/r.0.0.mca")
+            )
+            .unwrap(),
+            b"old world region"
+        );
+        publish_repository_snapshot(
+            &fixture.game(),
+            "World",
+            "snapshot-a",
+            true,
+            "repository-restore",
+            &control(),
+            |_| panic!("completed restore must not populate again"),
+        )
+        .unwrap();
+        assert!(
+            publish_repository_snapshot(
+                &fixture.game(),
+                "World",
+                "different-snapshot",
+                true,
+                "repository-restore",
+                &control(),
+                |_| panic!("mismatched replay must not populate"),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn invalid_repository_snapshot_stage_preserves_current_world() {
+        let fixture = Fixture::new();
+        fixture.old_world();
+        assert!(
+            publish_repository_snapshot(
+                &fixture.game(),
+                "World",
+                "snapshot-b",
+                true,
+                "invalid-snapshot",
+                &control(),
+                |stage| {
+                    fs::create_dir(stage)?;
+                    fs::write(stage.join("unrelated.dat"), b"no level")?;
+                    Ok(())
+                },
+            )
+            .is_err()
+        );
+        assert_eq!(
+            fs::read(fixture.game().join("saves/World/region/r.0.0.mca")).unwrap(),
+            b"old world region"
+        );
+        assert!(
+            !fixture
+                .game()
+                .join(".cobble-world-operations/invalid-snapshot/stage")
+                .exists()
+        );
     }
 
     #[test]

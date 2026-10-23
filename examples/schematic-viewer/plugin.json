@@ -1,0 +1,44 @@
+{
+  "id": "schematic-viewer",
+  "name": "Schematic Viewer",
+  "version": "0.2.0",
+  "api_version": "1.0.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "viewer"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:viewer",
+        "version": "1.0.0"
+      }
+    ]
+  },
+  "file_extensions": [
+    "schem",
+    "litematic"
+  ],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Preview blueprints and material lists",
+    "zh-CN": "预览蓝图和材料清单"
+  },
+  "tags": [
+    "blueprints",
+    "viewer"
+  ],
+  "icon": {
+    "file": "icon.png",
+    "sha256": "17d74778ef609a0e6c486fd26e792fa5edaeb9c96c44254d6ff5754b2bbb096f"
+  },
+  "permissions": [
+    {
+      "permission": "launcher:resource/selected/read",
+      "extensions": [
+        "litematic",
+        "schem"
+      ]
+    }
+  ]
+}

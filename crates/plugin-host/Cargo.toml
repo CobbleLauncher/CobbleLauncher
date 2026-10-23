@@ -1,0 +1,30 @@
+[package]
+name = "cobble-plugin-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+cap-std.workspace = true
+cap-fs-ext.workspace = true
+getrandom.workspace = true
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
+base64 = "=0.22.1"
+cobble-plugin-api = { path = "../plugin-api" }
+cobble-plugin-trust = { path = "../plugin-trust" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile = "=3.27.0"
+url.workspace = true
+process-wrap = { version = "=10.0.0", default-features = false, features = ["std", "job-object", "creation-flags"] }
+wasmtime = { version = "=50.0.0", default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
+
+[dev-dependencies]
+cobble-schematic-viewer = { path = "../../examples/schematic-viewer" }
+fastnbt = "=2.6.3"
+
+[lints]
+workspace = true

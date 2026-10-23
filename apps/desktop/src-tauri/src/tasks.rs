@@ -24,6 +24,8 @@ impl TaskState {
 pub struct TaskSnapshot {
     pub id: String,
     pub game_id: Option<String>,
+    #[serde(default)]
+    pub world_folder: Option<String>,
     pub game_name: String,
     pub title: String,
     pub kind: String,
@@ -42,9 +44,16 @@ pub(super) enum TaskRequest {
     GameInstall {
         game_id: String,
     },
+    GameRepair {
+        game_id: String,
+    },
     ModInstall {
         game_id: String,
         plan: cobble_content::ModrinthPlan,
+    },
+    CurseForgeModInstall {
+        game_id: String,
+        plan: cobble_content::curseforge::InstallPlan,
     },
     ModUpdate {
         game_id: String,
@@ -61,6 +70,11 @@ pub(super) enum TaskRequest {
         project_id: String,
         version_id: String,
     },
+    CurseForgePackDownload {
+        archive_id: String,
+        project_id: u32,
+        file_id: u32,
+    },
     WorldImport {
         game_id: String,
         source: worlds::WorldArchiveSource,
@@ -73,23 +87,45 @@ pub(super) enum TaskRequest {
         backup_id: String,
         operation_id: String,
     },
+    WorldAutomaticBackup {
+        game_id: String,
+        session: sessions::Session,
+    },
+    WorldSnapshot {
+        game_id: String,
+        folder_name: String,
+        name: Option<String>,
+    },
+    WorldSnapshotRestore {
+        game_id: String,
+        folder_name: String,
+        snapshot_id: String,
+        operation_id: String,
+    },
 }
 impl TaskRequest {
     fn game_id(&self) -> Option<&str> {
         match self {
             Self::GameInstall { game_id }
+            | Self::GameRepair { game_id }
             | Self::ModInstall { game_id, .. }
+            | Self::CurseForgeModInstall { game_id, .. }
             | Self::ModUpdate { game_id, .. }
             | Self::ContentPack { game_id, .. }
             | Self::WorldImport { game_id, .. }
-            | Self::WorldRollback { game_id, .. } => Some(game_id),
-            Self::ModpackDownload { .. } => None,
+            | Self::WorldRollback { game_id, .. }
+            | Self::WorldAutomaticBackup { game_id, .. }
+            | Self::WorldSnapshot { game_id, .. }
+            | Self::WorldSnapshotRestore { game_id, .. } => Some(game_id),
+            Self::ModpackDownload { .. } | Self::CurseForgePackDownload { .. } => None,
         }
     }
     fn kind(&self) -> &'static str {
         match self {
             Self::GameInstall { .. } => "game_install",
+            Self::GameRepair { .. } => "game_repair",
             Self::ModInstall { .. } => "mod_install",
+            Self::CurseForgeModInstall { .. } => "mod_install",
             Self::ModUpdate { .. } => "mod_update",
             Self::ContentPack {
                 kind: cobble_content::LocalPackKind::ResourcePack,
@@ -97,7 +133,11 @@ impl TaskRequest {
             } => "resource_pack",
             Self::ContentPack { .. } => "shader_pack",
             Self::ModpackDownload { .. } => "modpack_download",
+            Self::CurseForgePackDownload { .. } => "curseforge_pack_download",
             Self::WorldImport { .. } | Self::WorldRollback { .. } => "world_restore",
+            Self::WorldAutomaticBackup { .. } => "world_automatic_backup",
+            Self::WorldSnapshot { .. } => "world_snapshot",
+            Self::WorldSnapshotRestore { .. } => "world_snapshot_restore",
         }
     }
 }
@@ -224,6 +264,11 @@ pub(super) fn register(
     let snapshot = TaskSnapshot {
         id: id.clone(),
         game_id,
+        world_folder: match &request {
+            TaskRequest::WorldSnapshot { folder_name, .. }
+            | TaskRequest::WorldSnapshotRestore { folder_name, .. } => Some(folder_name.clone()),
+            _ => None,
+        },
         game_name,
         title: title.into(),
         kind: request.kind().into(),
@@ -293,7 +338,9 @@ pub(super) enum TaskResult {
     ModUpdate(cobble_core::ModUpdateOutcome),
     Packs(Vec<cobble_content::LocalPack>),
     Pack(PackPreview),
+    CurseForgePack(curseforge_pack::Preview),
     Worlds(worlds::WorldRestoreResult),
+    Snapshot(cobble_core::WorldSnapshot),
 }
 
 pub(super) async fn run(
@@ -381,9 +428,15 @@ pub(super) async fn execute(app: AppHandle, id: String) -> Result<TaskResult, St
         result.as_ref().err().cloned()
     };
     record.snapshot.can_retry = result.is_err();
-    record.snapshot.has_result =
-        result.is_ok() && matches!(request, TaskRequest::ModpackDownload { .. });
+    record.snapshot.has_result = result.is_ok()
+        && matches!(
+            request,
+            TaskRequest::ModpackDownload { .. } | TaskRequest::CurseForgePackDownload { .. }
+        );
     if let Ok(TaskResult::Pack(preview)) = &result {
+        record.snapshot.title = format!("下载 {}", preview.name);
+    }
+    if let Ok(TaskResult::CurseForgePack(preview)) = &result {
         record.snapshot.title = format!("下载 {}", preview.name);
     }
     record.snapshot.updated_at = advance(record.snapshot.updated_at);
@@ -409,6 +462,24 @@ async fn perform(
     control: OperationControl,
 ) -> Result<TaskResult, String> {
     match request {
+        TaskRequest::GameRepair { game_id } => {
+            let (game, _operation) = management::begin(app, game_id, true)?;
+            let settings = game
+                .download_source
+                .clone()
+                .map(Ok)
+                .unwrap_or_else(cobble_minecraft::read_download_settings)
+                .map_err(|e| e.to_string())?;
+            cobble_core::install_game_controlled(
+                &game.version,
+                &game.directory,
+                settings.download_source().map_err(|e| e.to_string())?,
+                control,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            Ok(TaskResult::Game)
+        }
         TaskRequest::GameInstall { game_id } => {
             let game = {
                 let state = app.state::<GameLibrary>();
@@ -423,8 +494,12 @@ async fn perform(
             // Recover the commit-to-history gap without reimporting user data.
             let marker = if game.launcher_import_id.is_some() {
                 Some(".cobble-import.json")
-            } else if game.pack_source_id.is_some() {
-                Some(".cobble-pack.json")
+            } else if let Some(id) = &game.pack_source_id {
+                Some(if curseforge_pack::is_source(id)? {
+                    ".cobble-curseforge-pack.json"
+                } else {
+                    ".cobble-pack.json"
+                })
             } else {
                 None
             };
@@ -451,15 +526,19 @@ async fn perform(
             if game.launcher_import_id.is_some() {
                 launcher_import::install(&game, source, control).await?;
             } else if let Some(source_id) = &game.pack_source_id {
-                cobble_core::install_mrpack_controlled(
-                    &pack_archive_path(source_id)?,
-                    &game.directory,
-                    source,
-                    &game.pack_optional_files,
-                    control,
-                )
-                .await
-                .map_err(|e| e.to_string())?;
+                if curseforge_pack::is_source(source_id)? {
+                    curseforge_pack::install(&game, source, control).await?;
+                } else {
+                    cobble_core::install_mrpack_controlled(
+                        &pack_archive_path(source_id)?,
+                        &game.directory,
+                        source,
+                        &game.pack_optional_files,
+                        control,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                }
             } else {
                 match &game.loader_version {
                     Some(loader) => match game.loader_kind.as_deref().unwrap_or("fabric") {
@@ -504,6 +583,13 @@ async fn perform(
             }
             Ok(TaskResult::Game)
         }
+        TaskRequest::CurseForgePackDownload {
+            archive_id,
+            project_id,
+            file_id,
+        } => curseforge_pack::download(app, archive_id, *project_id, *file_id, control)
+            .await
+            .map(TaskResult::CurseForgePack),
         TaskRequest::ModInstall { game_id, plan } => {
             let (game, _operation) = management::begin(app, game_id, true)?;
             update_game(app, game_id, |_| {}, false);
@@ -511,6 +597,67 @@ async fn perform(
                 .await
                 .map(TaskResult::ModInstall)
                 .map_err(|e| e.to_string())
+        }
+        TaskRequest::CurseForgeModInstall { game_id, plan } => {
+            let (game, _operation) = management::begin(app, game_id, true)?;
+            let key = crate::curseforge::credential().ok_or("CurseForge 服务尚未配置")?;
+            let managed = cobble_core::list_managed_curseforge_mods(&game.directory)
+                .map_err(|_| "无法检查已安装的 CurseForge Mod")?;
+            if managed
+                .iter()
+                .any(|item| item.project_id == plan.graph.project_id)
+            {
+                let update = cobble_core::prepare_curseforge_update(&game.directory, plan)
+                    .map_err(|_| "更新方案已变更，请重新预览")?;
+                let pack_files: Vec<_> = update
+                    .changes
+                    .iter()
+                    .filter_map(|change| {
+                        let previous = update.previous_filename(&change.project_id)?;
+                        game.pack_mod_files
+                            .iter()
+                            .any(|path| path == &format!("mods/{previous}"))
+                            .then(|| format!("mods/{}", change.filename))
+                    })
+                    .collect();
+                let outcome = cobble_core::apply_curseforge_updates_controlled(
+                    &game.directory,
+                    &update,
+                    key,
+                    control,
+                )
+                .await
+                .map_err(|_| "CurseForge 更新未完成，请重试或恢复更新".to_owned())?;
+                if !pack_files.is_empty() {
+                    update_game(
+                        app,
+                        game_id,
+                        |game| {
+                            for file in pack_files {
+                                if !game.pack_mod_files.contains(&file) {
+                                    game.pack_mod_files.push(file);
+                                }
+                            }
+                        },
+                        true,
+                    );
+                }
+                Ok(TaskResult::ModInstall(
+                    cobble_core::ModrinthInstallOutcome {
+                        installed: outcome.updated + outcome.added,
+                        reused: plan
+                            .graph
+                            .mods
+                            .len()
+                            .saturating_sub(outcome.updated + outcome.added),
+                    },
+                ))
+            } else {
+                cobble_core::install_curseforge_plan_controlled(plan, &game.directory, key, control)
+                    .await
+                    .map(TaskResult::ModInstall)
+                    .map_err(|_| "CurseForge 安装失败，请检查文件或重试".to_owned())
+            }
         }
         TaskRequest::ModUpdate { game_id, plan } => {
             let (game, _operation) = management::begin(app, game_id, true)?;
@@ -588,7 +735,13 @@ async fn perform(
             )
             .await
             .map_err(|e| e.to_string())?;
-            store_pack_preview(app, archive_id.clone(), pack).map(TaskResult::Pack)
+            store_pack_preview(
+                app,
+                archive_id.clone(),
+                pack,
+                Some(pack_origin::PackOrigin::modrinth(project_id, version_id)),
+            )
+            .map(TaskResult::Pack)
         }
         TaskRequest::WorldImport {
             game_id,
@@ -618,6 +771,32 @@ async fn perform(
                 .await
                 .map(TaskResult::Worlds)
         }
+        TaskRequest::WorldAutomaticBackup { game_id, session } => {
+            world_snapshots::automatic::perform(app, game_id, session, control).await?;
+            Ok(TaskResult::Game)
+        }
+        TaskRequest::WorldSnapshot {
+            game_id,
+            folder_name,
+            name,
+        } => world_snapshots::perform_create(app, game_id, folder_name, name.clone(), control)
+            .await
+            .map(TaskResult::Snapshot),
+        TaskRequest::WorldSnapshotRestore {
+            game_id,
+            folder_name,
+            snapshot_id,
+            operation_id,
+        } => world_snapshots::perform_restore(
+            app,
+            game_id,
+            folder_name,
+            snapshot_id,
+            operation_id,
+            control,
+        )
+        .await
+        .map(TaskResult::Worlds),
         TaskRequest::WorldRollback {
             game_id,
             backup_id,
@@ -762,12 +941,40 @@ pub fn get_task_pack_preview(app: AppHandle, task_id: String) -> Result<PackPrev
         }
         record.request.clone()
     };
+    let origin = request.pack_origin();
     let TaskRequest::ModpackDownload { archive_id, .. } = request else {
         return Err("这个任务没有整合包预览".into());
     };
     let pack =
         cobble_content::read_mrpack(&pack_archive_path(&archive_id)?).map_err(|e| e.to_string())?;
-    store_pack_preview(&app, archive_id, pack)
+    store_pack_preview(&app, archive_id, pack, origin)
+}
+
+pub(super) fn curseforge_pack_result_id(
+    app: &AppHandle,
+    task_id: &str,
+) -> Result<(String, pack_origin::PackOrigin), String> {
+    let state = app.state::<TaskLibrary>();
+    let store = state.0.lock().map_err(|_| "任务记录不可用")?;
+    let record = store
+        .records
+        .iter()
+        .find(|record| record.snapshot.id == task_id)
+        .ok_or("找不到这个任务")?;
+    if record.snapshot.state != TaskState::Succeeded || !record.snapshot.has_result {
+        return Err("整合包尚未下载完成".into());
+    }
+    match &record.request {
+        TaskRequest::CurseForgePackDownload {
+            archive_id,
+            project_id,
+            file_id,
+        } => Ok((
+            archive_id.clone(),
+            pack_origin::PackOrigin::curseforge(*project_id, *file_id),
+        )),
+        _ => Err("这个任务没有 CurseForge 整合包预览".into()),
+    }
 }
 
 #[cfg(test)]
@@ -779,11 +986,13 @@ mod tests {
             snapshot: TaskSnapshot {
                 id: "fixture".into(),
                 game_id: Some("game".into()),
+                world_folder: None,
                 game_name: "Fixture".into(),
                 title: "安装游戏".into(),
                 kind: "game_install".into(),
                 state,
                 progress: Some(InstallProgress {
+                    detail: None,
                     phase: "assets".into(),
                     completed: 2,
                     total: 10,
@@ -799,6 +1008,31 @@ mod tests {
                 game_id: "game".into(),
             },
         }
+    }
+
+    #[test]
+    fn snapshot_restore_history_keeps_world_scope_and_journal_identity() {
+        let mut value = record(TaskState::Running);
+        value.request = TaskRequest::WorldSnapshotRestore {
+            game_id: "game".into(),
+            folder_name: "世界 1".into(),
+            snapshot_id: "a".repeat(64),
+            operation_id: "owned-operation".into(),
+        };
+        value.snapshot.kind = value.request.kind().into();
+        value.snapshot.world_folder = Some("世界 1".into());
+        let mut loaded: Vec<StoredTask> =
+            serde_json::from_slice(&serde_json::to_vec(&vec![value]).unwrap()).unwrap();
+        recover_records(&mut loaded);
+        assert_eq!(loaded[0].snapshot.state, TaskState::Interrupted);
+        assert_eq!(loaded[0].snapshot.world_folder.as_deref(), Some("世界 1"));
+        assert_eq!(loaded[0].snapshot.kind, "world_snapshot_restore");
+        assert!(
+            matches!(&loaded[0].request, TaskRequest::WorldSnapshotRestore { operation_id, .. } if operation_id == "owned-operation")
+        );
+        let public = serde_json::to_value(&loaded[0].snapshot).unwrap();
+        assert!(public.get("snapshot_id").is_none());
+        assert!(public.get("password").is_none());
     }
 
     #[test]

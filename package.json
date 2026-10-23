@@ -9,6 +9,7 @@
     "pnpm": "11.25.0"
   },
   "scripts": {
+    "plugins:build": "node scripts/build-plugin.mjs",
     "dev": "pnpm --filter @cobble/desktop dev",
     "desktop": "pnpm --filter @cobble/desktop tauri dev",
     "desktop:build": "pnpm --filter @cobble/desktop tauri build --no-bundle -- --locked",

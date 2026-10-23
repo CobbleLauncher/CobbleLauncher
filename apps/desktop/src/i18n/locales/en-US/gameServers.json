@@ -1,0 +1,15 @@
+{
+  "title": "Servers",
+  "refresh": "Refresh",
+  "search": "Search servers",
+  "loading": "Loading servers",
+  "running": "The game is running. Copy an address to connect in Minecraft.",
+  "unsupported": "Direct joining is available for Minecraft 1.20–1.21 releases. Copy an address to connect in this version.",
+  "copyError": "Could not copy the server address.",
+  "copyNamed": "Copy address for {name}",
+  "copy": "Copy address",
+  "copied": "Copied",
+  "join": "Join",
+  "noMatches": "No matching servers.",
+  "empty": "No saved servers. Add a server in Minecraft Multiplayer to see it here."
+}

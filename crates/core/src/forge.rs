@@ -299,6 +299,7 @@ pub async fn install_forge_controlled(
     let log = directory.join(".cobble-forge-install.log");
     let output = File::create(&log)?;
     on_progress(InstallProgress {
+        detail: None,
         phase: format!("{}-installer", kind.id()),
         completed: 0,
         total: 1,
@@ -340,6 +341,7 @@ pub async fn install_forge_controlled(
     state.complete = true;
     write_state(&directory, &state)?;
     on_progress(InstallProgress {
+        detail: None,
         phase: "complete".into(),
         completed: 1,
         total: 1,

@@ -1,0 +1,13 @@
+{
+  "context": {
+    "locale": "en",
+    "public_self": null,
+    "selected_peer": null,
+    "selected_session": {
+      "game_name": "Minecraft",
+      "game_version": "1.21.4",
+      "loader": "Fabric"
+    }
+  },
+  "note": "Casual survival, bring your builds."
+}

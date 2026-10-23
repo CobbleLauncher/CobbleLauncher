@@ -1,0 +1,41 @@
+{
+  "id": "session-card",
+  "name": "Session Card",
+  "version": "0.1.1",
+  "api_version": "0.1.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "message-composer"
+  ],
+  "file_extensions": [],
+  "composer_permissions": [
+    "draft",
+    "selected_session"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:message-composer",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Draft a shareable card for your selected game session",
+    "zh-CN": "为当前游戏联机生成分享卡片"
+  },
+  "tags": [
+    "multiplayer",
+    "session",
+    "message"
+  ],
+  "permissions": [
+    {
+      "permission": "launcher:composer/draft"
+    },
+    {
+      "permission": "launcher:composer/context/selected-session"
+    }
+  ]
+}

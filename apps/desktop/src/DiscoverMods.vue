@@ -1,12 +1,18 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
+import MarketImage from "./MarketImage.vue";
+import { marketReturn } from './market-return';
+import MarketGallery from "./MarketGallery.vue";
 import { onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { t } from './i18n';
+import LoadingIndicator from './ui/LoadingIndicator.vue';
 import type { Game, ModSearchHit, ModSearchPage, ModInstallPreview, ModVersion } from './games';
-import { loaderLabel } from './games';
 import ModVersionPicker from './ModVersionPicker.vue';
-const props = defineProps<{ game: Game; locked: boolean }>();
+const props = defineProps<{ game: Game; locked: boolean; initialQuery?: string }>();
 const emit = defineEmits<{ installing: [value: boolean]; installed: [] }>();
+const root = ref<HTMLElement>();
+const detailReturn = marketReturn(root);
 const query = ref('');
 const submitted = ref('');
 const hits = ref<ModSearchHit[]>([]);
@@ -28,7 +34,6 @@ async function search(offset = 0, retry = false) {
   const current = ++searchRequest;
   const id = props.game.id;
   if (!offset && !retry) submitted.value = query.value.trim();
-  if (!offset) { hits.value = []; total.value = 0; }
   failedOffset = offset;
   searching.value = true;
   searched.value = true;
@@ -42,7 +47,8 @@ async function search(offset = 0, retry = false) {
   finally { if (current === searchRequest) searching.value = false; }
 }
 function select(hit: ModSearchHit) {
-  if (installing.value) return;
+  if (installing.value || searching.value) return;
+  detailReturn.enter(hit.project_id);
   ++previewRequest; selected.value = hit; version.value = null; preview.value = null; planError.value = ''; resolving.value = false;
 }
 function chooseVersion(value: ModVersion | null) {
@@ -61,7 +67,7 @@ async function prepare() {
   } catch (cause) { if (current === previewRequest) planError.value = "无法准备安装：" + String(cause); }
   finally { if (current === previewRequest) resolving.value = false; }
 }
-function back() { if (!installing.value) { ++previewRequest; selected.value = null; preview.value = null; resolving.value = false; } }
+function back() { if (!installing.value) { ++previewRequest; selected.value = null; preview.value = null; resolving.value = false; detailReturn.restore(); } }
 async function install() {
   if (!preview.value || props.locked || installing.value) return;
   installing.value = true;
@@ -73,14 +79,18 @@ async function install() {
   } catch (cause) { planError.value = "安装未完成：" + String(cause); }
   finally { installing.value = false; emit('installing', false); }
 }
-watch(() => props.game.id, () => {
+watch([() => props.game.id, () => props.initialQuery], () => {
   ++searchRequest; ++previewRequest; hits.value = []; total.value = 0; searched.value = false;
-  query.value = ''; selected.value = null; preview.value = null; searching.value = false; resolving.value = false;
-});
+  query.value = props.initialQuery ?? ''; selected.value = null; preview.value = null; searching.value = false; resolving.value = false;
+  void search();
+}, { immediate: true });
 onUnmounted(() => { ++searchRequest; ++previewRequest; });
 </script>
 <template>
-  <div class="discover-content">
+  <div
+    ref="root"
+    class="discover-content"
+  >
     <p
       v-if="!game.loader_version"
       class="content-empty"
@@ -88,14 +98,6 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
       发现 Mod 适用于 Fabric、Forge 或 NeoForge 游戏。创建带模组加载器的游戏后即可浏览和安装。
     </p>
     <template v-else>
-      <div class="discover-heading">
-        <p class="mod-meta">
-          来自 Modrinth
-        </p>
-        <div class="compatibility-tags">
-          <span>Minecraft {{ game.version }}</span><span>{{ loaderLabel(game.loader_kind ?? 'fabric') }}</span>
-        </div>
-      </div>
       <template v-if="selected">
         <button
           class="text-button"
@@ -105,10 +107,11 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
           ← 返回搜索结果
         </button>
         <div class="mod-preview">
-          <span
-            class="project-monogram"
-            aria-hidden="true"
-          >{{ selected.title.slice(0, 1) }}</span>
+          <MarketImage
+            provider="modrinth"
+            :url="selected.icon_url"
+            :title="selected.title"
+          />
           <div class="mod-info">
             <h2>{{ selected.title }}</h2><p class="mod-meta">
               {{ selected.author }}
@@ -118,6 +121,12 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
         <p class="preview-description">
           {{ selected.description }}
         </p>
+        <MarketGallery
+          v-if="selected.gallery?.length"
+          provider="modrinth"
+          :urls="selected.gallery"
+          :title="selected.title"
+        />
         <ModVersionPicker
           :key="selected.project_id"
           :game-id="game.id"
@@ -219,12 +228,6 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
             搜索
           </button>
         </form>
-        <p
-          v-if="!searched"
-          class="content-empty"
-        >
-          为这个游戏寻找新玩法。输入名称，搜索适用的 Mod。
-        </p>
         <ul
           v-if="hits.length"
           class="mod-list discover-list"
@@ -233,12 +236,13 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
           <li
             v-for="hit in hits"
             :key="hit.project_id"
-            class="mod-row"
+            class="mod-row ui-card-action-surface"
           >
-            <span
-              class="project-monogram"
-              aria-hidden="true"
-            >{{ hit.title.slice(0, 1) }}</span>
+            <MarketImage
+              provider="modrinth"
+              :url="hit.icon_url"
+              :title="hit.title"
+            />
             <div class="mod-info">
               <h3>{{ hit.title }}</h3><p class="mod-description">
                 {{ hit.description }}
@@ -247,7 +251,10 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
               </p>
             </div>
             <button
-              class="secondary-button"
+              class="text-button ui-stretched-action"
+              type="button"
+              :disabled="searching || installing"
+              :data-market-project="hit.project_id"
               :aria-label="`查看 ${hit.title}`"
               @click="select(hit)"
             >
@@ -267,13 +274,12 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
             重试
           </button>
         </div>
-        <p
+        <LoadingIndicator
           v-else-if="searching"
-          class="content-empty"
-          role="status"
-        >
-          正在搜索…
-        </p>
+          :label="t('market.searching')"
+          :skeleton="!hits.length"
+          :compact="!!hits.length"
+        />
         <p
           v-else-if="searched && !hits.length"
           class="content-empty"

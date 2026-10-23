@@ -1,0 +1,11 @@
+[package]
+name = "cobble-community-provider-fixture"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+[workspace]
+[lib]
+crate-type = ["cdylib"]
+[dependencies]
+wit-bindgen = "=0.63.0"

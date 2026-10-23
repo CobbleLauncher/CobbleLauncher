@@ -37,6 +37,7 @@ pub async fn download_modrinth_pack_controlled(
     control.check_cancelled()?;
     let progress = control.progress();
     progress(crate::InstallProgress {
+        detail: None,
         phase: "metadata".into(),
         completed: 0,
         total: 1,
@@ -62,6 +63,7 @@ pub async fn download_modrinth_pack_controlled(
     }
     let downloads = ModDownloads::open()?;
     progress(crate::InstallProgress {
+        detail: None,
         phase: "pack-download".into(),
         completed: 0,
         total: 1,
@@ -75,6 +77,7 @@ pub async fn download_modrinth_pack_controlled(
     tokio::task::spawn_blocking(move || {
         control.check_cancelled()?;
         progress(crate::InstallProgress {
+            detail: None,
             phase: "pack-install".into(),
             completed: 0,
             total: 1,
@@ -90,6 +93,7 @@ pub async fn download_modrinth_pack_controlled(
         }
         if result.is_ok() {
             progress(crate::InstallProgress {
+                detail: None,
                 phase: "complete".into(),
                 completed: 1,
                 total: 1,

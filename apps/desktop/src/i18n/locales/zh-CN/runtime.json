@@ -1,0 +1,22 @@
+{
+  "advanced": "高级启动设置",
+  "window": "游戏窗口",
+  "inherit": "跟随默认",
+  "custom": "单独设置",
+  "width": "窗口宽度",
+  "height": "窗口高度",
+  "gameDefault": "游戏默认",
+  "afterLaunch": "游戏启动后",
+  "keep": "保持启动器窗口",
+  "minimize": "最小化启动器",
+  "extraJvm": "额外 JVM 参数",
+  "jvm": "JVM 参数",
+  "jvmHelp": "每行一个参数，最大内存请在内存设置中调整。",
+  "loadError": "无法读取启动设置，请重试",
+  "dimensionsError": "宽度须为 320–16384，高度须为 240–16384 的整数",
+  "saveError": "无法保存启动设置：{error}",
+  "saved": "启动设置已保存",
+  "retry": "重试读取设置",
+  "save": "保存启动设置",
+  "saving": "保存中…"
+}

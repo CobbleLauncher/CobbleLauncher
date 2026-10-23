@@ -168,6 +168,7 @@ pub async fn install_fabric_controlled(
     let total = state.profile.libraries.len();
     let mut reused = 0;
     on_progress(InstallProgress {
+        detail: None,
         phase: "fabric".into(),
         completed: 0,
         total,
@@ -236,6 +237,7 @@ pub async fn install_fabric_controlled(
         };
         reused += usize::from(local);
         on_progress(InstallProgress {
+            detail: None,
             phase: "fabric".into(),
             completed: i + 1,
             total,
@@ -246,6 +248,7 @@ pub async fn install_fabric_controlled(
     state.complete = true;
     write_state(&root, &state)?;
     on_progress(InstallProgress {
+        detail: None,
         phase: "complete".into(),
         completed: 1,
         total: 1,

@@ -80,6 +80,18 @@ async function openTasks(page: Page) {
   await expect(page.getByRole('heading', { name: '任务', exact: true })).toBeVisible();
 }
 
+test('completed task locates its game without starting a game', async ({ page }, info) => {
+  await setup(page, [{ ...running, id: 'completed-game', state: 'succeeded', progress: null }]);
+  await page.setViewportSize({ width: 1100, height: 760 });
+  await page.goto('/');
+  await openTasks(page);
+  await page.screenshot({ path: info.outputPath('tasks-completed-1100.png'), animations: 'disabled' });
+  await page.getByRole('button', { name: '查看游戏', exact: true }).click();
+  await expect(page.getByRole('heading', { name: game.name, exact: true })).toBeVisible();
+  await expect(page.locator('.tasks-workspace')).not.toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as TaskWindow).__calls.some(call => ['start_game', 'launch_game'].includes(call.command)))).toBe(false);
+});
+
 test('loads task snapshots, counts only active work, and distinguishes known totals from installer phases', async ({ page }, info) => {
   await setup(page);
   await page.goto('/');
@@ -175,4 +187,20 @@ test('a completed retry refreshes local content when returning to its still-open
   await expect(page.getByRole('heading', { name: 'Forest Map' })).toBeVisible();
   const reads = await page.evaluate(() => (window as unknown as TaskWindow).__calls.filter((call) => call.command === 'list_game_mods'));
   expect(reads).toHaveLength(2);
+});
+
+test('download detail stays collapsed until opened and shows actual file source and bytes', async ({ page }, info) => {
+  await setup(page, [{ ...running, progress: { ...running.progress!, detail: { bytesCompleted: 1048576, bytesTotal: 4194304, bytesReceived: 2097152, bytesPerSecond: 524288, activeDownloads: 2, items: [{ source: 'official', item: 'client.jar', bytesReceived: 1048576, bytesTotal: 3145728 }, { source: 'bmclapi', item: 'fabric-loader.jar', bytesReceived: 1048576, bytesTotal: 1048576 }] } } }]);
+  await page.goto('/');
+  await openTasks(page);
+  const details = page.locator('.task-transfer-details');
+  await expect(details.locator('summary')).toContainText('512 KB/s');
+  await expect(page.getByRole('list', { name: '下载中的文件' })).not.toBeVisible();
+  await details.locator('summary').click();
+  await expect(page.getByRole('list', { name: '下载中的文件' })).toBeVisible();
+  await expect(details).toContainText('client.jar');
+  await expect(details).toContainText('官方');
+  await expect(details).toContainText('BMCLAPI');
+  await page.setViewportSize({ width: 560, height: 800 });
+  await page.screenshot({ path: info.outputPath('download-details-560.png'), fullPage: true, animations: 'disabled' });
 });

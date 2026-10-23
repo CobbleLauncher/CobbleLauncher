@@ -1,0 +1,52 @@
+{
+  "id": "storage-lens",
+  "name": "Storage Lens",
+  "version": "0.1.0",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "report"
+  ],
+  "file_extensions": [],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "See where a game uses disk space",
+    "zh-CN": "查看游戏的磁盘占用分布"
+  },
+  "tags": [
+    "storage",
+    "games"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:report",
+        "version": "0.2.0"
+      },
+      {
+        "id": "launcher:web-frontend",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "permissions": [
+    {
+      "permission": "launcher:game-inspection/read",
+      "scopes": [
+        "storage"
+      ]
+    },
+    {
+      "permission": "launcher:ui/webview"
+    }
+  ],
+  "frontend": {
+    "api_version": "0.1.0",
+    "entry": "ui/index.html",
+    "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "icon": {
+    "file": "icon.png",
+    "sha256": "83b751257c8c439f9db2e41188a624b9823b2828cc0403af9f1a947c2f371e1e"
+  }
+}

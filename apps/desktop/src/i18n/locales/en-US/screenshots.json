@@ -1,0 +1,21 @@
+{
+  "openFolder": "Open screenshots folder",
+  "refresh": "Refresh",
+  "loading": "Loading screenshots…",
+  "empty": "No screenshots yet.",
+  "preview": "Preview {name}",
+  "imageError": "Could not load image",
+  "previous": "Previous",
+  "next": "Next",
+  "page": "{first}–{last} / {total}",
+  "close": "Close preview",
+  "loadingImage": "Loading image…",
+  "retry": "Retry",
+  "openOriginal": "Open original",
+  "listFailed": "Could not load screenshots. Refresh to try again.",
+  "previewFailed": "Could not load the preview. Refresh the gallery or open the original.",
+  "openFailed": "Could not open the file or folder.",
+  "previousImage": "Previous image",
+  "nextImage": "Next image",
+  "position": "{current} / {total}"
+}

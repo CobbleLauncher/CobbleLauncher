@@ -5,6 +5,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { RadioGroupItem, RadioGroupRoot } from 'reka-ui';
 import { defaultDownloadSettings, readDownloadSettings, validateDownloadSettings } from './download-settings';
 import { loaderLabel, type Game, type LauncherImportPreview } from './games';
+import { t } from './i18n';
 
 const emit = defineEmits<{ created: [game: Game]; busy: [value: boolean] }>();
 const preview = ref<LauncherImportPreview | null>(null);
@@ -34,13 +35,13 @@ watch(candidateId, () => {
 watch(contentId, () => { includeSaves.value = false; }, { flush: 'sync' });
 
 async function initialize() {
-  try { source.value = await readDownloadSettings(); directory.value = isTauri() ? await invoke<string>('default_game_directory') : '默认游戏文件夹'; }
-  catch (cause) { if (!disposed) error.value = `无法读取安装位置：${String(cause)}`; }
+  try { source.value = await readDownloadSettings(); directory.value = isTauri() ? await invoke<string>('default_game_directory') : t('launcherImport.defaultGameDirectory'); }
+  catch (cause) { if (!disposed) error.value = t('launcherImport.readLocationError', { cause: String(cause) }); }
   finally { loading.value = false; }
 }
 async function chooseSource() {
   if (busy.value || loading.value) return;
-  if (!isTauri()) { error.value = '请在桌面应用中导入已有游戏'; return; }
+  if (!isTauri()) { error.value = t('launcherImport.desktopOnly'); return; }
   picking.value = 'source'; error.value = '';
   try {
     const selected = await invoke<LauncherImportPreview | null>('preview_launcher_import');
@@ -49,7 +50,7 @@ async function chooseSource() {
     preview.value = selected;
     contentId.value = ''; name.value = ''; includeSaves.value = false;
     if (selected.candidates.length === 1) candidateId.value = selected.candidates[0]!.candidate_id;
-  } catch (cause) { if (!disposed) error.value = `无法读取来源游戏：${String(cause)}`; }
+  } catch (cause) { if (!disposed) error.value = t('launcherImport.readSourceError', { cause: String(cause) }); }
   finally { picking.value = null; }
 }
 async function chooseDirectory() {
@@ -58,16 +59,18 @@ async function chooseDirectory() {
   try {
     const selected = await invoke<string | null>('pick_game_directory');
     if (!disposed && selected) { directory.value = selected; useDefaultDirectory.value = false; }
-  } catch (cause) { if (!disposed) error.value = `无法选择文件夹：${String(cause)}`; }
+  } catch (cause) { if (!disposed) error.value = t('launcherImport.chooseFolderError', { cause: String(cause) }); }
   finally { picking.value = null; }
 }
 async function create() {
   if (busy.value || loading.value || !preview.value || !candidate.value?.supported || !contentRoot.value) return;
-  error.value = validateDownloadSettings(source.value) ?? '';
+  const downloadError = validateDownloadSettings(source.value);
+  error.value = downloadError && source.value.source !== 'custom' ? t('launcherImport.invalidDownloadSource')
+    : downloadError ? t('launcherImport.invalidMirror') : '';
   if (error.value) return;
   const trimmedName = name.value.trim();
-  if (!trimmedName) { error.value = '请填写游戏名称'; return; }
-  if (trimmedName.length > 80) { error.value = '游戏名称不能超过 80 个字符'; return; }
+  if (!trimmedName) { error.value = t('launcherImport.nameRequired'); return; }
+  if (trimmedName.length > 80) { error.value = t('launcherImport.nameTooLong'); return; }
   submitting.value = true;
   try {
     const game = await invoke<Game>('create_launcher_import', {
@@ -77,7 +80,7 @@ async function create() {
       source: { ...source.value, mirror: source.value.mirror.trim() }, useDefaultDirectory: useDefaultDirectory.value,
     });
     if (!disposed) emit('created', game);
-  } catch (cause) { if (!disposed) error.value = `无法导入游戏：${String(cause)}`; }
+  } catch (cause) { if (!disposed) error.value = t('launcherImport.importError', { cause: String(cause) }); }
   finally { submitting.value = false; }
 }
 onMounted(() => { void initialize(); });
@@ -87,7 +90,7 @@ onUnmounted(() => { disposed = true; emit('busy', false); });
 <template>
   <div class="import-launcher-page page-content">
     <p class="create-description">
-      从其他启动器迁移游戏，创建独立副本。
+      {{ t('launcherImport.description') }}
     </p>
     <button
       class="pack-picker"
@@ -100,7 +103,7 @@ onUnmounted(() => { disposed = true; emit('busy', false); });
         fill="none"
         aria-hidden="true"
       ><path d="M5 12h12l4 4h14v17H5zM5 12V7h12l4 5M20 21v8m-4-4 4 4 4-4" /></svg>
-      <span><strong>{{ picking === 'source' ? '正在读取…' : preview ? '更换来源目录' : '选择游戏目录' }}</strong><span class="setting-hint">.minecraft 或 Prism / MultiMC 实例目录</span></span>
+      <span><strong>{{ picking === 'source' ? t('launcherImport.reading') : preview ? t('launcherImport.changeSource') : t('launcherImport.chooseSource') }}</strong><span class="setting-hint">{{ t('launcherImport.sourceHint') }}</span></span>
       <span
         class="picker-arrow"
         aria-hidden="true"
@@ -113,10 +116,10 @@ onUnmounted(() => { disposed = true; emit('busy', false); });
     >
       <section
         class="launcher-import-source"
-        aria-label="来源信息"
+        :aria-label="t('launcherImport.sourceInfo')"
       >
         <p class="launcher-source-label">
-          来源目录
+          {{ t('launcherImport.sourceDirectory') }}
         </p>
         <p class="pack-origin">
           {{ preview.source_display }}
@@ -126,13 +129,13 @@ onUnmounted(() => { disposed = true; emit('busy', false); });
         v-if="!preview.candidates.length"
         class="profile-notice"
       >
-        没有找到可识别的游戏，请选择游戏目录或实例目录。
+        {{ t('launcherImport.noCandidates') }}
       </p>
       <div
         v-else
         class="form-field"
       >
-        <label for="launcher-import-candidate">来源游戏</label>
+        <label for="launcher-import-candidate">{{ t('launcherImport.sourceGame') }}</label>
         <select
           id="launcher-import-candidate"
           v-model="candidateId"
@@ -142,32 +145,32 @@ onUnmounted(() => { disposed = true; emit('busy', false); });
             disabled
             value=""
           >
-            请选择来源游戏
+            {{ t('launcherImport.selectSourceGame') }}
           </option>
           <option
             v-for="item in preview.candidates"
             :key="item.candidate_id"
             :value="item.candidate_id"
           >
-            {{ item.name }}{{ item.supported ? '' : '（暂不支持）' }}
+            {{ item.name }}{{ item.supported ? '' : ` (${t('launcherImport.unsupported')})` }}
           </option>
         </select>
       </div>
       <template v-if="candidate">
         <section
           class="launcher-import-summary"
-          aria-label="游戏信息"
+          :aria-label="t('launcherImport.gameInfo')"
         >
           <div class="compatibility-tags">
             <span v-if="candidate.minecraft_version">Minecraft {{ candidate.minecraft_version }}</span>
-            <span v-if="candidate.supported || candidate.loader_kind">{{ candidate.loader_kind ? `${loaderLabel(candidate.loader_kind)} ${candidate.loader_version ?? ''}` : '原版' }}</span>
+            <span v-if="candidate.supported || candidate.loader_kind">{{ candidate.loader_kind ? `${loaderLabel(candidate.loader_kind)} ${candidate.loader_version ?? ''}` : t('launcherImport.vanilla') }}</span>
           </div>
           <p
             v-if="!candidate.supported"
             class="settings-error"
             role="status"
           >
-            {{ candidate.unsupported_reason || '暂不支持导入此游戏' }}
+            {{ candidate.unsupported_reason || t('launcherImport.unsupportedImport') }}
           </p>
           <ul
             v-if="candidate.warnings.length"
@@ -186,7 +189,7 @@ onUnmounted(() => { disposed = true; emit('busy', false); });
             v-if="candidate.content_roots.length > 1"
             class="form-field"
           >
-            <label for="launcher-import-root">游戏数据目录</label>
+            <label for="launcher-import-root">{{ t('launcherImport.gameDataDirectory') }}</label>
             <select
               id="launcher-import-root"
               v-model="contentId"
@@ -196,7 +199,7 @@ onUnmounted(() => { disposed = true; emit('busy', false); });
                 disabled
                 value=""
               >
-                请选择数据目录
+                {{ t('launcherImport.selectDataDirectory') }}
               </option>
               <option
                 v-for="root in candidate.content_roots"
@@ -207,14 +210,14 @@ onUnmounted(() => { disposed = true; emit('busy', false); });
               </option>
             </select>
             <p class="setting-hint">
-              选择要复制的 Mods、配置和其他游戏内容。
+              {{ t('launcherImport.dataDirectoryHint') }}
             </p>
           </div>
           <p
             v-else-if="!candidate.content_roots.length"
             class="profile-notice"
           >
-            未找到可导入的游戏数据目录。
+            {{ t('launcherImport.noDataDirectory') }}
           </p>
           <template v-if="contentRoot">
             <label
@@ -225,10 +228,10 @@ onUnmounted(() => { disposed = true; emit('busy', false); });
                 v-model="includeSaves"
                 type="checkbox"
                 :disabled="busy"
-              ><span>包含存档</span>
+              ><span>{{ t('launcherImport.includeSaves') }}</span>
             </label>
             <div class="form-field">
-              <label for="launcher-import-name">游戏名称</label>
+              <label for="launcher-import-name">{{ t('launcherImport.gameName') }}</label>
               <input
                 id="launcher-import-name"
                 v-model="name"
@@ -238,7 +241,7 @@ onUnmounted(() => { disposed = true; emit('busy', false); });
               >
             </div>
             <div class="form-field">
-              <label id="launcher-import-source-label">下载源</label>
+              <label id="launcher-import-source-label">{{ t('launcherImport.downloadSource') }}</label>
               <RadioGroupRoot
                 v-model="source.source"
                 class="source-options"
@@ -249,41 +252,43 @@ onUnmounted(() => { disposed = true; emit('busy', false); });
                   value="automatic"
                   class="source-option"
                 >
-                  自动（推荐）
+                  {{ t('launcherImport.automaticRecommended') }}
                 </RadioGroupItem>
                 <RadioGroupItem
                   value="official"
                   class="source-option"
                 >
-                  官方
+                  {{ t('launcherImport.official') }}
                 </RadioGroupItem>
                 <RadioGroupItem
                   value="bmclapi"
                   class="source-option"
                 >
-                  BMCLAPI
+                  {{ t('launcherImport.bmclapi') }}
                 </RadioGroupItem>
                 <RadioGroupItem
+                  v-if="source.mirror"
                   value="custom"
                   class="source-option"
                 >
-                  自定义镜像
+                  {{ t('launcherImport.customMirror') }}
                 </RadioGroupItem>
               </RadioGroupRoot>
               <p
                 v-if="source.source === 'automatic'"
                 class="setting-hint"
               >
-                自动选择响应较快的下载源，失败时切换。
+                {{ t('launcherImport.automaticHint') }}
               </p>
               <template v-if="source.source === 'custom'">
                 <label
                   class="sr-only"
                   for="launcher-import-mirror"
-                >镜像地址</label>
+                >{{ t('launcherImport.mirrorAddress') }}</label>
                 <input
                   id="launcher-import-mirror"
                   v-model="source.mirror"
+                  readonly
                   type="url"
                   placeholder="https://mirror.example.com/"
                   :disabled="busy"
@@ -291,7 +296,7 @@ onUnmounted(() => { disposed = true; emit('busy', false); });
               </template>
             </div>
             <div class="form-field">
-              <label>安装位置</label>
+              <label>{{ t('launcherImport.installLocation') }}</label>
               <button
                 type="button"
                 class="folder-button"
@@ -303,14 +308,14 @@ onUnmounted(() => { disposed = true; emit('busy', false); });
                   fill="none"
                   aria-hidden="true"
                 ><path d="M3 7h7l2 2h9v11H3zM3 7V4h7l2 3" /></svg>
-                <span>{{ directory || '默认游戏文件夹' }}</span><span class="folder-change">更改</span>
+                <span>{{ directory || t('launcherImport.defaultGameDirectory') }}</span><span class="folder-change">{{ t('launcherImport.change') }}</span>
               </button>
               <p class="setting-hint">
-                将在此文件夹内创建独立的游戏目录。
+                {{ t('launcherImport.installLocationHint') }}
               </p>
             </div>
             <p class="launcher-import-copy-hint">
-              请先关闭来源游戏。将复制 Mods、配置、资源包和光影包，来源目录不会修改。
+              {{ t('launcherImport.copyNotice') }}
             </p>
           </template>
         </template>
@@ -319,7 +324,7 @@ onUnmounted(() => { disposed = true; emit('busy', false); });
           type="submit"
           :disabled="loading || busy || !candidate.supported || !contentRoot"
         >
-          {{ submitting ? '正在创建…' : '导入为独立游戏' }}
+          {{ submitting ? t('launcherImport.creating') : t('launcherImport.importButton') }}
         </button>
       </template>
     </form>

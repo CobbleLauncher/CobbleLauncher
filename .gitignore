@@ -52,8 +52,19 @@ __pycache__/
 !/scripts/license-policy.json
 !/scripts/licenses.test.mjs
 !/scripts/package-windows.mjs
+!/scripts/build-plugin.mjs
 /fixtures/*
 !/fixtures/security/
 
 # Public synthetic identity required by offline TLS tests; never used in production
 !/crates/net/tests/fixtures/synthetic-identity.p12
+
+# Reviewed local launch helper and focused synthetic credential tests
+!/scripts/launch-desktop-local.mjs
+!/scripts/launch-desktop-local.test.mjs
+!/scripts/build-plugin.test.mjs
+!/scripts/official-plugins.mjs
+!/scripts/generate-inspection-icons.mjs
+
+# Acceptance evidence stays local, including nested app output
+**/validation/

@@ -1,12 +1,21 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import MarketImage from "./MarketImage.vue";
+import { marketReturn } from './market-return';
+import MarketGallery from "./MarketGallery.vue";
+import VersionSelector from './VersionSelector.vue';
+import { preferredRelease } from './version-selector';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { t } from './i18n';
+import LoadingIndicator from './ui/LoadingIndicator.vue';
 import type { ContentPackVersion, LocalPack, LocalPackKind, ModSearchHit, ModSearchPage } from './games';
 
-const props = defineProps<{ gameId: string; kind: LocalPackKind; locked: boolean; revision?: number }>();
+const props = defineProps<{ gameId: string; kind: LocalPackKind; locked: boolean; revision?: number; browseOnMount?: boolean }>();
 const emit = defineEmits<{ busy: [value: boolean]; installed: [packs: LocalPack[]] }>();
 const label = computed(() => props.kind === 'resource_pack' ? '资源包' : '光影包');
+const root = ref<HTMLElement>();
+const detailReturn = marketReturn(root);
 const query = ref('');
 const submitted = ref('');
 const hits = ref<ModSearchHit[]>([]);
@@ -34,7 +43,6 @@ async function search(offset = 0, retry = false) {
   if (installing.value) return;
   const current = ++searchRequest;
   if (!offset && !retry) submitted.value = query.value.trim();
-  if (!offset) { hits.value = []; nextOffset.value = 0; hasMore.value = false; }
   failedOffset = offset;
   searched.value = true; searching.value = true; searchError.value = '';
   try {
@@ -53,17 +61,18 @@ async function loadVersions() {
   try {
     const result = await invoke<ContentPackVersion[]>('list_game_content_pack_versions', { id: props.gameId, kind: props.kind, projectId: selected.value.project_id });
     if (current !== versionRequest) return;
-    versions.value = result; versionId.value = result[0]?.version_id ?? '';
+    versions.value = result; versionId.value = preferredRelease(result)?.version_id ?? '';
   } catch (cause) { if (current === versionRequest) versionError.value = `无法读取${label.value}版本：${String(cause)}`; }
   finally { if (current === versionRequest) loadingVersions.value = false; }
 }
 function select(hit: ModSearchHit) {
-  if (installing.value) return;
+  if (installing.value || searching.value) return;
+  detailReturn.enter(hit.project_id);
   selected.value = hit; void loadVersions();
 }
 function back() {
   if (installing.value) return;
-  ++versionRequest; selected.value = null; loadingVersions.value = false; versionError.value = ''; installError.value = '';
+  ++versionRequest; selected.value = null; loadingVersions.value = false; versionError.value = ''; installError.value = ''; detailReturn.restore();
 }
 async function install() {
   if (!selected.value || !chosenVersion.value || props.locked || installing.value) return;
@@ -78,16 +87,17 @@ watch(() => [props.gameId, props.kind], () => {
   ++searchRequest; ++versionRequest; query.value = ''; submitted.value = ''; hits.value = [];
   selected.value = null; versions.value = []; versionId.value = ''; searched.value = false;
   searching.value = false; loadingVersions.value = false; hasMore.value = false;
-  searchError.value = ''; versionError.value = ''; installError.value = '';
+  searchError.value = ''; versionError.value = ''; installError.value = ''; detailReturn.restore();
 });
 watch(() => props.revision, () => { installError.value = ''; });
 onUnmounted(() => { disposed = true; ++searchRequest; ++versionRequest; });
+onMounted(() => { if (props.browseOnMount) void search(); });
 </script>
 <template>
-  <div class="discover-content discover-local-packs">
-    <p class="pack-discovery-source">
-      来自 Modrinth
-    </p>
+  <div
+    ref="root"
+    class="discover-content discover-local-packs"
+  >
     <template v-if="selected">
       <button
         class="text-button"
@@ -97,10 +107,11 @@ onUnmounted(() => { disposed = true; ++searchRequest; ++versionRequest; });
         ← 返回搜索结果
       </button>
       <div class="mod-preview pack-project-preview">
-        <span
-          class="project-monogram"
-          aria-hidden="true"
-        >{{ selected.title.slice(0, 1) }}</span>
+        <MarketImage
+          provider="modrinth"
+          :url="selected.icon_url"
+          :title="selected.title"
+        />
         <div class="mod-info">
           <h2>{{ selected.title }}</h2><p class="mod-meta">
             {{ selected.author }} · {{ downloadCount(selected.downloads) }} 次下载
@@ -110,6 +121,12 @@ onUnmounted(() => { disposed = true; ++searchRequest; ++versionRequest; });
       <p class="preview-description">
         {{ selected.description }}
       </p>
+      <MarketGallery
+        v-if="selected.gallery?.length"
+        provider="modrinth"
+        :urls="selected.gallery"
+        :title="selected.title"
+      />
       <p
         v-if="loadingVersions"
         class="content-empty"
@@ -132,20 +149,13 @@ onUnmounted(() => { disposed = true; ++searchRequest; ++versionRequest; });
       <template v-else-if="versions.length">
         <div class="form-field pack-version-field">
           <label :for="`content-pack-version-${kind}`">{{ label }}版本</label>
-          <select
+          <VersionSelector
             :id="`content-pack-version-${kind}`"
             v-model="versionId"
             :disabled="installing"
-            @change="installError = ''"
-          >
-            <option
-              v-for="version in versions"
-              :key="version.version_id"
-              :value="version.version_id"
-            >
-              {{ version.name }}{{ version.name !== version.version_number ? ` · ${version.version_number}` : '' }} · {{ versionType(version.version_type) }} · {{ version.date_published.slice(0, 10) }}
-            </option>
-          </select>
+            :options="versions.map(version => ({ value: version.version_id, label: `${version.name}${version.name !== version.version_number ? ` · ${version.version_number}` : ''} · ${versionType(version.version_type)} · ${version.date_published.slice(0, 10)}` }))"
+            @update:model-value="installError = ''"
+          />
         </div>
         <p class="setting-hint content-pack-use-hint">
           {{ kind === 'resource_pack' ? '安装后在游戏内选择资源包。' : '需要支持光影的游戏环境，安装后在游戏内选择。' }}
@@ -216,12 +226,15 @@ onUnmounted(() => { disposed = true; ++searchRequest; ++versionRequest; });
         <li
           v-for="hit in hits"
           :key="hit.project_id"
-          class="mod-row"
+          class="mod-row ui-card-action-surface"
         >
-          <span
-            class="project-monogram"
-            aria-hidden="true"
-          >{{ hit.title.slice(0, 1) }}</span>
+          <MarketImage
+            provider="modrinth"
+            :url="hit.preview_url || hit.gallery?.[0] || hit.icon_url"
+            :title="hit.title"
+            :preview="!!(hit.preview_url || hit.gallery?.[0])"
+            artwork
+          />
           <div class="mod-info">
             <h3>{{ hit.title }}</h3><p class="mod-description">
               {{ hit.description }}
@@ -230,7 +243,10 @@ onUnmounted(() => { disposed = true; ++searchRequest; ++versionRequest; });
             </p>
           </div>
           <button
-            class="secondary-button"
+            class="text-button ui-stretched-action"
+            type="button"
+            :disabled="searching || installing"
+            :data-market-project="hit.project_id"
             :aria-label="`查看 ${hit.title}`"
             @click="select(hit)"
           >
@@ -250,13 +266,12 @@ onUnmounted(() => { disposed = true; ++searchRequest; ++versionRequest; });
           重试搜索
         </button>
       </div>
-      <p
+      <LoadingIndicator
         v-else-if="searching"
-        class="content-empty"
-        role="status"
-      >
-        正在搜索…
-      </p>
+        :label="t('market.searching')"
+        :skeleton="!hits.length"
+        :compact="!!hits.length"
+      />
       <p
         v-else-if="searched && !hits.length"
         class="content-empty"

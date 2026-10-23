@@ -1,6 +1,10 @@
 [workspace]
 resolver = "3"
 members = [
+  "crates/backup",
+  "crates/blueprint-catalog",
+  "crates/diagnostics",
+  "crates/modpack-inspector",
   "crates/domain",
   "crates/core",
   "crates/store",
@@ -9,6 +13,28 @@ members = [
   "crates/content",
   "crates/auth",
   "crates/plugin-api",
+  "crates/plugin-trust",
+  "crates/plugin-host",
+  "crates/plugin-webview-windows",
+  "crates/plugin-sdk",
+  "examples/schematic-viewer",
+  "examples/crash-doctor",
+  "examples/modpack-inspector",
+  "examples/mcs-provider",
+  "examples/session-card",
+  "examples/config-doctor",
+  "examples/pack-metadata",
+  "examples/screenshot-sheet",
+  "examples/mod-conflicts",
+  "examples/resource-pack-stack",
+  "examples/world-dashboard",
+  "examples/backup-auditor",
+  "examples/screenshot-timeline",
+  "examples/controls-auditor",
+  "crates/cobble-datapack-auditor-guest",
+  "crates/cobble-serverbook-inspector-guest",
+  "crates/cobble-storage-lens-guest",
+  "crates/cobble-runtime-advisor-guest",
   "crates/platform",
   "apps/cli",
   "apps/desktop/src-tauri"
@@ -56,3 +82,4 @@ curl = { version = "=0.4.51", default-features = false, features = ["ssl"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+

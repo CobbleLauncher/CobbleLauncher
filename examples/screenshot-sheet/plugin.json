@@ -1,0 +1,37 @@
+{
+  "id": "screenshot-sheet",
+  "name": "Screenshot Sheet",
+  "version": "0.1.0",
+  "api_version": "0.1.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "image-layout"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:image-layout",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "permissions": [
+    {
+      "permission": "launcher:images/selected/read"
+    },
+    {
+      "permission": "launcher:images/output/propose"
+    }
+  ],
+  "file_extensions": [],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Arrange selected screenshots into a contact sheet",
+    "zh-CN": "将所选截图排列为拼图"
+  },
+  "tags": [
+    "screenshots",
+    "images",
+    "layout"
+  ]
+}

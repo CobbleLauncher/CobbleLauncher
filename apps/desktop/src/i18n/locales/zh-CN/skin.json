@@ -1,0 +1,14 @@
+{
+  "previewError": "无法显示三维预览",
+  "loadError": "无法读取皮肤，请重试",
+  "preview": "皮肤三维预览",
+  "localOnly": "仅在启动器中展示",
+  "choose": "选择 PNG 皮肤",
+  "model": "模型",
+  "classic": "宽模型",
+  "slim": "细模型",
+  "apply": "应用到正版账号",
+  "save": "保存皮肤",
+  "cancel": "取消",
+  "refresh": "刷新皮肤"
+}

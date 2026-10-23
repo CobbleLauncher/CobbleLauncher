@@ -1,0 +1,22 @@
+[package]
+name = "cobble-plugin-webview-windows"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+url.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+webview2-com = "=0.39.1"
+windows = "=0.62.2"
+
+# Deliberate, narrowly scoped exception: the desktop crate keeps unsafe_code=forbid.
+# Only this adapter calls the pinned, typed WebView2 COM interfaces.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

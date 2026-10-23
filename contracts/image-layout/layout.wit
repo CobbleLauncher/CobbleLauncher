@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: MIT
+package launcher:image-layout@0.1.0;
+interface layout {
+  record failure { code: string, message: string }
+  record image { id: string, name: string, width: u16, height: u16, modified-at: option<u64> }
+  enum ordering { selected, oldest, newest }
+  record request { locale: string, images: list<image>, columns: u8, ordering: ordering }
+  record rgb { red: u8, green: u8, blue: u8 }
+  record sheet { columns: u8, gap: u8, background: rgb, image-ids: list<string> }
+  // Metadata only. Host retains pixels and requires explicit Save As.
+  compose: func(request: request) -> result<sheet, failure>;
+}
+world image-layout { export layout; }
