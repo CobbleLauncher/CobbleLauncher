@@ -55,6 +55,7 @@ export function meshContent(lang){
  ['Identify','/cobblemesh/identify/1',t('对端身份与连接信息','Peer identity and connection information')],
  [t('游戏流','Game stream'),'/cobblemesh/game-stream/0.1.0',t('邀请约束下的游戏桥接','Invitation-scoped game bridge')],
  [t('小组流','Group stream'),'/cobblemesh/group-stream/0.1.0/{peer}',t('按对端区分的小组桥接','Per-peer group bridge')],
+ [t('插件应用事件','Plugin application events'),'/cobblemesh/events/1.0.0',t('认证联系人与精确命名空间收发权限','Authenticated contacts and exact namespace send/receive grants')],
  [t('签名域','Signature domain'),'cobble-mesh/user-profile/v1',t('公开档案签名的域分隔','Domain separation for profile signatures')]
  ];
  out+=`<table class="protocol-table"><thead><tr><th>${t('用途','Purpose')}</th><th>${t('协议 / 域','Protocol / domain')}</th><th>${t('边界','Scope')}</th></tr></thead><tbody>${protocols.map(row=>`<tr><td>${row[0]}</td><td><code>${row[1]}</code></td><td>${row[2]}</td></tr>`).join('')}</tbody></table>`;
@@ -64,7 +65,7 @@ session_route · session_evidence
   peer_scope · selected_connection
   bytes_sent · bytes_received
   active_streams · completed_streams</pre></div></div>`;
- out+=prose(t('插件集成沿用宿主权限边界：以游戏上下文、受限动作和资源句柄暴露真实需要的能力。通用 Mesh 插件 API 仍需随具体消费者完善；当前原生快照不等于已经发布的稳定 SDK。','Plugin integration follows host permission boundaries: game context, scoped actions and resource handles for real consumers. A general Mesh plugin API still needs to evolve with those consumers; the current native snapshot is not a published stable SDK.'))+'</section>';
+ out+=prose(t('TypeScript SDK 已提供精确命名空间的 on / send 应用事件。插件只能与已批准的联系人通信，收发权限独立声明；路由及中继策略由宿主决定。两个隔离原生插件视图已完成真实公网中继双向联调，送达回执表示对端宿主接收，不表示玩家已读。','The TypeScript SDK provides on / send application events within exact namespaces. Plugins communicate only with approved contacts, declare send and receive grants separately, and leave routing and relay policy to the host. Two isolated native plugin views have exchanged events through an actual public relay. A receipt means the remote host accepted the message, not that a player read it.'),t('公网应用事件与游戏／小组预约由宿主协调暂停和恢复。路由变化后，插件按 SDK 状态重建订阅；不承诺离线重放或恰好一次执行。','The host pauses and restores public application events around game/group reservations. After a route change, plugins rebuild subscriptions from SDK status; offline replay and exactly-once execution are not promised.'))+'</section>';
  out+=header('status','06',t('每一个“在线”，都应该有依据。','Every “online” needs evidence.'));
  out+=prose(t('开启在线模式后，后台自动连接，不阻塞首页。首轮最多尝试三次，每次 10 秒，重试间隔为 2 秒和 5 秒并加少量抖动。失败后逐步延长后台重试间隔；关闭 Mesh 会取消当前连接与重试。','Online mode starts background connections without blocking the home screen. The first round makes up to three attempts, with a ten-second budget each, two- and five-second retry gaps, and jitter. Later retries back off. Turning Mesh off cancels active connections and retries.'));
  out+=figure('states-figure',t('后台连接状态','Background connection states'),svg('states-svg',t('离线模式开启后连接，成功在线，断开重连，失败继续后台恢复','Enabling online mode connects, authenticates, reconnects after disconnects, and recovers after failures'),
@@ -72,10 +73,10 @@ session_route · session_evidence
  line('M 365 126 V 235 H 545','muted-wire')+box(545,197,250,t('连接失败','Connection failed'),'background backoff')+
  line('M 795 235 H 860 V 126','muted-wire')+text(280,259,t('失败后继续后台恢复','recover in the background')),300),t('关闭模式会使当前连接代次失效，迟到的事件不能把状态重新设为在线。在线只表示已有认证服务连接，具体游戏路径另行记录。','Disabling the mode invalidates the connection generation, so late events cannot restore online state. Online means an authenticated service connection; the actual game route is tracked separately.'));
  const rows=[
- [t('已接入','Integrated'),t('本地签名身份、引导目录、长期认证连接、显式中继、游戏桥接、三人小组及 Inspector。','Local signed identities, bootstrap directory, persistent authenticated connections, explicit relay, game bridges, three-person groups and Inspector.')],
+ [t('已接入','Integrated'),t('本地签名身份、引导目录、长期认证连接、显式中继、游戏桥接、三人小组、Inspector 与精确授权的插件应用事件。','Local signed identities, bootstrap directory, persistent authenticated connections, explicit relay, game bridges, three-person groups, Inspector and scoped plugin application events.')],
  [t('继续验证','Under validation'),t('真实 Minecraft 多人小组完整流程、更多网络拓扑与断线恢复。页面中的结构图不是实时服务状态。','End-to-end real Minecraft group sessions, additional network topologies and reconnect behavior. These diagrams are architecture, not live service status.')],
  [t('接入中的能力','Integration work'),t('AutoNAT 外部地址验证、直达观察入口、DCUtR 与正式游戏入口的自动选路。双 NAT 公网打洞仍需要独立环境验证。','AutoNAT address verification, a direct observer endpoint, DCUtR and automatic route selection in game workflows. Public double-NAT hole punching still needs an independent test topology.')],
- [t('后续方向','Future directions'),t('围绕实际应用完善 SDK 与节点能力发现。VLAN、群组聊天与评分网络不属于当前交付。','Extend SDK and node capability discovery around real applications. VLANs, group chat and reputation networks are outside the current delivery.')]
+ [t('后续方向','Future directions'),t('节点软件构建版本展示与独立更新器仍属后续计划。已有协议版本与 Identify 能力信息；VLAN、群组聊天与评分网络不属于当前交付。','Node software build display and an independent updater remain planned. Protocol versions and Identify capability information already exist; VLANs, group chat and reputation networks are outside the current delivery.')]
  ];
  out+=`<ul class="status-list">${rows.map(([a,b])=>`<li><b>${a}</b><span>${b}</span></li>`).join('')}</ul></section><div class="mesh-end"><span class="mesh-prose">${t('继续读代码，也欢迎一起把协议磨好。','Explore the source. Help refine the protocol.')}</span><a class="button" href="https://github.com/libp2p/specs">${t('libp2p 协议文档','libp2p specifications')} ↗</a></div>`;
  return out;

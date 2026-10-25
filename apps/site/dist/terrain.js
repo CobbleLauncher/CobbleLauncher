@@ -10,7 +10,7 @@ const tint = (hex,factor) => '#'+hex.slice(1).match(/../g).map(v=>Math.max(0,Mat
 
 export function createTerrain(canvas) {
   const ctx=canvas.getContext('2d');
-  let biome='meadow', turn=0, targetTurn=0, rotationFrame=0, queued=false, active=true;
+  let biome='meadow', turn=0, targetTurn=0, rotationFrame=0, queued=false, active=true, inView=true;
   const terrain=[];
   for(let x=-12;x<=12;x++) for(let z=-11;z<=11;z++) {
     const distance=(x/12)**2+(z/10.5)**2;
@@ -79,8 +79,10 @@ export function createTerrain(canvas) {
   }
   function schedule() { if(!queued&&active){queued=true;requestAnimationFrame(draw);} }
   const resize=new ResizeObserver(schedule);resize.observe(canvas);
-  const visibility=new IntersectionObserver(([entry])=>{active=entry.isIntersecting;if(active)schedule();});visibility.observe(canvas);
-  document.addEventListener('visibilitychange',()=>{active=!document.hidden;if(active)schedule();});
+  function syncVisibility(){active=inView&&!document.hidden;if(active)schedule();else {cancelAnimationFrame(rotationFrame);turn=targetTurn;}}
+  const visibility=new IntersectionObserver(([entry])=>{inView=entry.isIntersecting;syncVisibility();});visibility.observe(canvas);
+  document.addEventListener('visibilitychange',syncVisibility);
+  matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change',event=>{if(event.matches){cancelAnimationFrame(rotationFrame);turn=targetTurn;schedule();}});
   schedule();
   return {
     setBiome(value){if(palettes[value]){biome=value;schedule();}},

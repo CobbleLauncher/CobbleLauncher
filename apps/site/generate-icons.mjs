@@ -6,7 +6,7 @@ const require=createRequire(new URL('../desktop/package.json',import.meta.url));
 const {createSSRApp,h}=require('vue');
 const {renderToString}=require('vue/server-renderer');
 const icons=require('@lucide/vue');
-const names=['ArrowUpRight','ArrowDown','ArrowDownRight','SunMoon','RotateCw','Coffee','Download','Undo2','Shapes','Compass','ScanLine','HardDrive','Leaf','Code2','X','Play','Check','Zap','Mountain','Layers','Blocks','History','GitCompareArrows'];
+const names=['ArrowUpRight','ArrowDown','ArrowDownRight','SunMoon','RotateCw','Coffee','Download','Undo2','Shapes','Compass','ScanLine','HardDrive','Leaf','Code2','X','Play','Check','Zap','Mountain','Layers','Blocks','History','GitCompareArrows','Hammer','Terminal','Image','ShieldCheck','UsersRound','Globe','Languages'];
 const symbols=[];
 for(const name of names){
   const svg=await renderToString(createSSRApp({render:()=>h(icons[name])}));
