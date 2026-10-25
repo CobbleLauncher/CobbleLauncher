@@ -1,5 +1,6 @@
 {
   "installLocal": "Install local plugin",
+  "noneInstalled": "No extensions installed.",
   "bundled": "Included plugins",
   "retry": "Retry",
   "missingInterface": "A required plugin capability is unavailable. Enable or install a compatible plugin.",
@@ -14,6 +15,8 @@
   "moreActions": "More actions for {name}",
   "refreshCatalogNamed": "Refresh {name}",
   "uninstall": "Uninstall",
+  "uninstallTitle": "Uninstall {name}?",
+  "uninstallWarning": "The extension will stop and its installed files will be removed.",
   "catalogs": "Plugin catalogs",
   "catalogName": "Catalog name",
   "catalogUrl": "HTTPS URL",

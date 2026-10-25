@@ -1,32 +1,47 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
+import UpdateSettings from './UpdateSettings.vue';
 import SettingsSection from './ui/settings/SettingsSection.vue';
 import SettingsDisclosure from './ui/settings/SettingsDisclosure.vue';
-import { computed, onMounted, ref, watch, onUnmounted } from 'vue';
+import { computed, nextTick, onMounted, ref, watch, onUnmounted } from 'vue';
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import { RadioGroupRoot, RadioGroupItem, TabsRoot, TabsList, TabsTrigger, TabsContent, DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle } from 'reka-ui';
+import { RadioGroupRoot, RadioGroupItem, TabsRoot, TabsContent, DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle } from 'reka-ui';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import SettingsRow from './ui/settings/SettingsRow.vue';
-import SettingsActions from './ui/settings/SettingsActions.vue';
+import SettingsSaveBar from './settings/SettingsSaveBar.vue';
+import GameDirectoryMigration from './settings/GameDirectoryMigration.vue';
+import ConfirmationDialog from './ui/ConfirmationDialog.vue';
+import type { HomeGame } from './library-home';
 import AppIconButton from './ui/AppIconButton.vue';
-import AppIcon from './ui/AppIcon.vue';
-import type { AppIconName } from './ui/icons';
+import SettingsNavigation from './settings/SettingsNavigation.vue';
 import SelectField from './ui/SelectField.vue';
 import SwitchField from './ui/SwitchField.vue';
 import { settingsCategories, type SettingsCategory } from './settings/categories';
-import { applyTheme, readTheme, type Theme } from './theme';
+import AppearanceSettings from './AppearanceSettings.vue';
+import HomeLayoutSettings from './HomeLayoutSettings.vue';
+import ShortcutSettings from './commands/ShortcutSettings.vue';
+import type { CommandAction } from './commands/registry';
 import MemoryField from './MemoryField.vue';
 import AdvancedRuntimeSettings from './AdvancedRuntimeSettings.vue';
-import { t, localePreference, supportedLocales, setLocale } from './i18n';
+import { t, locale, localePreference, supportedLocales, setLocale, type LocalePreference } from './i18n';
 import type { JavaSelection, LauncherPreferences } from './games';
 import { defaultDownloadSettings, readDownloadSettings, saveDownloadSettings, validateDownloadSettings } from './download-settings';
-const theme = ref<Theme>(readTheme());
-const options = computed(() => ['system', 'light', 'dark'] as const);
-const emit = defineEmits<{ saved: []; profiles: [] }>();
-const props = defineProps<{ initialCategory?: string; extraCategories?: SettingsCategory[]; beforeCategoryLeave?: () => Promise<boolean> }>();
-const categories = computed(() => settingsCategories(props.extraCategories));
-const categoryIcons: Record<string, AppIconName> = { general: 'palette', downloads: 'hard-drive', runtime: 'cpu', accounts: 'user', about: 'info' };
+const emit = defineEmits<{ saved: []; profiles: []; firstRun: []; reviewTerms: []; migrateGames: [] }>();
+const props = defineProps<{ initialCategory?: string; extraCategories?: SettingsCategory[]; commands?: CommandAction[]; games?: HomeGame[]; beforeCategoryLeave?: () => Promise<boolean> }>();
+const categories = computed(() => {
+  const result = settingsCategories(props.extraCategories);
+  result.splice(1, 0,
+    { id: 'home-layout', label: t('settingsLayout.homeLayout.title') },
+    { id: 'shortcuts', label: locale.value === 'zh-CN' ? '快捷键' : 'Shortcuts' });
+  return result;
+});
 const activeCategory = ref(categories.value.some(item => item.id === props.initialCategory) ? props.initialCategory! : 'general');
+const categoryTitle = computed(() => { const category = categories.value.find(item => item.id === activeCategory.value); return category?.labelKey ? t(category.labelKey) : category?.label ?? ''; });
+const languageSaved = ref(localePreference.value);
+const languageDraft = ref<LocalePreference>(languageSaved.value);
+const languageDirty = computed(() => languageDraft.value !== languageSaved.value);
+function stageLanguage(value: string) { if (value === 'system' || value === 'en-US' || value === 'zh-CN') languageDraft.value = value; }
+const sectionNames = computed(() => locale.value === 'zh-CN' ? { downloads: '下载', storage: '存储', runtime: 'Java 与内存', language: '语言', diagnostics: '诊断' } : { downloads: 'Downloads', storage: 'Storage', runtime: 'Java and memory', language: 'Language', diagnostics: 'Diagnostics' });
 const downloadSettings = ref(defaultDownloadSettings());
 const loadedDownloadSettings = ref<ReturnType<typeof defaultDownloadSettings> | null>(null);
 const hasDownloadChanges = computed(() => loadedDownloadSettings.value !== null && (
@@ -119,12 +134,12 @@ async function finishSettings() {
   catch { settingsError.value = t('settingsLayout.saveFailed'); }
   finally { savingSettings.value = false; }
 }
-function changeTheme(value: unknown) {
-  if (value === 'system' || value === 'light' || value === 'dark') { theme.value = value; applyTheme(value); }
-}
 
 const native = isTauri();
 const javaSelection = ref<JavaSelection>({ mode: 'automatic', executable: null, runtime: null });
+const javaSaved = ref<JavaSelection | null>(null);
+const javaRuntimeId = ref<string | null>(null);
+const javaDirty = computed(() => javaSaved.value !== null && (javaSelection.value.mode !== javaSaved.value.mode || javaSelection.value.executable !== javaSaved.value.executable));
 const javaReady = ref(false);
 const javaBusy = ref(false);
 const javaError = ref('');
@@ -139,33 +154,36 @@ async function scanJava(rescan = false) {
   catch { if (!javaError.value) javaError.value = t('settingsLayout.javaFailed'); }
   finally { javaScanning.value = false; }
 }
-async function chooseDetectedJava(runtimeId: string) {
-  if (!runtimeId || javaRuntimes.value.find(runtime => runtime.executable === javaSelection.value.executable)?.id === runtimeId) return;
-  javaBusy.value = true; javaError.value = '';
-  try { javaSelection.value = await invoke<JavaSelection>('select_java_runtime', { runtimeId }); }
-  catch { javaError.value = t('settingsLayout.javaFailed'); }
-  finally { javaBusy.value = false; }
+function chooseDetectedJava(runtimeId: string) {
+  const runtime = javaRuntimes.value.find(runtime => runtime.id === runtimeId);
+  if (!runtime || javaBusy.value) return;
+  javaRuntimeId.value = runtime.id;
+  javaSelection.value = { mode: 'custom', executable: runtime.executable, runtime };
+  javaError.value = '';
 }
 async function loadJava() {
   if (!native) return;
-  try { javaSelection.value = await invoke<JavaSelection>('get_java_settings'); javaReady.value = true; }
+  try { javaSelection.value = await invoke<JavaSelection>('get_java_settings'); javaSaved.value = { ...javaSelection.value }; javaReady.value = true; }
   catch { javaError.value = t('settingsLayout.loadFailed'); }
   finally { javaReady.value = true; }
 }
 async function selectJava() {
-  javaBusy.value = true;
-  javaError.value = '';
+  if (javaBusy.value) return;
+  javaBusy.value = true; javaError.value = '';
   try {
-    const selected = await invoke<JavaSelection | null>('pick_java_executable');
-    if (selected) javaSelection.value = selected;
-  } catch (cause) { javaError.value = `${t('settingsLayout.javaFailed')} ${String(cause)}`; }
+    const selected = await invoke<DetectedJava | null>('pick_java_candidate');
+    if (selected) { javaRuntimeId.value = selected.id; javaSelection.value = { mode: 'custom', executable: selected.executable, runtime: selected }; }
+  } catch { javaError.value = t('settingsLayout.javaFailed'); }
   finally { javaBusy.value = false; }
 }
-async function automaticJava() {
-  javaBusy.value = true;
-  javaError.value = '';
-  try { javaSelection.value = await invoke<JavaSelection>('use_automatic_java'); }
-  catch { javaError.value = t('settingsLayout.saveFailed'); }
+function automaticJava() { javaSelection.value = { mode: 'automatic', executable: null, runtime: null }; javaRuntimeId.value = null; javaError.value = ''; }
+async function saveJava() {
+  if (!javaDirty.value || javaBusy.value) return;
+  javaBusy.value = true; javaError.value = '';
+  try {
+    javaSelection.value = await invoke<JavaSelection>(javaSelection.value.mode === 'automatic' ? 'use_automatic_java' : 'select_java_runtime', javaSelection.value.mode === 'automatic' ? undefined : { runtimeId: javaRuntimeId.value });
+    javaSaved.value = { ...javaSelection.value };
+  } catch { javaError.value = t('settingsLayout.javaFailed'); }
   finally { javaBusy.value = false; }
 }
 const preferences = ref<LauncherPreferences | null>(null);
@@ -192,11 +210,15 @@ async function saveMemory() {
   catch { memoryError.value = t('settingsLayout.saveFailed'); }
   finally { memoryBusy.value = false; }
 }
+const directoryReset = ref(false);
+const directoryResetOpen = ref(false);
 async function changeDirectory(reset = false) {
   if (!native || directoryBusy.value || !preferences.value) return;
   directoryBusy.value = true; directoryError.value = '';
-  try { const value = await invoke<LauncherPreferences | null>(reset ? 'reset_default_game_directory' : 'pick_default_game_directory'); if (value) { preferences.value = value; directoryDraft.value = value.game_directory; } }
-  catch { directoryError.value = t('settingsLayout.directoryFailed'); }
+  try {
+    const value = await invoke<{ path: string } | null>(reset ? 'get_standard_game_directory' : 'pick_default_game_directory_candidate');
+    if (value) { directoryDraft.value = value.path; directoryReset.value = reset && preferences.value.custom_game_directory; }
+  } catch { directoryError.value = t('settingsLayout.directoryFailed'); }
   finally { directoryBusy.value = false; }
 }
 watch(activeCategory, (category) => {
@@ -207,18 +229,26 @@ watch(activeCategory, (category) => {
 onMounted(() => { void loadSettings(); });
 
 const directoryDraft = ref('');
-const directoryDirty = computed(() => !!preferences.value && directoryDraft.value !== preferences.value.game_directory);
+const directoryDirty = computed(() => !!preferences.value && (directoryReset.value || directoryDraft.value !== preferences.value.game_directory));
 const copied = ref(false);
 const advanced = ref<InstanceType<typeof AdvancedRuntimeSettings> | null>(null);
 const advancedDirty = ref(false);
+const appearance = ref<InstanceType<typeof AppearanceSettings> | null>(null);
+const appearanceDirty = ref(false);
 const memoryDirty = computed(() => !!preferences.value && memoryDraft.value !== preferences.value.memory_mb);
-const hasDrafts = computed(() => hasDownloadChanges.value || editingMirror.value || tuningDirty.value || memoryDirty.value || directoryDirty.value || advancedDirty.value);
-const pendingNative = computed(() => savingSettings.value || tuningBusy.value || memoryBusy.value || directoryBusy.value || javaBusy.value || advanced.value?.busy);
+const homeLayout = ref<InstanceType<typeof HomeLayoutSettings> | null>(null);
+const homeLayoutDirty = ref(false);
+const shortcuts = ref<InstanceType<typeof ShortcutSettings> | null>(null);
+const shortcutsDirty = ref(false);
+const savingAll = ref(false);
+const saveError = ref('');
+const hasDrafts = computed(() => homeLayoutDirty.value || shortcutsDirty.value || languageDirty.value || javaDirty.value || appearanceDirty.value || hasDownloadChanges.value || editingMirror.value || tuningDirty.value || memoryDirty.value || directoryDirty.value || advancedDirty.value);
+const pendingNative = computed(() => savingAll.value || savingSettings.value || tuningBusy.value || memoryBusy.value || directoryBusy.value || javaBusy.value || advanced.value?.busy);
 function cancelDownloads() { if (loadedDownloadSettings.value) downloadSettings.value = { ...loadedDownloadSettings.value }; editingMirror.value = false; settingsError.value = ''; }
 async function applyDirectory() {
   if (!directoryDirty.value || directoryBusy.value) return;
   directoryBusy.value = true; directoryError.value = '';
-  try { preferences.value = await invoke<LauncherPreferences>('set_default_game_directory', { path: directoryDraft.value.trim() }); directoryDraft.value = preferences.value.game_directory; }
+  try { preferences.value = await invoke<LauncherPreferences>(directoryReset.value ? 'reset_default_game_directory' : 'set_default_game_directory', directoryReset.value ? undefined : { path: directoryDraft.value.trim() }); directoryDraft.value = preferences.value.game_directory; directoryReset.value = false; }
   catch (cause) { directoryError.value = `${t('settingsLayout.directoryFailed')} ${String(cause)}`; }
   finally { directoryBusy.value = false; }
 }
@@ -228,24 +258,47 @@ async function copyDirectory() {
   catch { directoryError.value = t('settingsLayout.clipboardFailed'); }
 }
 function cancelAll() {
-  cancelDownloads(); tuning.value = { ...tuningSaved.value };
+  appearance.value?.cancel(); homeLayout.value?.cancel(); shortcuts.value?.cancel();
+  languageDraft.value = languageSaved.value;
+  if (javaSaved.value) javaSelection.value = { ...javaSaved.value };
+  javaRuntimeId.value = null; javaError.value = '';
+  cancelDownloads(); tuning.value = { ...tuningSaved.value }; tuningError.value = '';
   if (preferences.value) { memoryDraft.value = preferences.value.memory_mb; directoryDraft.value = preferences.value.game_directory; }
-  advanced.value?.cancel();
+  directoryReset.value = false; directoryError.value = ''; memoryError.value = '';
+  advanced.value?.cancel(); saveError.value = '';
 }
 async function applyAll() {
-  if (advancedDirty.value) await advanced.value?.save();
-  if (editingMirror.value) await addMirror();
-  if (hasDownloadChanges.value) await finishSettings();
-  if (tuningDirty.value) await saveTuning();
-  if (memoryDirty.value) await saveMemory();
-  if (directoryDirty.value) await applyDirectory();
+  if (pendingNative.value) return false;
+  savingAll.value = true; saveError.value = '';
+  let complete = false;
+  let group = 'downloads';
+  try {
+    if (editingMirror.value) { await addMirror(); if (editingMirror.value) return false; }
+    if (hasDownloadChanges.value && validateDownloadSettings(downloadSettings.value)) { settingsError.value = t('settingsLayout.customMirrorInvalid'); return false; }
+    if (memoryDirty.value && (!Number.isInteger(memoryDraft.value) || memoryDraft.value < 512 || memoryDraft.value > 262144)) { group = 'runtime'; memoryError.value = t('settingsLayout.memoryInvalid'); return false; }
+    if (javaDirty.value) { group = 'runtime'; await saveJava(); if (javaDirty.value) return false; }
+    if (advancedDirty.value) { group = 'runtime'; await advanced.value?.save(); await nextTick(); if (advancedDirty.value) return false; }
+    if (hasDownloadChanges.value) { group = 'downloads'; await finishSettings(); if (hasDownloadChanges.value) return false; }
+    if (tuningDirty.value) { group = 'downloads'; await saveTuning(); if (tuningDirty.value) return false; }
+    if (memoryDirty.value) { group = 'runtime'; await saveMemory(); if (memoryDirty.value) return false; }
+    if (directoryDirty.value) { group = 'downloads'; await applyDirectory(); if (directoryDirty.value) return false; }
+    if (shortcutsDirty.value) { group = 'shortcuts'; if (!shortcuts.value?.save()) return false; }
+    if (homeLayoutDirty.value) homeLayout.value?.save();
+    if (languageDirty.value) { setLocale(languageDraft.value); languageSaved.value = languageDraft.value; }
+    if (appearanceDirty.value) appearance.value?.save();
+    await nextTick(); complete = !hasDrafts.value; return complete;
+  } finally {
+    const category = categories.value.find(category => category.id === group);
+    saveError.value = complete ? '' : t('settingsLayout.editor.saveFailedCategory', { category: category?.labelKey ? t(category.labelKey) : category?.label ?? '' });
+    savingAll.value = false;
+  }
 }
 const categoryChanging = ref(false);
 const leavePrompt = ref(false);
 let leaveResolver: ((value: boolean) => void) | null = null;
 function canLeave() { return !props.beforeCategoryLeave && !pendingNative.value && !hasDrafts.value; }
 async function selectCategory(value: unknown) {
-  if (typeof value !== 'string' || value === activeCategory.value || pendingNative.value || categoryChanging.value) return;
+  if (typeof value !== 'string' || !categories.value.some(category => category.id === value) || value === activeCategory.value || pendingNative.value || categoryChanging.value) return;
   categoryChanging.value = true;
   try {
     if (props.beforeCategoryLeave && !await props.beforeCategoryLeave()) return;
@@ -262,455 +315,490 @@ async function confirmLeave(): Promise<boolean> {
 function finishLeave(value: boolean) { leavePrompt.value = false; leaveResolver?.(value); leaveResolver = null; }
 async function applyAndLeave() { await applyAll(); if (!hasDrafts.value) finishLeave(true); else finishLeave(false); }
 onUnmounted(() => { leaveResolver?.(false); });
-defineExpose({ canLeave, confirmLeave });
+watch(() => props.initialCategory, value => { if (value && categories.value.some(category => category.id === value)) void selectCategory(value); });
+defineExpose({ canLeave, confirmLeave, openCategory: selectCategory });
 </script>
 <template>
   <div class="settings-page page-content settings-layout">
     <TabsRoot
+      class="settings-workspace"
+      orientation="vertical"
       activation-mode="manual"
       :model-value="activeCategory"
       :unmount-on-hide="false"
       @update:model-value="selectCategory"
     >
-      <TabsList
-        class="settings-category-tabs"
-        :aria-label="t('settingsLayout.general')"
+      <SettingsNavigation
+        :categories="categories"
+        :active="activeCategory"
+        @select="selectCategory"
+      />
+      <div
+        class="settings-main"
+        :aria-busy="savingAll"
       >
-        <TabsTrigger
-          v-for="category in categories"
-          :key="category.id"
-          :value="category.id"
-          class="settings-category-tab"
+        <header class="settings-category-heading">
+          <h2>{{ categoryTitle }}</h2>
+        </header>
+        <div
+          class="settings-panels"
+          :inert="savingAll || undefined"
         >
-          <AppIcon :name="categoryIcons[category.id] ?? 'puzzle'" />
-          {{ category.labelKey ? t(category.labelKey) : category.label }}
-        </TabsTrigger>
-      </TabsList>
-      <TabsContent
-        value="general"
-        class="settings-category-content"
-      >
-        <SettingsSection>
-          <SettingsRow :label="t('settingsLayout.theme')">
-            <RadioGroupRoot
-              class="settings-choice-group"
-              :model-value="theme"
-              :aria-label="t('settingsLayout.theme')"
-              @update:model-value="changeTheme"
-            >
-              <RadioGroupItem
-                v-for="option in options"
-                :key="option"
-                :value="option"
-                class="settings-choice"
-              >
-                <AppIcon :name="option === 'system' ? 'monitor' : option === 'dark' ? 'moon' : 'sun'" />
-                {{ t(`settingsLayout.${option}`) }}
-              </RadioGroupItem>
-            </RadioGroupRoot>
-          </SettingsRow>
-          <SettingsRow
-            :label="t('common.language')"
-            input-id="language"
+          <TabsContent
+            value="general"
+            class="settings-category-content"
           >
-            <SelectField
-              id="language"
-              :model-value="localePreference"
-              :label="t('common.language')"
-              :options="[{ value: 'system', label: t('common.system') }, ...supportedLocales]"
-              @update:model-value="setLocale"
+            <AppearanceSettings
+              ref="appearance"
+              @dirty="appearanceDirty = $event"
             />
-          </SettingsRow>
-        </SettingsSection>
-      </TabsContent>
-      <TabsContent
-        value="downloads"
-        class="settings-category-content"
-      >
-        <SettingsSection>
-          <SettingsRow
-            :label="t('settingsLayout.downloadSource')"
-            :error="settingsError"
-            :help="downloadSettings.source === 'automatic' ? t('settingsLayout.automaticSource') : downloadSettings.source === 'bmclapi' ? t('settingsLayout.mirrorCredit') : undefined"
+            <SettingsSection
+              class="settings-language"
+              icon="languages"
+              :title="sectionNames.language"
+            >
+              <SelectField
+                id="language"
+                :model-value="languageDraft"
+                :label="t('common.language')"
+                :options="[{ value: 'system', label: t('common.system') }, ...supportedLocales]"
+                @update:model-value="stageLanguage"
+              />
+            </SettingsSection>
+          </TabsContent>
+          <TabsContent
+            value="home-layout"
+            class="settings-category-content"
           >
-            <RadioGroupRoot
-              class="settings-choice-group"
-              :model-value="downloadSettings.source"
-              :disabled="!settingsReady || savingSettings"
-              :aria-label="t('settingsLayout.downloadSource')"
-              @update:model-value="changeSource"
+            <HomeLayoutSettings
+              ref="homeLayout"
+              :commands="commands"
+              :games="games"
+              @dirty="homeLayoutDirty = $event"
+            />
+          </TabsContent>
+          <TabsContent
+            value="shortcuts"
+            class="settings-category-content"
+          >
+            <ShortcutSettings
+              ref="shortcuts"
+              :commands="commands"
+              staged
+              @dirty="shortcutsDirty = $event"
+            />
+          </TabsContent>
+          <TabsContent
+            value="downloads"
+            class="settings-category-content"
+          >
+            <SettingsSection
+              :title="sectionNames.downloads"
+              icon="download"
             >
-              <RadioGroupItem
-                v-for="option in sourceOptions"
-                :key="option.value"
-                :value="option.value"
-                class="settings-choice"
+              <SettingsRow
+                :label="t('settingsLayout.downloadSource')"
+                :error="settingsError"
+                :help="downloadSettings.source === 'automatic' ? t('settingsLayout.automaticSource') : downloadSettings.source === 'bmclapi' ? t('settingsLayout.mirrorCredit') : undefined"
               >
-                {{ option.label }}
-              </RadioGroupItem>
-            </RadioGroupRoot>
-            <div class="settings-inline-actions">
-              <button
-                class="text-button"
-                :disabled="!settingsReady || savingSettings"
-                @click="editMirror"
-              >
-                {{ downloadSettings.mirror ? t('settingsLayout.editMirror') : t('settingsLayout.addMirror') }}
-              </button>
-              <button
-                v-if="downloadSettings.mirror"
-                class="text-button"
-                :disabled="savingSettings"
-                @click="removeMirror"
-              >
-                {{ t('settingsLayout.removeMirror') }}
-              </button>
-            </div>
-            <form
-              v-if="editingMirror"
-              class="settings-mirror-draft"
-              @submit.prevent="addMirror"
-            >
-              <label for="mirror-url">{{ t('settingsLayout.mirror') }}</label>
-              <input
-                id="mirror-url"
-                v-model="mirrorDraft"
-                type="url"
-                :placeholder="t('settingsLayout.mirrorPlaceholder')"
-                :disabled="savingSettings"
-                spellcheck="false"
-                autocomplete="off"
-              >
-              <p class="setting-hint">
-                {{ t('settingsLayout.mirrorHelp') }}
-              </p>
-              <div class="settings-inline-actions">
-                <button
-                  type="submit"
-                  class="text-button"
+                <RadioGroupRoot
+                  class="settings-choice-group"
+                  :model-value="downloadSettings.source"
+                  :disabled="!settingsReady || savingSettings"
+                  :aria-label="t('settingsLayout.downloadSource')"
+                  @update:model-value="changeSource"
                 >
-                  {{ t('settingsLayout.useMirror') }}
-                </button><button
-                  type="button"
-                  class="text-button"
-                  @click="editingMirror = false"
-                >
-                  {{ t('settingsLayout.cancel') }}
-                </button>
-              </div>
-            </form>
-            <button
-              v-if="!settingsReady && settingsError"
-              class="text-button"
-              @click="loadSettings"
-            >
-              {{ t('settingsLayout.retry') }}
-            </button>
-            <SettingsActions
-              :dirty="hasDownloadChanges"
-              :busy="savingSettings"
-              :disabled="!settingsReady"
-              @apply="finishSettings"
-              @cancel="cancelDownloads"
-            />
-          </SettingsRow>
-        </SettingsSection>
-        <SettingsSection>
-          <SettingsRow
-            :label="t('settingsLayout.directory')"
-            input-id="default-game-directory"
-            :help="t('settingsLayout.directoryHelp')"
-            :error="directoryError || preferencesError"
-          >
-            <div class="settings-path-control">
-              <input
-                id="default-game-directory"
-                v-model="directoryDraft"
-                :disabled="!preferences || directoryBusy || !native"
-                spellcheck="false"
-                autocomplete="off"
-              >
-              <AppIconButton
-                icon="folder"
-                :label="t('settingsLayout.browse')"
-                :disabled="!preferences || directoryBusy || !native"
-                @click="changeDirectory()"
-              />
-              <AppIconButton
-                icon="copy"
-                :label="t('settingsLayout.copy')"
-                :disabled="!preferences || directoryBusy"
-                @click="copyDirectory"
-              />
-              <AppIconButton
-                v-if="preferences?.custom_game_directory"
-                icon="refresh-cw"
-                :label="t('settingsLayout.reset')"
-                :disabled="directoryBusy"
-                @click="changeDirectory(true)"
-              />
-            </div>
-            <button
-              v-if="preferencesError"
-              class="text-button"
-              @click="loadPreferences"
-            >
-              {{ t('settingsLayout.retry') }}
-            </button>
-            <p
-              v-if="copied"
-              role="status"
-              class="setting-hint"
-            >
-              {{ t('settingsLayout.copied') }}
-            </p>
-            <SettingsActions
-              :dirty="directoryDirty"
-              :busy="directoryBusy"
-              @apply="applyDirectory"
-              @cancel="directoryDraft = preferences?.game_directory ?? ''; directoryError = ''"
-            />
-          </SettingsRow>
-        </SettingsSection>
-        <SettingsSection>
-          <SettingsRow
-            :label="t('settingsLayout.advancedDownloads')"
-            :help="t('settingsLayout.nextDownloads')"
-            :error="tuningError"
-          >
-            <label
-              for="adaptive-downloads"
-              class="settings-inline-actions"
-            >
-              <SwitchField
-                id="adaptive-downloads"
-                v-model="tuning.adaptive"
-                :label="t('settingsLayout.adaptiveDownloads')"
-                :disabled="!tuningReady || tuningBusy"
-              />
-              {{ t('settingsLayout.adaptiveDownloads') }}
-            </label>
-            <SettingsDisclosure
-              :title="t('settingsLayout.downloadLimits')"
-              :default-open="!tuning.adaptive"
-            >
-              <div class="settings-number-pair">
-                <label for="total-downloads">{{ t('settingsLayout.totalDownloads') }}<input
-                  id="total-downloads"
-                  v-model.number="tuning.max_concurrent"
-                  type="number"
-                  min="1"
-                  max="32"
-                  :disabled="!tuningReady || tuningBusy"
-                ></label>
-                <label for="origin-downloads">{{ t('settingsLayout.originDownloads') }}<input
-                  id="origin-downloads"
-                  v-model.number="tuning.per_origin"
-                  type="number"
-                  min="1"
-                  max="8"
-                  :disabled="!tuningReady || tuningBusy"
-                ></label>
-              </div>
-            </SettingsDisclosure>
-            <button
-              v-if="!tuningReady && tuningError"
-              class="text-button"
-              @click="loadTuning"
-            >
-              {{ t('settingsLayout.retry') }}
-            </button>
-            <SettingsActions
-              :dirty="tuningDirty"
-              :busy="tuningBusy"
-              :disabled="!tuningReady"
-              @apply="saveTuning"
-              @cancel="tuning = { ...tuningSaved }; tuningError = ''"
-            />
-          </SettingsRow>
-        </SettingsSection>
-        <SettingsSection>
-          <SettingsRow
-            :label="t('settingsLayout.cache')"
-            :help="t('settingsLayout.cacheHelp')"
-            :error="cacheError"
-          >
-            <div class="settings-inline-actions">
-              <span v-if="cacheBytes !== null">{{ (cacheBytes / 1024 / 1024).toFixed(1) }} MiB</span><button
-                class="secondary-button"
-                :disabled="!native || cacheBusy"
-                @click="updateCache(true)"
-              >
-                {{ cacheBusy ? t('settingsLayout.wait') : t('settingsLayout.clearCache') }}
-              </button>
-            </div>
-          </SettingsRow>
-        </SettingsSection>
-      </TabsContent>
-      <TabsContent
-        value="runtime"
-        class="settings-category-content"
-      >
-        <p class="setting-hint settings-scope">
-          {{ t('settingsLayout.defaultsScope') }}
-        </p>
-        <SettingsSection>
-          <SettingsRow
-            :label="t('settingsLayout.java')"
-            :error="javaError"
-          >
-            <div class="settings-inline-actions">
-              <span>{{ javaSelection.mode === 'automatic' ? t('settingsLayout.recommended') : javaSelection.runtime ? `Java ${javaSelection.runtime.major}` : t('settingsLayout.selectedJava') }}</span><button
-                v-if="javaSelection.mode === 'custom'"
-                class="text-button"
-                :disabled="javaBusy"
-                @click="automaticJava"
-              >
-                {{ t('settingsLayout.automatic') }}
-              </button>
-            </div>
-            <p
-              v-if="javaSelection.executable"
-              class="settings-path-text"
-              :title="javaSelection.executable ?? undefined"
-            >
-              {{ javaSelection.executable }}
-            </p>
-            <SettingsDisclosure
-              class="settings-manual-java"
-              :title="t('settingsLayout.manualJava')"
-            >
-              <div class="settings-manual-content">
-                <label for="detected-java">{{ t('settingsLayout.installedJava') }}</label>
-                <SelectField
-                  id="detected-java"
-                  :label="t('settingsLayout.installedJava')"
-                  :disabled="javaBusy || javaScanning"
-                  :model-value="javaRuntimes.find(runtime => runtime.executable === javaSelection.executable)?.id ?? ''"
-                  :placeholder="javaScanning ? t('settingsLayout.scanning') : javaRuntimes.length ? t('settingsLayout.chooseInstalled') : t('settingsLayout.noJava')"
-                  :options="javaGroups.flatMap(major => javaRuntimes.filter(item => item.major === major).map(runtime => ({ value: runtime.id, label: `${runtime.version} · ${runtime.vendor} · ${runtime.arch}`, group: `Java ${major}` })))"
-                  @update:model-value="chooseDetectedJava"
-                />
+                  <RadioGroupItem
+                    v-for="option in sourceOptions"
+                    :key="option.value"
+                    :value="option.value"
+                    class="settings-choice"
+                  >
+                    {{ option.label }}
+                  </RadioGroupItem>
+                </RadioGroupRoot>
                 <div class="settings-inline-actions">
                   <button
                     class="text-button"
-                    :disabled="javaScanning || javaBusy"
-                    @click="scanJava(true)"
+                    :disabled="!settingsReady || savingSettings"
+                    @click="editMirror"
                   >
-                    {{ t('settingsLayout.scan') }}
-                  </button><button
-                    class="secondary-button"
-                    :disabled="javaBusy || !javaReady || !native"
-                    @click="selectJava"
+                    {{ downloadSettings.mirror ? t('settingsLayout.editMirror') : t('settingsLayout.addMirror') }}
+                  </button>
+                  <button
+                    v-if="downloadSettings.mirror"
+                    class="text-button"
+                    :disabled="savingSettings"
+                    @click="removeMirror"
                   >
-                    {{ t('settingsLayout.chooseJava') }}
+                    {{ t('settingsLayout.removeMirror') }}
                   </button>
                 </div>
-              </div>
-            </SettingsDisclosure>
-          </SettingsRow>
-          <SettingsRow
-            :label="t('settingsLayout.memory')"
-            input-id="default-memory"
-            :error="memoryError || preferencesError"
-          >
-            <MemoryField
-              id="default-memory"
-              v-model="memoryDraft"
-              :label="t('settingsLayout.defaultMemory')"
-              :disabled="!preferences || memoryBusy || !native"
-            />
-            <SettingsActions
-              :dirty="memoryDirty"
-              :busy="memoryBusy"
-              :disabled="!preferences || !native"
-              @apply="saveMemory"
-              @cancel="memoryDraft = preferences?.memory_mb ?? 4096; memoryError = ''"
-            />
-          </SettingsRow>
-        </SettingsSection>
-        <AdvancedRuntimeSettings
-          v-if="preferences"
-          ref="advanced"
-          :preferences="preferences"
-          @defaults-updated="preferences = $event"
-          @dirty="advancedDirty = $event"
-        />
-      </TabsContent>
-      <TabsContent
-        value="accounts"
-        class="settings-category-content"
-      >
-        <SettingsSection>
-          <SettingsRow :label="t('settings.accounts')">
-            <button
-              class="secondary-button"
-              @click="emit('profiles')"
+                <form
+                  v-if="editingMirror"
+                  class="settings-mirror-draft"
+                  @submit.prevent="addMirror"
+                >
+                  <label for="mirror-url">{{ t('settingsLayout.mirror') }}</label>
+                  <input
+                    id="mirror-url"
+                    v-model="mirrorDraft"
+                    type="url"
+                    :placeholder="t('settingsLayout.mirrorPlaceholder')"
+                    :disabled="savingSettings"
+                    spellcheck="false"
+                    autocomplete="off"
+                  >
+                  <p class="setting-hint">
+                    {{ t('settingsLayout.mirrorHelp') }}
+                  </p>
+                  <div class="settings-inline-actions">
+                    <button
+                      type="submit"
+                      class="text-button"
+                    >
+                      {{ t('settingsLayout.useMirror') }}
+                    </button><button
+                      type="button"
+                      class="text-button"
+                      @click="editingMirror = false"
+                    >
+                      {{ t('settingsLayout.cancel') }}
+                    </button>
+                  </div>
+                </form>
+                <button
+                  v-if="!settingsReady && settingsError"
+                  class="text-button"
+                  @click="loadSettings"
+                >
+                  {{ t('settingsLayout.retry') }}
+                </button>
+              </SettingsRow>
+
+              <SettingsRow
+                :label="t('settingsLayout.advancedDownloads')"
+                :help="t('settingsLayout.nextDownloads')"
+                :error="tuningError"
+              >
+                <label
+                  for="adaptive-downloads"
+                  class="settings-inline-actions"
+                >
+                  <SwitchField
+                    id="adaptive-downloads"
+                    v-model="tuning.adaptive"
+                    :label="t('settingsLayout.adaptiveDownloads')"
+                    :disabled="!tuningReady || tuningBusy"
+                  />
+                  {{ t('settingsLayout.adaptiveDownloads') }}
+                </label>
+                <SettingsDisclosure
+                  :title="t('settingsLayout.downloadLimits')"
+                  icon="sliders-horizontal"
+                  :value="`${tuning.max_concurrent} / ${tuning.per_origin}`"
+                  :default-open="!tuning.adaptive"
+                >
+                  <div class="settings-number-pair">
+                    <label for="total-downloads">{{ t('settingsLayout.totalDownloads') }}<input
+                      id="total-downloads"
+                      v-model.number="tuning.max_concurrent"
+                      type="number"
+                      min="1"
+                      max="32"
+                      :disabled="!tuningReady || tuningBusy"
+                    ></label>
+                    <label for="origin-downloads">{{ t('settingsLayout.originDownloads') }}<input
+                      id="origin-downloads"
+                      v-model.number="tuning.per_origin"
+                      type="number"
+                      min="1"
+                      max="8"
+                      :disabled="!tuningReady || tuningBusy"
+                    ></label>
+                  </div>
+                </SettingsDisclosure>
+                <button
+                  v-if="!tuningReady && tuningError"
+                  class="text-button"
+                  @click="loadTuning"
+                >
+                  {{ t('settingsLayout.retry') }}
+                </button>
+              </SettingsRow>
+            </SettingsSection>
+            <SettingsSection
+              :title="sectionNames.storage"
+              icon="hard-drive"
             >
-              {{ t('settingsLayout.manageProfiles') }}
-            </button>
-          </SettingsRow>
-        </SettingsSection>
-      </TabsContent>
-      <TabsContent
-        value="about"
-        class="settings-category-content"
-      >
-        <SettingsSection>
-          <SettingsRow label="Cobble Launcher">
-            <span>0.1.0</span><p class="setting-hint">
-              {{ t('settingsLayout.license') }}
-            </p><a
-              href="https://github.com/CobbleLauncher/CobbleLauncher"
-              target="_blank"
-              rel="noreferrer"
-            >{{ t('settingsLayout.project') }}</a>
-          </SettingsRow>
-        </SettingsSection>
-        <SettingsSection>
-          <SettingsRow
-            :label="t('settingsLayout.diagnostics')"
-            :error="diagnosticError"
+              <SettingsRow
+                :label="t('settingsLayout.directory')"
+                input-id="default-game-directory"
+                :help="t('settingsLayout.directoryHelp')"
+                :error="directoryError || preferencesError"
+              >
+                <div class="settings-path-control">
+                  <input
+                    id="default-game-directory"
+                    v-model="directoryDraft"
+                    :disabled="!preferences || directoryBusy || !native"
+                    spellcheck="false"
+                    autocomplete="off"
+                    @input="directoryReset = false"
+                  >
+                  <AppIconButton
+                    icon="folder"
+                    :label="t('settingsLayout.browse')"
+                    :disabled="!preferences || directoryBusy || !native"
+                    @click="changeDirectory()"
+                  />
+                  <AppIconButton
+                    icon="copy"
+                    :label="t('settingsLayout.copy')"
+                    :disabled="!preferences || directoryBusy"
+                    @click="copyDirectory"
+                  />
+                  <AppIconButton
+                    v-if="preferences?.custom_game_directory"
+                    icon="refresh-cw"
+                    :label="t('settingsLayout.reset')"
+                    :disabled="directoryBusy"
+                    @click="directoryResetOpen = true"
+                  />
+                </div>
+                <button
+                  v-if="preferencesError"
+                  class="text-button"
+                  @click="loadPreferences"
+                >
+                  {{ t('settingsLayout.retry') }}
+                </button>
+                <p
+                  v-if="copied"
+                  role="status"
+                  class="setting-hint"
+                >
+                  {{ t('settingsLayout.copied') }}
+                </p>
+              </SettingsRow>
+
+              <GameDirectoryMigration
+                :disabled="!preferences || directoryDirty || directoryBusy || !native || savingSettings"
+                @open="emit('migrateGames')"
+              />
+              <SettingsRow
+                :label="t('settingsLayout.cache')"
+                :help="t('settingsLayout.cacheHelp')"
+                :error="cacheError"
+              >
+                <div class="settings-inline-actions">
+                  <span v-if="cacheBytes !== null">{{ (cacheBytes / 1024 / 1024).toFixed(1) }} MiB</span><button
+                    class="secondary-button"
+                    :disabled="!native || cacheBusy"
+                    @click="updateCache(true)"
+                  >
+                    {{ cacheBusy ? t('settingsLayout.wait') : t('settingsLayout.clearCache') }}
+                  </button>
+                </div>
+              </SettingsRow>
+            </SettingsSection>
+          </TabsContent>
+          <TabsContent
+            value="runtime"
+            class="settings-category-content"
           >
-            <div class="settings-inline-actions">
-              <button
-                class="secondary-button"
-                :disabled="!native || diagnosticBusy"
-                @click="diagnostics()"
+            <p class="setting-hint settings-scope">
+              {{ t('settingsLayout.defaultsScope') }}
+            </p>
+            <SettingsSection
+              :title="sectionNames.runtime"
+              icon="cpu"
+            >
+              <SettingsRow
+                :label="t('settingsLayout.java')"
+                :error="javaError"
               >
-                {{ t('settings.openLogs') }}
-              </button><button
-                class="secondary-button"
-                :disabled="!native || diagnosticBusy"
-                @click="diagnostics(true)"
+                <div class="settings-inline-actions">
+                  <span>{{ javaSelection.mode === 'automatic' ? t('settingsLayout.recommended') : javaSelection.runtime ? `Java ${javaSelection.runtime.major}` : t('settingsLayout.selectedJava') }}</span><button
+                    v-if="javaSelection.mode === 'custom'"
+                    class="text-button"
+                    :disabled="javaBusy"
+                    @click="automaticJava"
+                  >
+                    {{ t('settingsLayout.javaAutomatic') }}
+                  </button>
+                </div>
+                <p
+                  v-if="javaSelection.executable"
+                  class="settings-path-text"
+                  :title="javaSelection.executable ?? undefined"
+                >
+                  {{ javaSelection.executable }}
+                </p>
+                <SettingsDisclosure
+                  class="settings-manual-java"
+                  icon="folder"
+                  :title="t('settingsLayout.manualJava')"
+                >
+                  <div class="settings-manual-content">
+                    <label for="detected-java">{{ t('settingsLayout.installedJava') }}</label>
+                    <SelectField
+                      id="detected-java"
+                      :label="t('settingsLayout.installedJava')"
+                      :disabled="javaBusy || javaScanning"
+                      :model-value="javaRuntimes.find(runtime => runtime.executable === javaSelection.executable)?.id ?? ''"
+                      :placeholder="javaScanning ? t('settingsLayout.scanning') : javaRuntimes.length ? t('settingsLayout.chooseInstalled') : t('settingsLayout.noJava')"
+                      :options="javaGroups.flatMap(major => javaRuntimes.filter(item => item.major === major).map(runtime => ({ value: runtime.id, label: `${runtime.version} · ${runtime.vendor} · ${runtime.arch}`, group: `Java ${major}` })))"
+                      @update:model-value="chooseDetectedJava"
+                    />
+                    <div class="settings-inline-actions">
+                      <button
+                        class="text-button"
+                        :disabled="javaScanning || javaBusy"
+                        @click="scanJava(true)"
+                      >
+                        {{ t('settingsLayout.scan') }}
+                      </button><button
+                        class="secondary-button"
+                        :disabled="javaBusy || !javaReady || !native"
+                        @click="selectJava"
+                      >
+                        {{ t('settingsLayout.chooseJava') }}
+                      </button>
+                    </div>
+                  </div>
+                </SettingsDisclosure>
+              </SettingsRow>
+              <SettingsRow
+                :label="t('settingsLayout.memory')"
+                input-id="default-memory"
+                :error="memoryError || preferencesError"
               >
-                {{ t('settings.exportDiagnostics') }}
-              </button>
-            </div>
-          </SettingsRow>
-        </SettingsSection>
-      </TabsContent>
-      <TabsContent
-        v-for="category in categories.filter(item => !['general','downloads','runtime','accounts','about'].includes(item.id))"
-        :key="category.id"
-        :value="category.id"
-        class="settings-category-content"
-      >
-        <slot :name="`category-${category.id}`" />
-      </TabsContent>
+                <MemoryField
+                  id="default-memory"
+                  v-model="memoryDraft"
+                  :label="t('settingsLayout.defaultMemory')"
+                  :disabled="!preferences || memoryBusy || !native"
+                />
+              </SettingsRow>
+            </SettingsSection>
+            <AdvancedRuntimeSettings
+              v-if="preferences"
+              ref="advanced"
+              :preferences="preferences"
+              :inline-actions="false"
+              @defaults-updated="preferences = $event"
+              @dirty="advancedDirty = $event"
+            />
+          </TabsContent>
+          <TabsContent
+            value="accounts"
+            class="settings-category-content"
+          >
+            <SettingsSection>
+              <SettingsRow :label="t('settings.accounts')">
+                <button
+                  class="secondary-button"
+                  @click="emit('profiles')"
+                >
+                  {{ t('settingsLayout.manageProfiles') }}
+                </button>
+              </SettingsRow>
+            </SettingsSection>
+          </TabsContent>
+          <TabsContent
+            value="about"
+            class="settings-category-content"
+          >
+            <UpdateSettings />
+            <SettingsSection>
+              <SettingsRow :label="locale === 'zh-CN' ? '首次使用' : 'Getting started'">
+                <button
+                  class="secondary-button"
+                  @click="emit('firstRun')"
+                >
+                  {{ locale === 'zh-CN' ? '继续设置引导' : 'Resume setup' }}
+                </button>
+                <button
+                  class="secondary-button"
+                  @click="emit('reviewTerms')"
+                >
+                  {{ locale === 'zh-CN' ? '使用条款与隐私' : 'Terms and privacy' }}
+                </button>
+              </SettingsRow>
+              <SettingsRow label="Cobble Launcher">
+                <span>0.1.0</span><p class="setting-hint">
+                  {{ t('settingsLayout.license') }}
+                </p><a
+                  href="https://github.com/CobbleLauncher/CobbleLauncher"
+                  target="_blank"
+                  rel="noreferrer"
+                >{{ t('settingsLayout.project') }}</a>
+              </SettingsRow>
+            </SettingsSection>
+            <SettingsSection>
+              <SettingsRow
+                :label="t('settingsLayout.diagnostics')"
+                :error="diagnosticError"
+              >
+                <div class="settings-inline-actions">
+                  <button
+                    class="secondary-button"
+                    :disabled="!native || diagnosticBusy"
+                    @click="diagnostics()"
+                  >
+                    {{ t('settings.openLogs') }}
+                  </button><button
+                    class="secondary-button"
+                    :disabled="!native || diagnosticBusy"
+                    @click="diagnostics(true)"
+                  >
+                    {{ t('settings.exportDiagnostics') }}
+                  </button>
+                </div>
+              </SettingsRow>
+            </SettingsSection>
+          </TabsContent>
+          <TabsContent
+            v-for="category in categories.filter(item => !['general','home-layout','shortcuts','downloads','runtime','accounts','about'].includes(item.id))"
+            :key="category.id"
+            :value="category.id"
+            class="settings-category-content"
+          >
+            <slot :name="`category-${category.id}`" />
+          </TabsContent>
+        </div>
+        <SettingsSaveBar
+          :dirty="hasDrafts"
+          :busy="pendingNative"
+          :error="saveError"
+          @save="applyAll"
+          @discard="cancelAll"
+        />
+      </div>
     </TabsRoot>
+    <ConfirmationDialog
+      v-model:open="directoryResetOpen"
+      :title="t('settingsLayout.editor.resetDirectoryTitle')"
+      :description="t('settingsLayout.editor.resetDraftDescription')"
+      :confirm-label="t('settingsLayout.editor.restore')"
+      @confirm="changeDirectory(true)"
+    />
     <DialogRoot
       :open="leavePrompt"
       @update:open="!$event && finishLeave(false)"
     >
       <DialogPortal>
-        <DialogOverlay class="settings-dialog-overlay" /><DialogContent class="settings-leave-dialog">
+        <DialogOverlay class="settings-dialog-overlay" /><DialogContent
+          class="settings-leave-dialog"
+          :aria-describedby="undefined"
+        >
           <DialogTitle>{{ t('settingsLayout.discardTitle') }}</DialogTitle><div class="settings-inline-actions">
             <button
               class="secondary-button"
               @click="applyAndLeave"
             >
-              {{ t('settingsLayout.apply') }}
+              {{ t('settingsLayout.saveSettings') }}
             </button><button
               class="text-button"
               @click="cancelAll(); finishLeave(true)"
@@ -729,6 +817,6 @@ defineExpose({ canLeave, confirmLeave });
   </div>
 </template>
 <style scoped>
-.settings-layout{max-width:100%;min-width:0}.settings-category-tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:10px}.settings-category-tab{font:inherit;font-size:var(--ui-text-label);padding:9px 13px;color:var(--muted);border:0;border-radius:7px;background:transparent}.settings-category-tab[data-state=active]{color:var(--ink);background:var(--panel);font-weight:600}.settings-category-content{min-width:0}.settings-choice-group{display:flex;gap:8px;flex-wrap:wrap}.settings-choice{font:inherit;font-size:12px;padding:10px 14px;border:1px solid var(--line);border-radius:8px;color:var(--muted);background:var(--panel)}.settings-choice[data-state=checked]{color:var(--ink);border-color:var(--accent);background:var(--tint)}.settings-inline-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.settings-row-control .settings-inline-actions{margin-top:10px}.settings-mirror-draft{display:grid;gap:8px;margin-top:12px}.settings-path-control{display:flex;gap:3px;align-items:center;min-width:0;border:1px solid var(--line);border-radius:8px;padding:3px;background:var(--panel)}.settings-path-control input{flex:1;width:0!important;min-width:0;font-family:inherit;border:0!important;background:transparent!important;text-overflow:ellipsis}.settings-path-text{font:inherit;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:8px 0;color:var(--muted)}.settings-number-pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}.settings-number-pair label{display:grid;gap:8px;font-size:12px}.settings-manual-content{display:grid;gap:10px;padding-top:14px}.settings-manual-content label{font-size:12px}.settings-scope{font-size:12px;color:var(--muted);margin:14px 0}.settings-category-content :deep(.memory-field>label){display:none}.settings-category-content :deep(.memory-presets){margin-top:0}.settings-leave-dialog{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(460px,calc(100vw - 40px));padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);z-index:101}.settings-leave-dialog h2{font-size:16px;margin:0 0 20px}.settings-dialog-overlay{position:fixed;inset:0;background:#0006;z-index:100}
+.settings-layout{max-width:100%;min-width:0}.settings-category-content{min-width:0}.settings-choice-group{display:flex;gap:8px;flex-wrap:wrap}.settings-choice{font:inherit;font-size:var(--ui-text-label);padding:10px 14px;border:1px solid var(--line);border-radius:8px;color:var(--muted);background:var(--panel)}.settings-choice[data-state=checked]{color:var(--ink);border-color:var(--accent);background:var(--tint)}.settings-inline-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.settings-row-control .settings-inline-actions{margin-top:10px}.settings-mirror-draft{display:grid;gap:8px;margin-top:12px}.settings-path-control{display:flex;gap:3px;align-items:center;min-width:0;border:1px solid var(--line);border-radius:8px;padding:3px;background:var(--panel)}.settings-path-control input{flex:1;width:0!important;min-width:0;font-family:inherit;border:0!important;background:transparent!important;text-overflow:ellipsis}.settings-path-text{font:inherit;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:8px 0;color:var(--muted)}.settings-number-pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}.settings-number-pair label{display:grid;gap:var(--ui-space-2);font-size:var(--ui-text-label);line-height:var(--ui-leading-label)}.settings-manual-content{display:grid;gap:10px;padding-top:14px}.settings-manual-content label{font-size:var(--ui-text-label);line-height:var(--ui-leading-label)}.settings-scope{font-size:12px;color:var(--muted);margin:14px 0}.settings-category-content :deep(.memory-field>label){display:none}.settings-category-content :deep(.memory-presets){margin-top:0}.settings-leave-dialog{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(460px,calc(100vw - 40px));padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);z-index:101}.settings-leave-dialog h2{font-size:16px;margin:0 0 20px}.settings-dialog-overlay{position:fixed;inset:0;background:#0006;z-index:100}
 </style>
 <style scoped src="./settings/appearance.css"></style>

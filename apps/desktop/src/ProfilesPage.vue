@@ -8,6 +8,7 @@ import { avatars } from './appearance';
 import AppIcon from './ui/AppIcon.vue';
 import ProfileAvatar from './ProfileAvatar.vue';
 import ProfileSkinPanel from './ProfileSkinPanel.vue';
+import LoadingIndicator from './ui/LoadingIndicator.vue';
 import { DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenuContent, DropdownMenuItem } from 'reka-ui';
 import { type ProfileLibrary, type PlayerProfile } from './games';
 const props = defineProps<{ library: ProfileLibrary; busy: boolean; error: string; ready: boolean; choosing: boolean }>();
@@ -55,9 +56,15 @@ function profileError(error: string) {
 </script>
 <template>
   <div class="page-content profiles-page">
-    <div class="profile-page-tools">
-      <p class="create-description">
-        {{ choosing ? t('profiles.chooseForGame') : '' }}
+    <div
+      v-if="library.profiles.length || choosing"
+      class="profile-page-tools"
+    >
+      <p
+        v-if="choosing"
+        class="create-description"
+      >
+        {{ t('profiles.chooseForGame') }}
       </p><button
         class="secondary-button"
         :disabled="busy || !ready"
@@ -73,14 +80,20 @@ function profileError(error: string) {
     >
       {{ profileError(error) }}
     </p><button
-      v-if="!ready"
+      v-if="!ready && error"
       class="text-button"
+      :disabled="busy"
       @click="$emit('retry')"
     >
       {{ t('profiles.reload') }}
     </button>
+    <LoadingIndicator
+      v-if="!ready && !error"
+      :label="t('profiles.loading')"
+      skeleton
+    />
     <ul
-      v-if="library.profiles.length"
+      v-if="ready && library.profiles.length"
       class="profile-list"
       :aria-label="t('profiles.listLabel')"
     >
@@ -239,6 +252,6 @@ function profileError(error: string) {
   </div>
 </template>
 <style scoped>
-.profile-action-feedback{margin:8px 0 0 58px;font-size:11px;line-height:1.5}
+.profiles-page{font-size:var(--ui-text-body,14px);line-height:calc(var(--font-size-base,14px)*22/14)}.profile-page-tools{justify-content:flex-end}.profile-page-tools .create-description{margin-right:auto}.profiles-page :deep(button),.profiles-page .profile-row-info h2,.profiles-page .profiles-empty h2{font-size:var(--ui-text-body,14px);line-height:calc(var(--font-size-base,14px)*22/14)}.profile-row-info h2{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.profile-row-info h2 .offline-badge{display:inline-block;margin-left:0;font-size:var(--ui-text-caption,12px);line-height:calc(var(--font-size-base,14px)*18/14)}.profiles-page .profile-row-info p,.profiles-page .profile-current,.profiles-page .profiles-empty p{font-size:var(--ui-text-caption,12px);line-height:calc(var(--font-size-base,14px)*18/14)}.profile-action-feedback{margin:8px 0 0 58px;font-size:var(--ui-text-caption,12px);line-height:calc(var(--font-size-base,14px)*18/14)}
 @media(max-width:560px){.profile-action-feedback{margin-left:0}}
 </style>

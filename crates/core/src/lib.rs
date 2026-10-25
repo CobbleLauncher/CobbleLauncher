@@ -9,12 +9,22 @@ mod cache;
 mod content_pack_install;
 mod control;
 mod curseforge;
+pub mod environment_install;
 mod fabric;
 mod foreign_import;
 mod forge;
 mod install;
 mod instances;
 mod launch;
+mod managed_java;
+pub mod personal_options;
+pub mod readiness;
+pub mod readiness_space;
+pub mod space;
+pub use managed_java::{
+    capture_java_choice, ensure_launch_java_controlled, install_managed_java_at_controlled,
+    install_managed_java_controlled, launch_java_requirement,
+};
 mod modrecognition;
 mod modrinth;
 mod modupdates;
@@ -32,7 +42,9 @@ pub use curseforge_pack::{
     validate_curseforge_pack_plan,
 };
 mod pack_download;
+pub mod play_manifest;
 mod runner;
+pub mod storage_workspace;
 mod world_restore;
 mod worlds;
 pub use content_pack_install::{
@@ -44,9 +56,10 @@ pub use fabric::{
     list_fabric_versions_from,
 };
 pub use foreign_import::{
-    LauncherContentRoot, LauncherImportCandidate, import_launcher_game,
-    import_launcher_game_controlled, inspect_launcher_import, resume_launcher_import,
-    resume_launcher_import_controlled,
+    LauncherContentRoot, LauncherImportCandidate, LauncherImportMigration, LauncherRuntimeSource,
+    discover_launcher_imports, import_launcher_game, import_launcher_game_controlled,
+    inspect_launcher_import, launcher_import_space_demand, release_launcher_import_source,
+    resume_launcher_import, resume_launcher_import_controlled,
 };
 pub use forge::{
     ForgeKind, ForgeVersion, install_forge, install_forge_controlled, list_forge_versions,
@@ -63,22 +76,27 @@ pub use modrinth::{
     ModrinthInstallOutcome, install_modrinth_plan, install_modrinth_plan_controlled,
 };
 pub use modupdates::{
-    ModOperationHistory, ModOperationFile, list_mod_operation_history, undo_mod_operation, preview_mod_operation_undo,
-    ManagedModSummary, ModUpdateCandidate, ModUpdateChange, ModUpdateOutcome, ModUpdatePlan,
+    ManagedModSummary, ModOperationFile, ModOperationHistory, ModProjectPolicy, ModUpdateCandidate,
+    ModUpdateChange, ModUpdateChannel, ModUpdateOutcome, ModUpdatePlan, ModUpdatePolicy,
     apply_curseforge_updates_controlled, apply_modrinth_updates, apply_modrinth_updates_controlled,
     check_modrinth_updates, list_managed_curseforge_mods, list_managed_modrinth_mods,
-    managed_mod_count, prepare_curseforge_update, prepare_modrinth_updates,
-    prepare_modrinth_version_changes, recover_modrinth_update,
+    list_mod_operation_history, managed_mod_count, prepare_curseforge_update,
+    prepare_modrinth_updates, prepare_modrinth_version_changes, preview_mod_operation_undo,
+    read_mod_update_policy, recover_modrinth_update, set_mod_update_policy,
+    set_modrinth_mod_pinned, undo_mod_operation,
 };
+mod curseforge_updates;
+pub use curseforge_updates::{check_curseforge_updates, prepare_curseforge_updates};
+pub use modupdates::{set_curseforge_mod_pinned, validate_curseforge_mod_pins};
 pub use mrpack::{MrpackInstallOutcome, install_mrpack, install_mrpack_controlled};
 pub use pack_download::{download_modrinth_pack, download_modrinth_pack_controlled};
 mod server_launch;
-pub use server_launch::{direct_connect_arguments, supports_direct_connect};
 pub use runner::{
     RunningGame, prepare_identity_arguments, prepare_identity_arguments_with_runtime,
-    prepare_offline_arguments, start_game_with_identity, start_game_with_identity_and_server, start_offline_game,
-    start_offline_game_with_options,
+    prepare_offline_arguments, start_game_with_identity, start_game_with_identity_and_server,
+    start_offline_game, start_offline_game_with_options,
 };
+pub use server_launch::{direct_connect_arguments, supports_direct_connect};
 pub use world_restore::{
     WorldImportOutcome, WorldReplacementBackup, import_world_archive,
     list_world_replacement_backups, recover_world_operations, restore_world_replacement_backup,
@@ -87,10 +105,9 @@ pub use world_restore::{
 pub use worlds::export_world_backup;
 mod world_snapshots;
 pub use world_snapshots::{
-    create_automatic_world_snapshot_controlled,
     RetentionPlan, RetentionPolicy, RetentionPreview, RetentionResult, WorldSnapshot,
-    WorldSnapshotRepository, create_world_snapshot, create_world_snapshot_controlled,
-    restore_world_snapshot, world_snapshot_identity,
+    WorldSnapshotRepository, create_automatic_world_snapshot_controlled, create_world_snapshot,
+    create_world_snapshot_controlled, restore_world_snapshot, world_snapshot_identity,
 };
 
 /// Local, side-effect-free information shared by desktop and CLI adapters.
@@ -102,4 +119,6 @@ pub fn app_info() -> AppInfo {
     }
 }
 
-pub use cobble_backup::{BackupControl, RepositoryInsights, SnapshotComparison};
+pub use cobble_backup::{
+    BackupControl, RepositoryInsights, SnapshotComparePage, SnapshotComparison,
+};

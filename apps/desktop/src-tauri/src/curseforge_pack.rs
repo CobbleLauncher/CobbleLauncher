@@ -53,7 +53,7 @@ struct Source {
     schema_version: u32,
     plan: CurseForgePackPlan,
 }
-fn archive(id: &str) -> Result<PathBuf, String> {
+pub(super) fn archive(id: &str) -> Result<PathBuf, String> {
     Ok(pack_archive_path(id)?.with_extension("curseforge.zip"))
 }
 fn receipt(id: &str) -> Result<PathBuf, String> {
@@ -150,7 +150,7 @@ fn preview(selected: &Selection) -> Result<Preview, String> {
         missing,
     })
 }
-fn store(
+pub(super) fn store(
     app: &AppHandle,
     id: String,
     inspected: CurseForgePackInspection,
@@ -594,6 +594,13 @@ pub(super) async fn install(
     } else {
         crate::curseforge::credential().ok_or("CurseForge 服务尚未配置")?
     };
+    native_readiness_space::workers::curseforge_pack(
+        game,
+        archive(id)?,
+        selected.plan.clone(),
+        control.clone(),
+    )
+    .await?;
     cobble_core::install_curseforge_pack_controlled(
         &archive(id)?,
         &game.directory,

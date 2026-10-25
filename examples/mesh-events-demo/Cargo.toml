@@ -1,0 +1,16 @@
+[package]
+name = "cobble-mesh-events-demo"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "=0.63.0"
+
+# A developer project, deliberately outside the launcher's official plugin workspace.
+[workspace]

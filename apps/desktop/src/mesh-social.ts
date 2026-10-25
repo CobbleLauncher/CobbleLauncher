@@ -4,7 +4,16 @@ export type MeshContact = { profile: MeshPublicProfile; connected: boolean; last
 export type MeshAppSnapshot = {
   profile: MeshPublicProfile;
   contacts: MeshContact[];
-  capabilities: { contact_invites: boolean; direct_messages: boolean; lan_only: boolean; relay_messages: boolean; groups: boolean; vlan: boolean };
+  capabilities: { contact_invites: boolean; direct_messages: boolean; lan_only: boolean; relay_messages: boolean; groups: boolean; vlan: boolean; events_public?: boolean };
+  public_events_paused?: boolean;
+  event_route?: {
+    authorization: 'coordination' | 'community' | 'private' | 'legacy_test';
+    relay_peer_id: string;
+    state: 'starting' | 'ready' | 'failed';
+    game_coexistence: false;
+    last_error?: 'event_route_failed' | 'event_direct_required' | null;
+    last_delivery?: { message_id: string; peer_id: string; connection_id: string; route: 'direct' | 'relay' | 'lan' } | null;
+  } | null;
 };
 export type MeshMessage = { sequence: number; id: string; peer_id: string; direction: 'incoming' | 'outgoing'; text: string; at: number };
 export type MeshMessagePage = { messages: MeshMessage[]; next_after: number; oldest_sequence: number | null; has_more: boolean; generation: string };

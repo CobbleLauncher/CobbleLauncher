@@ -1,0 +1,1 @@
+{"name":"command-pocket-example","private":true,"type":"module","scripts":{"build":"node ../../../packages/plugin-workbench/build.mjs command-pocket","test":"node --test src/model.test.ts"}}

@@ -10,9 +10,14 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::Manager;
+#[path = "support/window_resize_interactive.rs"]
+mod resize_interactive;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--resize") {
+        return resize_interactive::run(args.get(2).map(String::as_str).unwrap_or("1.25"));
+    }
     if args.get(1).map(String::as_str) == Some("--child") {
         return child(args[2].parse()?, PathBuf::from(&args[3]));
     }

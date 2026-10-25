@@ -17,6 +17,8 @@ mod package_trust;
 pub use package_trust::{SignatureStatus, package_signature_status};
 pub mod catalog;
 mod composer;
+mod tool_form;
+pub use tool_form::run_tool_form;
 mod image_layout;
 pub use image_layout::run_image_layout;
 pub mod interfaces;

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskState {
+    Queued,
     Running,
     Cancelling,
     Succeeded,
@@ -16,6 +17,9 @@ pub enum TaskState {
 }
 impl TaskState {
     fn active(self) -> bool {
+        matches!(self, Self::Queued | Self::Running | Self::Cancelling)
+    }
+    fn occupies_slot(self) -> bool {
         matches!(self, Self::Running | Self::Cancelling)
     }
 }
@@ -43,9 +47,38 @@ pub struct TaskSnapshot {
 pub(super) enum TaskRequest {
     GameInstall {
         game_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        initial_mod_plan: Option<cobble_content::ModrinthPlan>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        initial_environment_plan: Option<cobble_content::EnvironmentPlan>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        initial_shared_configs: Vec<cobble_core::environment_install::SharedConfig>,
+        #[serde(default)]
+        initial_personal_options: Option<cobble_core::personal_options::PersonalOptions>,
+    },
+    GameReadiness {
+        game_id: String,
+        plan: native_readiness::RepairPlan,
+    },
+    GameCopy {
+        game_id: String,
+        target_id: String,
+        target_parent: PathBuf,
+        name: String,
+        include_worlds: bool,
+    },
+    DirectoryMigration {
+        plan: directory_migration::Plan,
     },
     GameRepair {
         game_id: String,
+    },
+    GameJava {
+        game_id: String,
+        required: u32,
+        generation: u64,
+        profile_id: String,
+        server_id: Option<String>,
     },
     ModInstall {
         game_id: String,
@@ -102,12 +135,28 @@ pub(super) enum TaskRequest {
         snapshot_id: String,
         operation_id: String,
     },
+    TrialCopy {
+        game_id: String,
+    },
+    StorageMove {
+        game_id: String,
+    },
+    PackUpdateCopy {
+        game_id: String,
+        #[serde(default)]
+        target_id: String,
+        #[serde(default)]
+        archive_id: String,
+    },
 }
 impl TaskRequest {
     fn game_id(&self) -> Option<&str> {
         match self {
-            Self::GameInstall { game_id }
+            Self::GameInstall { game_id, .. }
+            | Self::GameReadiness { game_id, .. }
+            | Self::GameCopy { game_id, .. }
             | Self::GameRepair { game_id }
+            | Self::GameJava { game_id, .. }
             | Self::ModInstall { game_id, .. }
             | Self::CurseForgeModInstall { game_id, .. }
             | Self::ModUpdate { game_id, .. }
@@ -117,13 +166,22 @@ impl TaskRequest {
             | Self::WorldAutomaticBackup { game_id, .. }
             | Self::WorldSnapshot { game_id, .. }
             | Self::WorldSnapshotRestore { game_id, .. } => Some(game_id),
-            Self::ModpackDownload { .. } | Self::CurseForgePackDownload { .. } => None,
+            Self::TrialCopy { game_id }
+            | Self::StorageMove { game_id }
+            | Self::PackUpdateCopy { game_id, .. } => Some(game_id),
+            Self::ModpackDownload { .. }
+            | Self::CurseForgePackDownload { .. }
+            | Self::DirectoryMigration { .. } => None,
         }
     }
     fn kind(&self) -> &'static str {
         match self {
             Self::GameInstall { .. } => "game_install",
+            Self::GameReadiness { .. } => "game_readiness",
+            Self::GameCopy { .. } => "game_copy",
+            Self::DirectoryMigration { .. } => "directory_migration",
             Self::GameRepair { .. } => "game_repair",
+            Self::GameJava { .. } => "game_java",
             Self::ModInstall { .. } => "mod_install",
             Self::CurseForgeModInstall { .. } => "mod_install",
             Self::ModUpdate { .. } => "mod_update",
@@ -138,6 +196,9 @@ impl TaskRequest {
             Self::WorldAutomaticBackup { .. } => "world_automatic_backup",
             Self::WorldSnapshot { .. } => "world_snapshot",
             Self::WorldSnapshotRestore { .. } => "world_snapshot_restore",
+            Self::TrialCopy { .. } => "trial_copy",
+            Self::StorageMove { .. } => "storage_move",
+            Self::PackUpdateCopy { .. } => "pack_update_copy",
         }
     }
 }
@@ -151,9 +212,59 @@ struct StoredTask {
 struct TaskStore {
     records: Vec<StoredTask>,
     controls: HashMap<String, OperationControl>,
+    external_controls: HashMap<String, Arc<std::sync::atomic::AtomicBool>>,
     load_error: Option<String>,
 }
-pub struct TaskLibrary(Mutex<TaskStore>);
+pub struct TaskLibrary(Mutex<TaskStore>, tokio::sync::Notify);
+
+fn should_queue(records: &[StoredTask], game_id: Option<&str>) -> bool {
+    records.iter().any(|r| {
+        matches!(r.request, TaskRequest::DirectoryMigration { .. }) && r.snapshot.state.active()
+    }) || records
+        .iter()
+        .filter(|r| r.snapshot.state.occupies_slot())
+        .count()
+        >= 4
+        || game_id.is_some_and(|id| {
+            records
+                .iter()
+                .any(|r| r.snapshot.game_id.as_deref() == Some(id) && r.snapshot.state.active())
+        })
+}
+
+fn can_start(records: &[StoredTask], index: usize) -> bool {
+    let migration = matches!(
+        records[index].request,
+        TaskRequest::DirectoryMigration { .. }
+    );
+    if records.iter().enumerate().any(|(i, r)| {
+        i != index
+            && r.snapshot.state.occupies_slot()
+            && (migration || matches!(r.request, TaskRequest::DirectoryMigration { .. }))
+    }) || records[..index].iter().any(|r| {
+        r.snapshot.state == TaskState::Queued
+            && (migration || matches!(r.request, TaskRequest::DirectoryMigration { .. }))
+    }) {
+        return false;
+    }
+    if records
+        .iter()
+        .filter(|r| r.snapshot.state.occupies_slot())
+        .count()
+        >= 4
+    {
+        return false;
+    }
+    let Some(game_id) = records[index].snapshot.game_id.as_deref() else {
+        return true;
+    };
+    !records
+        .iter()
+        .any(|r| r.snapshot.game_id.as_deref() == Some(game_id) && r.snapshot.state.occupies_slot())
+        && !records[..index].iter().any(|r| {
+            r.snapshot.game_id.as_deref() == Some(game_id) && r.snapshot.state == TaskState::Queued
+        })
+}
 
 fn task_file() -> Result<PathBuf, String> {
     Ok(dirs::config_dir()
@@ -187,8 +298,20 @@ fn recover_records(records: &mut [StoredTask]) {
     for record in records {
         if record.snapshot.state.active() {
             record.snapshot.state = TaskState::Interrupted;
-            record.snapshot.can_retry = true;
-            record.snapshot.error = Some("上次操作已中断，可以继续".into());
+            record.snapshot.can_retry = !matches!(
+                record.request,
+                TaskRequest::TrialCopy { .. }
+                    | TaskRequest::StorageMove { .. }
+                    | TaskRequest::PackUpdateCopy { .. }
+            );
+            record.snapshot.error = Some(
+                if record.snapshot.can_retry {
+                    "上次操作已中断，可以继续"
+                } else {
+                    "操作中断，请检查目标游戏后重新发起"
+                }
+                .into(),
+            );
             record.snapshot.updated_at = advance(record.snapshot.updated_at);
         }
     }
@@ -201,6 +324,222 @@ fn terminal_state(success: bool, user_cancelled: bool) -> TaskState {
     } else {
         TaskState::Failed
     }
+}
+
+fn removable_history(record: &StoredTask) -> bool {
+    // The durable request also locates the retained-source receipt after restart.
+    if matches!(record.request, TaskRequest::DirectoryMigration { .. }) {
+        return false;
+    }
+    let shared_setup = matches!(&record.request,TaskRequest::GameInstall{initial_shared_configs,initial_personal_options,..}if !initial_shared_configs.is_empty() || initial_personal_options.is_some());
+    !record.snapshot.state.active()
+        && !(record.snapshot.state != TaskState::Succeeded
+            && (shared_setup
+                || matches!(
+                    record.request,
+                    TaskRequest::GameInstall {
+                        initial_mod_plan: Some(_),
+                        ..
+                    } | TaskRequest::GameInstall {
+                        initial_environment_plan: Some(_),
+                        ..
+                    } | TaskRequest::GameCopy { .. }
+                )))
+}
+
+pub(super) fn game_install_task(app: &AppHandle, game_id: &str) -> Result<Option<String>, String> {
+    let state = app.state::<TaskLibrary>();
+    let store = state.0.lock().map_err(|e| e.to_string())?;
+    if let Some(error) = &store.load_error {
+        return Err(error.clone());
+    }
+    Ok(store
+        .records
+        .iter()
+        .rev()
+        .find_map(|record| match &record.request {
+            TaskRequest::GameInstall { game_id: id, .. } if id == game_id => {
+                Some(record.snapshot.id.clone())
+            }
+            _ => None,
+        }))
+}
+
+pub(super) fn environment_plan_for_task(
+    app: &AppHandle,
+    task_id: &str,
+) -> Result<cobble_content::EnvironmentPlan, String> {
+    let state = app.state::<TaskLibrary>();
+    let store = state.0.lock().map_err(|_| "TASK_HISTORY_UNAVAILABLE")?;
+    let record = store
+        .records
+        .iter()
+        .find(|r| r.snapshot.id == task_id)
+        .ok_or("TASK_NOT_FOUND")?;
+    match &record.request {
+        TaskRequest::GameInstall {
+            initial_environment_plan: Some(plan),
+            ..
+        } => Ok(plan.clone()),
+        TaskRequest::GameReadiness { plan, .. } => plan
+            .environment
+            .clone()
+            .ok_or("ENVIRONMENT_PLAN_UNAVAILABLE".into()),
+        _ => Err("ENVIRONMENT_PLAN_UNAVAILABLE".into()),
+    }
+}
+
+pub(super) fn start_game_copy_task(
+    app: &AppHandle,
+    game_id: &str,
+    target_id: &str,
+    target_parent: &std::path::Path,
+    name: &str,
+    include_worlds: bool,
+) -> Result<String, String> {
+    let id = register(
+        app,
+        TaskRequest::GameCopy {
+            game_id: game_id.into(),
+            target_id: target_id.into(),
+            target_parent: target_parent.to_owned(),
+            name: name.into(),
+            include_worlds,
+        },
+        "复制游戏",
+    )?;
+    let worker_app = app.clone();
+    let worker_id = id.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = execute(worker_app, worker_id).await;
+    });
+    Ok(id)
+}
+
+pub(super) fn start_directory_migration_task(
+    app: &AppHandle,
+    plan: directory_migration::Plan,
+) -> Result<String, String> {
+    let id = register(
+        app,
+        TaskRequest::DirectoryMigration { plan },
+        "迁移游戏位置",
+    )?;
+    let worker = app.clone();
+    let task = id.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = execute(worker, task).await;
+    });
+    Ok(id)
+}
+pub(super) fn directory_migration_plan(
+    app: &AppHandle,
+    id: &str,
+    completed_only: bool,
+) -> Result<directory_migration::Plan, String> {
+    let state = app.state::<TaskLibrary>();
+    let store = state.0.lock().map_err(|_| "DIRECTORY_MIGRATION_IO")?;
+    store
+        .records
+        .iter()
+        .find_map(|r| match &r.request {
+            TaskRequest::DirectoryMigration { plan }
+                if r.snapshot.id == id
+                    && (!completed_only || r.snapshot.state == TaskState::Succeeded) =>
+            {
+                Some(plan.clone())
+            }
+            _ => None,
+        })
+        .ok_or("DIRECTORY_MIGRATION_INCOMPLETE".into())
+}
+pub(super) fn directory_migration_progress(
+    app: &AppHandle,
+    plan_id: &str,
+    completed: u64,
+    total: u64,
+) {
+    let state = app.state::<TaskLibrary>();
+    let id = state.0.lock().ok().and_then(|s| {
+        s.records.iter().find_map(|r| match &r.request {
+            TaskRequest::DirectoryMigration { plan }
+                if plan.id == plan_id && r.snapshot.state.active() =>
+            {
+                Some(r.snapshot.id.clone())
+            }
+            _ => None,
+        })
+    });
+    if let Some(id) = id {
+        progress(
+            app,
+            &id,
+            InstallProgress {
+                phase: "copying".into(),
+                completed: completed.min(usize::MAX as u64) as usize,
+                total: total.min(usize::MAX as u64) as usize,
+                reused: 0,
+                detail: None,
+            },
+        );
+    }
+}
+
+pub(super) fn game_copy_progress(app: &AppHandle, target_id: &str, completed: u64, total: u64) {
+    let state = app.state::<TaskLibrary>();
+    let id = state.0.lock().ok().and_then(|store| {
+        store
+            .records
+            .iter()
+            .find_map(|record| match &record.request {
+                TaskRequest::GameCopy { target_id: id, .. }
+                    if id == target_id && record.snapshot.state.active() =>
+                {
+                    Some(record.snapshot.id.clone())
+                }
+                _ => None,
+            })
+    });
+    if let Some(id) = id {
+        progress(
+            app,
+            &id,
+            InstallProgress {
+                detail: None,
+                phase: "copying".into(),
+                completed: completed.min(usize::MAX as u64) as usize,
+                total: total.min(usize::MAX as u64) as usize,
+                reused: 0,
+            },
+        );
+    }
+}
+
+/// Only used before the creator spawns its worker, when saving the game failed.
+pub(super) fn discard_unstarted_install(app: &AppHandle, task_id: &str) -> Result<(), String> {
+    let state = app.state::<TaskLibrary>();
+    let mut store = state.0.lock().map_err(|error| error.to_string())?;
+    let index = store
+        .records
+        .iter()
+        .position(|record| record.snapshot.id == task_id)
+        .ok_or("找不到这个任务")?;
+    if store.controls.contains_key(task_id)
+        || !matches!(
+            store.records[index].request,
+            TaskRequest::GameInstall { .. }
+        )
+    {
+        return Err("安装任务已经开始".into());
+    }
+    let record = store.records.remove(index);
+    if let Err(error) = persist(&store) {
+        store.records.insert(index, record);
+        return Err(error);
+    }
+    drop(store);
+    state.1.notify_waiters();
+    Ok(())
 }
 impl TaskLibrary {
     pub fn load() -> Self {
@@ -219,7 +558,7 @@ impl TaskLibrary {
             }
             Err(error) => store.load_error = Some(format!("无法读取任务记录：{error}")),
         }
-        Self(Mutex::new(store))
+        Self(Mutex::new(store), tokio::sync::Notify::new())
     }
 }
 
@@ -251,14 +590,25 @@ pub(super) fn register(
     if let Some(error) = &store.load_error {
         return Err(error.clone());
     }
-    if game_id.is_some()
-        && store
-            .records
-            .iter()
-            .any(|record| record.snapshot.game_id == game_id && record.snapshot.state.active())
+    if store
+        .records
+        .iter()
+        .filter(|r| r.snapshot.state.active())
+        .count()
+        >= 32
     {
-        return Err("这个游戏已有任务正在进行".into());
+        return Err("正在进行的任务已达到上限".into());
     }
+    if matches!(request, TaskRequest::DirectoryMigration { .. })
+        && store.records.iter().any(|r| {
+            matches!(r.request, TaskRequest::DirectoryMigration { .. }) && r.snapshot.state.active()
+        })
+    {
+        return Err("DIRECTORY_MIGRATION_BUSY".into());
+    }
+    let queued = should_queue(&store.records, game_id.as_deref())
+        || matches!(request, TaskRequest::DirectoryMigration { .. })
+            && store.records.iter().any(|r| r.snapshot.state.active());
     let id = next_pack_id()?;
     let stamp = now();
     let snapshot = TaskSnapshot {
@@ -272,7 +622,11 @@ pub(super) fn register(
         game_name,
         title: title.into(),
         kind: request.kind().into(),
-        state: TaskState::Running,
+        state: if queued {
+            TaskState::Queued
+        } else {
+            TaskState::Running
+        },
         progress: None,
         error: None,
         can_retry: false,
@@ -286,11 +640,7 @@ pub(super) fn register(
     });
     // Keep recent history; active tasks are never removed.
     while store.records.len() > 100 {
-        let Some(index) = store
-            .records
-            .iter()
-            .position(|record| !record.snapshot.state.active())
-        else {
+        let Some(index) = store.records.iter().position(removable_history) else {
             break;
         };
         store.records.remove(index);
@@ -302,6 +652,360 @@ pub(super) fn register(
     drop(store);
     emit(app, &snapshot);
     Ok(id)
+}
+
+/// Host-owned work can keep running after the requesting view is destroyed.
+pub(super) fn register_external(
+    app: &AppHandle,
+    game_id: &str,
+    title: &str,
+    kind: &str,
+    cancel: Arc<std::sync::atomic::AtomicBool>,
+) -> Result<String, String> {
+    let request = match kind {
+        "trial_copy" => TaskRequest::TrialCopy {
+            game_id: game_id.into(),
+        },
+        "storage_move" => TaskRequest::StorageMove {
+            game_id: game_id.into(),
+        },
+        _ => return Err("未知任务类型".into()),
+    };
+    register_external_request(app, request, title, cancel)
+}
+
+pub(super) fn register_pack_update_copy(
+    app: &AppHandle,
+    game_id: &str,
+    target_id: &str,
+    archive_id: &str,
+    cancel: Arc<std::sync::atomic::AtomicBool>,
+) -> Result<String, String> {
+    if ![target_id, archive_id]
+        .iter()
+        .all(|id| id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+    {
+        return Err("无效的更新副本标识".into());
+    }
+    register_external_request(
+        app,
+        TaskRequest::PackUpdateCopy {
+            game_id: game_id.into(),
+            target_id: target_id.into(),
+            archive_id: archive_id.into(),
+        },
+        "创建更新副本",
+        cancel,
+    )
+}
+
+fn register_external_request(
+    app: &AppHandle,
+    request: TaskRequest,
+    title: &str,
+    cancel: Arc<std::sync::atomic::AtomicBool>,
+) -> Result<String, String> {
+    let id = register(app, request, title)?;
+    let state = app.state::<TaskLibrary>();
+    let mut store = state.0.lock().map_err(|e| e.to_string())?;
+    if store
+        .records
+        .iter()
+        .any(|r| r.snapshot.id == id && r.snapshot.state == TaskState::Cancelling)
+    {
+        cancel.store(true, std::sync::atomic::Ordering::Release);
+    }
+    store.external_controls.insert(id.clone(), cancel);
+    Ok(id)
+}
+
+pub(super) fn external_progress(
+    app: &AppHandle,
+    id: &str,
+    phase: &str,
+    completed: usize,
+    total: usize,
+) {
+    progress(
+        app,
+        id,
+        InstallProgress {
+            detail: None,
+            phase: phase.into(),
+            completed,
+            total,
+            reused: 0,
+        },
+    );
+}
+
+async fn wait_turn(app: &AppHandle, id: &str) -> Result<(), String> {
+    loop {
+        let state = app.state::<TaskLibrary>();
+        let notified = state.1.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        let promoted = {
+            let mut store = state.0.lock().map_err(|e| e.to_string())?;
+            let index = store
+                .records
+                .iter()
+                .position(|r| r.snapshot.id == id)
+                .ok_or("找不到这个任务")?;
+            match store.records[index].snapshot.state {
+                TaskState::Running => return Ok(()),
+                TaskState::Queued => {}
+                TaskState::Cancelling | TaskState::Cancelled => return Err("任务已取消".into()),
+                _ => return Err("任务未能开始".into()),
+            }
+            if can_start(&store.records, index) {
+                let previous = store.records[index].snapshot.clone();
+                store.records[index].snapshot.state = TaskState::Running;
+                store.records[index].snapshot.updated_at = advance(previous.updated_at);
+                let snapshot = store.records[index].snapshot.clone();
+                if let Err(error) = persist(&store) {
+                    store.records[index].snapshot = previous;
+                    return Err(error);
+                }
+                Some(snapshot)
+            } else {
+                None
+            }
+        };
+        if let Some(snapshot) = promoted {
+            emit(app, &snapshot);
+            return Ok(());
+        }
+        notified.await;
+    }
+}
+
+pub(super) async fn wait_external_turn(app: &AppHandle, id: &str) -> Result<(), String> {
+    wait_turn(app, id).await
+}
+
+pub(super) fn finish_external(app: &AppHandle, id: &str, result: Result<Option<String>, String>) {
+    let result_name = result
+        .as_ref()
+        .ok()
+        .and_then(|id| id.as_ref())
+        .and_then(|id| {
+            app.state::<GameLibrary>()
+                .0
+                .lock()
+                .ok()?
+                .games
+                .iter()
+                .find(|game| &game.id == id)
+                .map(|game| game.name.clone())
+        });
+    let state = app.state::<TaskLibrary>();
+    let Ok(mut store) = state.0.lock() else {
+        return;
+    };
+    store.external_controls.remove(id);
+    let Some(record) = store.records.iter_mut().find(|r| r.snapshot.id == id) else {
+        return;
+    };
+    if record.snapshot.state == TaskState::Cancelled {
+        drop(store);
+        state.1.notify_waiters();
+        return;
+    }
+    let cancelled = record.snapshot.state == TaskState::Cancelling;
+    record.snapshot.state = terminal_state(result.is_ok(), cancelled);
+    record.snapshot.error = if cancelled && result.is_err() {
+        None
+    } else {
+        result.as_ref().err().cloned()
+    };
+    record.snapshot.can_retry = false;
+    if let Ok(Some(game_id)) = result {
+        record.snapshot.game_id = Some(game_id);
+        if let Some(name) = result_name {
+            record.snapshot.game_name = name;
+        }
+        record.snapshot.has_result = true;
+    }
+    record.snapshot.updated_at = advance(record.snapshot.updated_at);
+    let mut snapshot = record.snapshot.clone();
+    if let Err(error) = persist(&store) {
+        snapshot.error = Some(format!("任务记录未能保存：{error}"));
+        if let Some(record) = store
+            .records
+            .iter_mut()
+            .find(|record| record.snapshot.id == id)
+        {
+            record.snapshot.error = snapshot.error.clone();
+        }
+    }
+    drop(store);
+    emit(app, &snapshot);
+    state.1.notify_waiters();
+}
+
+pub(crate) fn active_count(app: &AppHandle) -> usize {
+    app.state::<TaskLibrary>()
+        .0
+        .lock()
+        .map(|s| {
+            s.records
+                .iter()
+                .filter(|r| r.snapshot.state.active())
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+pub(crate) fn cancel_active(app: &AppHandle) {
+    let ids = app
+        .state::<TaskLibrary>()
+        .0
+        .lock()
+        .map(|s| {
+            s.records
+                .iter()
+                .filter(|r| r.snapshot.state.active())
+                .map(|r| r.snapshot.id.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for id in ids {
+        let _ = cancel_task(app.clone(), id);
+    }
+}
+
+/// Remove only an unpublished target that this interrupted task marked as its own.
+/// The retained archive cache is left for inspection or a new plan.
+pub(crate) fn reconcile_interrupted_pack_copies(app: &AppHandle) -> Result<usize, String> {
+    let pending = {
+        let state = app.state::<TaskLibrary>();
+        let store = state.0.lock().map_err(|e| e.to_string())?;
+        store
+            .records
+            .iter()
+            .filter_map(|record| {
+                if record.snapshot.state != TaskState::Interrupted {
+                    return None;
+                }
+                let TaskRequest::PackUpdateCopy {
+                    game_id,
+                    target_id,
+                    archive_id,
+                } = &record.request
+                else {
+                    return None;
+                };
+                Some((
+                    record.snapshot.id.clone(),
+                    game_id.clone(),
+                    target_id.clone(),
+                    archive_id.clone(),
+                ))
+            })
+            .collect::<Vec<_>>()
+    };
+    if pending.is_empty() {
+        return Ok(0);
+    }
+    let base = default_directory()?;
+    let base = fs::canonicalize(base).map_err(|e| e.to_string())?;
+    let registered = {
+        let library = app.state::<GameLibrary>();
+        let library = library.0.lock().map_err(|e| e.to_string())?;
+        library
+            .games
+            .iter()
+            .map(|game| (game.id.clone(), game.directory.clone()))
+            .collect::<Vec<_>>()
+    };
+    let mut cleaned = 0;
+    for (task_id, source_id, target_id, archive_id) in pending {
+        cleaned += usize::from(cleanup_pack_copy_target(
+            &base,
+            &registered,
+            &task_id,
+            &source_id,
+            &target_id,
+            &archive_id,
+        )?);
+    }
+    let state = app.state::<TaskLibrary>();
+    let store = state.0.lock().map_err(|e| e.to_string())?;
+    persist(&store)?;
+    Ok(cleaned)
+}
+
+fn cleanup_pack_copy_target(
+    base: &std::path::Path,
+    registered: &[(String, PathBuf)],
+    task_id: &str,
+    source_id: &str,
+    target_id: &str,
+    archive_id: &str,
+) -> Result<bool, String> {
+    if ![target_id, archive_id]
+        .iter()
+        .all(|id| id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+    {
+        return Ok(false);
+    }
+    let target = base.join(target_id);
+    let resolved_target = fs::canonicalize(&target).ok();
+    if registered.iter().any(|(id, path)| {
+        id == target_id
+            || path == &target
+            || resolved_target
+                .as_ref()
+                .is_some_and(|target| fs::canonicalize(path).ok().as_ref() == Some(target))
+    }) {
+        return Ok(false);
+    }
+    let marker = base.join(format!(".cobble-pack-update-{target_id}.json"));
+    let metadata = match fs::symlink_metadata(&marker) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.to_string()),
+    };
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 4096 {
+        return Ok(false);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if metadata.file_attributes() & 0x400 != 0 {
+            return Ok(false);
+        }
+    }
+    let value: serde_json::Value =
+        serde_json::from_slice(&fs::read(&marker).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+    if value["taskId"] != task_id
+        || value["sourceGameId"] != source_id
+        || value["targetId"] != target_id
+        || value["archiveId"] != archive_id
+    {
+        return Ok(false);
+    }
+    match fs::symlink_metadata(&target) {
+        Ok(metadata) => {
+            if !metadata.is_dir() || metadata.file_type().is_symlink() {
+                return Ok(false);
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::MetadataExt;
+                if metadata.file_attributes() & 0x400 != 0 {
+                    return Ok(false);
+                }
+            }
+            fs::remove_dir_all(&target).map_err(|e| e.to_string())?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.to_string()),
+    }
+    fs::remove_file(&marker).map_err(|e| e.to_string())?;
+    Ok(true)
 }
 
 fn progress(app: &AppHandle, id: &str, value: InstallProgress) {
@@ -334,6 +1038,7 @@ fn progress(app: &AppHandle, id: &str, value: InstallProgress) {
 
 pub(super) enum TaskResult {
     Game,
+    Java(cobble_minecraft::JavaRuntime),
     ModInstall(cobble_core::ModrinthInstallOutcome),
     ModUpdate(cobble_core::ModUpdateOutcome),
     Packs(Vec<cobble_content::LocalPack>),
@@ -349,10 +1054,64 @@ pub(super) async fn run(
     title: &str,
 ) -> Result<TaskResult, String> {
     let id = register(&app, request, title)?;
-    execute(app, id).await
+    // The command caller may disappear with its page. Keep the worker owned by
+    // the application and return its result only while that caller still waits.
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    tauri::async_runtime::spawn(async move {
+        let _ = sender.send(execute(app, id).await);
+    });
+    receiver.await.map_err(|_| "任务已中断".to_string())?
 }
 
 pub(super) async fn execute(app: AppHandle, id: String) -> Result<TaskResult, String> {
+    if let Err(error) = wait_turn(&app, &id).await {
+        let state = app.state::<TaskLibrary>();
+        let install_game = state.0.lock().ok().and_then(|store| {
+            store
+                .records
+                .iter()
+                .find(|record| record.snapshot.id == id)
+                .and_then(|record| match &record.request {
+                    TaskRequest::GameInstall { game_id, .. } => Some(game_id.clone()),
+                    _ => None,
+                })
+        });
+        if let Ok(mut store) = state.0.lock()
+            && let Some(record) = store.records.iter_mut().find(|r| r.snapshot.id == id)
+            && record.snapshot.state.active()
+        {
+            record.snapshot.state = if record.snapshot.state == TaskState::Cancelling {
+                TaskState::Cancelled
+            } else {
+                TaskState::Failed
+            };
+            record.snapshot.error = if record.snapshot.state == TaskState::Cancelled {
+                None
+            } else {
+                Some(error.clone())
+            };
+            record.snapshot.can_retry =
+                record.snapshot.state == TaskState::Failed || install_game.is_some();
+            record.snapshot.updated_at = advance(record.snapshot.updated_at);
+            let snapshot = record.snapshot.clone();
+            let _ = persist(&store);
+            drop(store);
+            emit(&app, &snapshot);
+            state.1.notify_waiters();
+        }
+        if let Some(game_id) = install_game {
+            update_game(
+                &app,
+                &game_id,
+                |game| {
+                    game.status = "failed".into();
+                    game.error = Some(error.clone());
+                },
+                true,
+            );
+        }
+        return Err(error);
+    }
     let progress_app = app.clone();
     let progress_id = id.clone();
     let throttle = Mutex::new((String::new(), Instant::now() - Duration::from_secs(1)));
@@ -391,7 +1150,7 @@ pub(super) async fn execute(app: AppHandle, id: String) -> Result<TaskResult, St
             record.snapshot.id == id && record.snapshot.state == TaskState::Cancelling
         })
     };
-    if let TaskRequest::GameInstall { game_id } = &request {
+    if let TaskRequest::GameInstall { game_id, .. } = &request {
         update_game(
             &app,
             game_id,
@@ -428,6 +1187,14 @@ pub(super) async fn execute(app: AppHandle, id: String) -> Result<TaskResult, St
         result.as_ref().err().cloned()
     };
     record.snapshot.can_retry = result.is_err();
+    if result.is_ok()
+        && let TaskRequest::GameCopy {
+            target_id, name, ..
+        } = &request
+    {
+        record.snapshot.game_id = Some(target_id.clone());
+        record.snapshot.game_name = name.clone();
+    }
     record.snapshot.has_result = result.is_ok()
         && matches!(
             request,
@@ -453,7 +1220,26 @@ pub(super) async fn execute(app: AppHandle, id: String) -> Result<TaskResult, St
     }
     drop(store);
     emit(&app, &snapshot);
+    state.1.notify_waiters();
     result
+}
+
+async fn initial_mods_after_base(
+    base: impl std::future::Future<Output = Result<(), String>>,
+    plan: Option<&cobble_content::ModrinthPlan>,
+    directory: &std::path::Path,
+    control: OperationControl,
+) -> Result<TaskResult, String> {
+    base.await?;
+    if let Some(plan) = plan {
+        control
+            .check_cancelled()
+            .map_err(|error| error.to_string())?;
+        cobble_core::install_modrinth_plan_controlled(plan, directory, control)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(TaskResult::Game)
 }
 
 async fn perform(
@@ -462,8 +1248,53 @@ async fn perform(
     control: OperationControl,
 ) -> Result<TaskResult, String> {
     match request {
+        TaskRequest::DirectoryMigration { plan } => {
+            directory_migration::perform(app, plan, control).await?;
+            Ok(TaskResult::Game)
+        }
+        TaskRequest::GameCopy {
+            game_id,
+            target_id,
+            target_parent,
+            name,
+            include_worlds,
+        } => {
+            builtin_copy::perform(
+                app,
+                game_id,
+                target_id,
+                target_parent,
+                name,
+                *include_worlds,
+                control,
+            )
+            .await?;
+            Ok(TaskResult::Game)
+        }
+        TaskRequest::GameReadiness { game_id, plan } => {
+            native_readiness::perform(app, game_id, plan, control).await?;
+            Ok(TaskResult::Game)
+        }
+        TaskRequest::TrialCopy { .. }
+        | TaskRequest::StorageMove { .. }
+        | TaskRequest::PackUpdateCopy { .. } => Err("请重新发起操作".into()),
+        TaskRequest::GameJava { required, .. } => {
+            let space = native_readiness_space::estimate_java(*required, control.clone()).await?;
+            if !space.can_proceed {
+                return Err("SPACE_INSUFFICIENT".into());
+            }
+            cobble_core::ensure_launch_java_controlled(
+                *required,
+                &cobble_minecraft::JavaOverride::Automatic,
+                control,
+            )
+            .await
+            .map(TaskResult::Java)
+            .map_err(|error| error.to_string())
+        }
         TaskRequest::GameRepair { game_id } => {
             let (game, _operation) = management::begin(app, game_id, true)?;
+            native_reverse_install::preflight(&game, None, &[], None, control.clone()).await?;
             let settings = game
                 .download_source
                 .clone()
@@ -480,7 +1311,13 @@ async fn perform(
             .map_err(|e| e.to_string())?;
             Ok(TaskResult::Game)
         }
-        TaskRequest::GameInstall { game_id } => {
+        TaskRequest::GameInstall {
+            game_id,
+            initial_mod_plan,
+            initial_environment_plan,
+            initial_shared_configs,
+            initial_personal_options,
+        } => {
             let game = {
                 let state = app.state::<GameLibrary>();
                 let library = state.0.lock().map_err(|e| e.to_string())?;
@@ -491,6 +1328,53 @@ async fn perform(
                     .ok_or("找不到这个游戏")?
                     .clone()
             };
+            if initial_mod_plan.is_some() && initial_environment_plan.is_some() {
+                return Err("ENVIRONMENT_PLAN_AMBIGUOUS".into());
+            }
+            cobble_core::environment_install::validate_shared_configs(initial_shared_configs)
+                .map_err(|e| e.to_string())?;
+            if let Some(options) = initial_personal_options {
+                cobble_core::personal_options::validate(options)?;
+                if options.target_version != game.version {
+                    return Err("PERSONAL_OPTIONS_TARGET_CHANGED".into());
+                }
+            }
+            if let Some(plan) = initial_environment_plan {
+                native_reverse::validate_target(&game, plan)?;
+                cobble_core::environment_install::validate_environment_plan(plan)
+                    .map_err(|e| e.to_string())?;
+            }
+            if game.launcher_import_id.is_none() && game.pack_source_id.is_none() {
+                let legacy = initial_mod_plan
+                    .as_ref()
+                    .map(|graph| {
+                        let loader = game
+                            .loader_kind
+                            .clone()
+                            .ok_or("ENVIRONMENT_LOADER_UNAVAILABLE")?;
+                        Ok::<_, String>(cobble_content::EnvironmentPlan {
+                            game_version: game.version.clone(),
+                            loader,
+                            roots: vec![cobble_content::EnvironmentSelection {
+                                source: cobble_content::EnvironmentSource::Modrinth,
+                                project_id: graph.project_id.clone(),
+                                version_id: graph.version_id.clone(),
+                            }],
+                            modrinth: Some(graph.clone()),
+                            curseforge: None,
+                            dependency_edges: vec![],
+                        })
+                    })
+                    .transpose()?;
+                native_reverse_install::preflight(
+                    &game,
+                    initial_environment_plan.as_ref().or(legacy.as_ref()),
+                    initial_shared_configs,
+                    initial_personal_options.as_ref(),
+                    control.clone(),
+                )
+                .await?;
+            }
             // Recover the commit-to-history gap without reimporting user data.
             let marker = if game.launcher_import_id.is_some() {
                 Some(".cobble-import.json")
@@ -503,7 +1387,11 @@ async fn perform(
             } else {
                 None
             };
-            if let Some(marker) = marker
+            if initial_mod_plan.is_none()
+                && initial_environment_plan.is_none()
+                && initial_shared_configs.is_empty()
+                && initial_personal_options.is_none()
+                && let Some(marker) = marker
                 && let Ok(bytes) = fs::read(game.directory.join(marker))
                 && serde_json::from_slice::<serde_json::Value>(&bytes)
                     .ok()
@@ -514,6 +1402,9 @@ async fn perform(
                 cobble_core::prepare_launch(&game.version, &game.directory)
                     .await
                     .map_err(|e| e.to_string())?;
+                if game.launcher_import_id.is_some() {
+                    launcher_import::reconcile_completed(&game, control.clone()).await?;
+                }
                 return Ok(TaskResult::Game);
             }
             let settings = game
@@ -523,63 +1414,116 @@ async fn perform(
                 .unwrap_or_else(cobble_minecraft::read_download_settings)
                 .map_err(|e| e.to_string())?;
             let source = settings.download_source().map_err(|e| e.to_string())?;
-            if game.launcher_import_id.is_some() {
-                launcher_import::install(&game, source, control).await?;
-            } else if let Some(source_id) = &game.pack_source_id {
-                if curseforge_pack::is_source(source_id)? {
-                    curseforge_pack::install(&game, source, control).await?;
-                } else {
-                    cobble_core::install_mrpack_controlled(
-                        &pack_archive_path(source_id)?,
-                        &game.directory,
-                        source,
-                        &game.pack_optional_files,
-                        control,
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
-                }
-            } else {
-                match &game.loader_version {
-                    Some(loader) => match game.loader_kind.as_deref().unwrap_or("fabric") {
-                        "fabric" => {
-                            cobble_core::install_fabric_controlled(
-                                &game.version,
-                                loader,
-                                &game.directory,
-                                source,
-                                control,
-                            )
-                            .await
+            let base = async {
+                if game.launcher_import_id.is_some() {
+                    launcher_import::install(&game, source, control.clone()).await?;
+                } else if let Some(source_id) = &game.pack_source_id {
+                    if curseforge_pack::is_source(source_id)? {
+                        curseforge_pack::install(&game, source, control.clone()).await?;
+                    } else {
+                        let archive = pack_archive_path(source_id)?;
+                        let pack =
+                            cobble_content::read_mrpack(&archive).map_err(|e| e.to_string())?;
+                        let java = cobble_core::capture_java_choice(&game.runtime_overrides.java)
+                            .map_err(|e| e.to_string())?;
+                        let space = native_readiness_space::estimate_pack(
+                            &pack,
+                            &game.pack_optional_files,
+                            &game.directory,
+                            settings.clone(),
+                            &java,
+                            native_readiness_space::PackSpaceExtras::default(),
+                            control.clone(),
+                        )
+                        .await?;
+                        if !space.can_proceed {
+                            return Err("SPACE_INSUFFICIENT".into());
                         }
-                        "forge" | "neoforge" => {
-                            cobble_core::install_forge_controlled(
-                                &game.version,
-                                loader,
-                                if game.loader_kind.as_deref() == Some("neoforge") {
-                                    cobble_core::ForgeKind::NeoForge
-                                } else {
-                                    cobble_core::ForgeKind::Forge
-                                },
-                                &game.directory,
-                                source,
-                                control,
-                            )
-                            .await
-                        }
-                        _ => Err("不支持这个模组加载器".into()),
-                    },
-                    None => {
-                        cobble_core::install_game_controlled(
-                            &game.version,
+                        cobble_core::install_mrpack_controlled(
+                            &archive,
                             &game.directory,
                             source,
-                            control,
+                            &game.pack_optional_files,
+                            control.clone(),
                         )
                         .await
+                        .map_err(|e| e.to_string())?;
                     }
+                } else {
+                    match &game.loader_version {
+                        Some(loader) => match game.loader_kind.as_deref().unwrap_or("fabric") {
+                            "fabric" => {
+                                cobble_core::install_fabric_controlled(
+                                    &game.version,
+                                    loader,
+                                    &game.directory,
+                                    source,
+                                    control.clone(),
+                                )
+                                .await
+                            }
+                            "forge" | "neoforge" => {
+                                cobble_core::install_forge_controlled(
+                                    &game.version,
+                                    loader,
+                                    if game.loader_kind.as_deref() == Some("neoforge") {
+                                        cobble_core::ForgeKind::NeoForge
+                                    } else {
+                                        cobble_core::ForgeKind::Forge
+                                    },
+                                    &game.directory,
+                                    source,
+                                    control.clone(),
+                                )
+                                .await
+                            }
+                            _ => Err("不支持这个模组加载器".into()),
+                        },
+                        None => {
+                            cobble_core::install_game_controlled(
+                                &game.version,
+                                &game.directory,
+                                source,
+                                control.clone(),
+                            )
+                            .await
+                        }
+                    }
+                    .map_err(|e| e.to_string())?;
                 }
-                .map_err(|e| e.to_string())?;
+                Ok(())
+            };
+            initial_mods_after_base(
+                base,
+                initial_mod_plan.as_ref(),
+                &game.directory,
+                control.clone(),
+            )
+            .await?;
+            if let Some(plan) = initial_environment_plan {
+                native_reverse_install::install_initial(app, &game, plan, control.clone()).await?;
+            }
+            let directory = game.directory.clone();
+            let configs = initial_shared_configs.clone();
+            let config_control = control.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                cobble_core::environment_install::install_shared_configs_controlled(
+                    &configs,
+                    &directory,
+                    config_control,
+                )
+            })
+            .await
+            .map_err(|_| "ENVIRONMENT_CONFIG_WORKER_FAILED")?
+            .map_err(|e| e.to_string())?;
+            if let Some(options) = initial_personal_options {
+                let directory = game.directory.clone();
+                let options = options.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    cobble_core::personal_options::install_controlled(&directory, &options, control)
+                })
+                .await
+                .map_err(|_| "PERSONAL_OPTIONS_WORKER_FAILED")??;
             }
             Ok(TaskResult::Game)
         }
@@ -682,10 +1626,19 @@ async fn perform(
                 })
                 .collect();
             update_game(app, game_id, |_| {}, false);
-            let outcome =
-                cobble_core::apply_modrinth_updates_controlled(&game.directory, plan, control)
-                    .await
-                    .map_err(|e| e.to_string())?;
+            let outcome = if plan.is_curseforge() {
+                let key = crate::curseforge::credential().ok_or("CurseForge 服务尚未配置")?;
+                cobble_core::apply_curseforge_updates_controlled(
+                    &game.directory,
+                    plan,
+                    key,
+                    control,
+                )
+                .await
+            } else {
+                cobble_core::apply_modrinth_updates_controlled(&game.directory, plan, control).await
+            }
+            .map_err(|e| e.to_string())?;
             if !pack_files.is_empty() {
                 update_game(
                     app,
@@ -843,7 +1796,22 @@ pub fn cancel_task(app: AppHandle, task_id: String) -> Result<TaskSnapshot, Stri
         .iter_mut()
         .find(|record| record.snapshot.id == task_id)
         .ok_or("找不到这个任务")?;
-    if record.snapshot.state == TaskState::Running {
+    let external = matches!(
+        record.request,
+        TaskRequest::TrialCopy { .. }
+            | TaskRequest::StorageMove { .. }
+            | TaskRequest::PackUpdateCopy { .. }
+    );
+    if record.snapshot.state == TaskState::Queued {
+        // External workers may own a sidecar or other cleanup even before admission.
+        record.snapshot.state = if external {
+            TaskState::Cancelling
+        } else {
+            TaskState::Cancelled
+        };
+        record.snapshot.can_retry = matches!(record.request, TaskRequest::GameInstall { .. });
+        record.snapshot.updated_at = advance(record.snapshot.updated_at);
+    } else if record.snapshot.state == TaskState::Running {
         record.snapshot.state = TaskState::Cancelling;
         record.snapshot.updated_at = advance(record.snapshot.updated_at);
     }
@@ -851,9 +1819,13 @@ pub fn cancel_task(app: AppHandle, task_id: String) -> Result<TaskSnapshot, Stri
     if let Some(control) = store.controls.get(&task_id) {
         control.cancel();
     }
+    if let Some(control) = store.external_controls.get(&task_id) {
+        control.store(true, std::sync::atomic::Ordering::Release);
+    }
     persist(&store)?;
     drop(store);
     emit(&app, &snapshot);
+    state.1.notify_waiters();
     Ok(snapshot)
 }
 
@@ -869,15 +1841,37 @@ pub fn retry_task(app: AppHandle, task_id: String) -> Result<TaskSnapshot, Strin
     if !store.records[index].snapshot.can_retry || store.records[index].snapshot.state.active() {
         return Err("这个任务无需重试".into());
     }
+    if store
+        .records
+        .iter()
+        .filter(|r| r.snapshot.state.active())
+        .count()
+        >= 32
+    {
+        return Err("正在进行的任务已达到上限".into());
+    }
     let game_id = store.records[index].request.game_id().map(str::to_owned);
-    if game_id.is_some()
-        && store
+    let same_game_busy = game_id.as_deref().is_some_and(|id| {
+        store
             .records
             .iter()
-            .any(|record| record.snapshot.game_id == game_id && record.snapshot.state.active())
+            .any(|r| r.snapshot.game_id.as_deref() == Some(id) && r.snapshot.state.active())
+    });
+    let migration = matches!(
+        store.records[index].request,
+        TaskRequest::DirectoryMigration { .. }
+    );
+    if migration
+        && store.records.iter().enumerate().any(|(i, r)| {
+            i != index
+                && matches!(r.request, TaskRequest::DirectoryMigration { .. })
+                && r.snapshot.state.active()
+        })
     {
-        return Err("这个游戏已有任务正在进行".into());
+        return Err("DIRECTORY_MIGRATION_BUSY".into());
     }
+    let queued = should_queue(&store.records, game_id.as_deref())
+        || migration && store.records.iter().any(|r| r.snapshot.state.active());
     if let Some(game_id) = &game_id {
         let library = app.state::<GameLibrary>();
         let library = library.0.lock().map_err(|e| e.to_string())?;
@@ -886,7 +1880,9 @@ pub fn retry_task(app: AppHandle, task_id: String) -> Result<TaskSnapshot, Strin
             .iter()
             .find(|game| &game.id == game_id)
             .ok_or("找不到这个游戏")?;
-        if game.launch_state != "idle" || game.content_installing || game.status == "installing" {
+        if game.launch_state != "idle"
+            || !same_game_busy && (game.content_installing || game.status == "installing")
+        {
             return Err("请先关闭游戏或等待当前操作完成".into());
         }
     }
@@ -895,8 +1891,13 @@ pub fn retry_task(app: AppHandle, task_id: String) -> Result<TaskSnapshot, Strin
         TaskRequest::GameInstall { .. }
     );
     let previous = store.records[index].snapshot.clone();
+    let resume_java = store.records[index].request.clone();
     let snapshot = &mut store.records[index].snapshot;
-    snapshot.state = TaskState::Running;
+    snapshot.state = if queued {
+        TaskState::Queued
+    } else {
+        TaskState::Running
+    };
     snapshot.error = None;
     snapshot.can_retry = false;
     snapshot.progress = None;
@@ -921,7 +1922,29 @@ pub fn retry_task(app: AppHandle, task_id: String) -> Result<TaskSnapshot, Strin
     }
     emit(&app, &snapshot);
     tauri::async_runtime::spawn(async move {
-        let _ = execute(app, task_id).await;
+        let result = execute(app.clone(), task_id).await;
+        if let (
+            Ok(TaskResult::Java(runtime)),
+            TaskRequest::GameJava {
+                game_id,
+                generation,
+                profile_id,
+                server_id,
+                ..
+            },
+        ) = (result, resume_java)
+        {
+            let library = app.state::<GameLibrary>();
+            let _ = runtime::start_game_captured(
+                app.clone(),
+                library,
+                game_id,
+                server_id,
+                profile_id,
+                runtime.executable,
+                generation,
+            );
+        }
     });
     Ok(snapshot)
 }
@@ -981,6 +2004,276 @@ pub(super) fn curseforge_pack_result_id(
 mod tests {
     use super::*;
 
+    fn initial_plan() -> cobble_content::ModrinthPlan {
+        use sha1::Digest;
+        cobble_content::ModrinthPlan {
+            project_id: "fixture".into(),
+            version_id: "selected".into(),
+            mods: vec![cobble_content::ResolvedMod {
+                project_id: "fixture".into(),
+                version_id: "selected".into(),
+                name: "Fixture".into(),
+                version_number: "release".into(),
+                required_by: None,
+                file: cobble_content::ModrinthFile {
+                    url: "https://cdn.modrinth.com/data/fixture/versions/selected/fixture.jar"
+                        .into(),
+                    filename: "fixture.jar".into(),
+                    size: 7,
+                    sha1: format!("{:x}", sha1::Sha1::digest(b"fixture")),
+                    sha512: None,
+                },
+            }],
+        }
+    }
+
+    #[test]
+    fn initial_mod_plan_survives_disk_history_restart_and_legacy_requests_decode() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("tasks.json");
+        let mut task = record(TaskState::Running);
+        task.request = TaskRequest::GameInstall {
+            game_id: "game".into(),
+            initial_mod_plan: Some(initial_plan()),
+            initial_environment_plan: None,
+            initial_shared_configs: Vec::new(),
+            initial_personal_options: None,
+        };
+        let request_before = serde_json::to_value(&task.request).unwrap();
+        persist_records(&path, &[task]).unwrap();
+        let mut loaded: Vec<StoredTask> = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        recover_records(&mut loaded);
+        assert_eq!(loaded[0].snapshot.state, TaskState::Interrupted);
+        assert!(loaded[0].snapshot.can_retry);
+        assert_eq!(
+            serde_json::to_value(&loaded[0].request).unwrap(),
+            request_before
+        );
+        let public = serde_json::to_value(&loaded[0].snapshot).unwrap();
+        assert!(public.get("initial_mod_plan").is_none());
+        let legacy: TaskRequest = serde_json::from_value(serde_json::json!({
+            "operation":"game_install", "game_id":"old"
+        }))
+        .unwrap();
+        assert!(matches!(
+            legacy,
+            TaskRequest::GameInstall {
+                initial_mod_plan: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn initial_environment_plan_survives_restart_retry_and_history_pruning() {
+        let graph = initial_plan();
+        let environment = cobble_content::EnvironmentPlan {
+            game_version: "1.21.1".into(),
+            loader: "fabric".into(),
+            roots: vec![cobble_content::EnvironmentSelection {
+                source: cobble_content::EnvironmentSource::Modrinth,
+                project_id: graph.project_id.clone(),
+                version_id: graph.version_id.clone(),
+            }],
+            modrinth: Some(graph),
+            curseforge: None,
+            dependency_edges: vec![],
+        };
+        let mut task = record(TaskState::Running);
+        task.request = TaskRequest::GameInstall {
+            game_id: "game".into(),
+            initial_mod_plan: None,
+            initial_environment_plan: Some(environment),
+            initial_shared_configs: Vec::new(),
+            initial_personal_options: None,
+        };
+        let expected = serde_json::to_value(&task.request).unwrap();
+        let mut loaded: Vec<StoredTask> =
+            serde_json::from_slice(&serde_json::to_vec(&vec![task]).unwrap()).unwrap();
+        recover_records(&mut loaded);
+        assert_eq!(loaded[0].snapshot.state, TaskState::Interrupted);
+        assert!(loaded[0].snapshot.can_retry);
+        assert!(!removable_history(&loaded[0]));
+        assert_eq!(serde_json::to_value(&loaded[0].request).unwrap(), expected);
+        loaded[0].snapshot.state = TaskState::Running;
+        assert_eq!(serde_json::to_value(&loaded[0].request).unwrap(), expected);
+        loaded[0].snapshot.state = TaskState::Succeeded;
+        assert!(removable_history(&loaded[0]));
+    }
+
+    #[test]
+    fn builtin_copy_restart_keeps_host_parent_target_identity_and_world_choice() {
+        let parent = tempfile::tempdir().unwrap();
+        let mut task = record(TaskState::Running);
+        task.request = TaskRequest::GameCopy {
+            game_id: "game".into(),
+            target_id: "a".repeat(32),
+            target_parent: parent.path().to_owned(),
+            name: "Independent copy".into(),
+            include_worlds: false,
+        };
+        let expected = serde_json::to_value(&task.request).unwrap();
+        let mut loaded: Vec<StoredTask> =
+            serde_json::from_slice(&serde_json::to_vec(&vec![task]).unwrap()).unwrap();
+        recover_records(&mut loaded);
+        assert!(loaded[0].snapshot.can_retry);
+        assert_eq!(loaded[0].snapshot.state, TaskState::Interrupted);
+        assert!(!removable_history(&loaded[0]));
+        assert_eq!(serde_json::to_value(&loaded[0].request).unwrap(), expected);
+        assert!(
+            serde_json::to_value(&loaded[0].snapshot)
+                .unwrap()
+                .get("target_parent")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn shared_configuration_only_creation_is_durable_and_retained_after_interruption() {
+        use sha2::Digest;
+        let mut task = record(TaskState::Running);
+        let configs = vec![cobble_core::environment_install::SharedConfig {
+            path: "config/selected.json".into(),
+            text: "{}".into(),
+            sha256: format!("{:x}", sha2::Sha256::digest(b"{}")),
+        }];
+        task.request = TaskRequest::GameInstall {
+            game_id: "game".into(),
+            initial_mod_plan: None,
+            initial_environment_plan: None,
+            initial_shared_configs: configs,
+            initial_personal_options: None,
+        };
+        let expected = serde_json::to_value(&task.request).unwrap();
+        let mut loaded: Vec<StoredTask> =
+            serde_json::from_slice(&serde_json::to_vec(&vec![task]).unwrap()).unwrap();
+        recover_records(&mut loaded);
+        assert!(loaded[0].snapshot.can_retry);
+        assert!(!removable_history(&loaded[0]));
+        assert_eq!(serde_json::to_value(&loaded[0].request).unwrap(), expected);
+    }
+
+    #[test]
+    fn personal_options_only_creation_survives_restart_cancel_failure_and_history_pruning() {
+        let options = serde_json::from_value(serde_json::json!({
+            "schema_version":1,"source_version":"1.21.1","target_version":"1.21.1",
+            "options_version":3955,"fields":{"renderDistance":"12"}
+        }))
+        .unwrap();
+        let mut task = record(TaskState::Running);
+        task.request = TaskRequest::GameInstall {
+            game_id: "game".into(),
+            initial_mod_plan: None,
+            initial_environment_plan: None,
+            initial_shared_configs: vec![],
+            initial_personal_options: Some(options),
+        };
+        let expected = serde_json::to_value(&task.request).unwrap();
+        let mut loaded: Vec<StoredTask> =
+            serde_json::from_slice(&serde_json::to_vec(&vec![task]).unwrap()).unwrap();
+        recover_records(&mut loaded);
+        assert_eq!(loaded[0].snapshot.state, TaskState::Interrupted);
+        assert!(loaded[0].snapshot.can_retry);
+        assert_eq!(serde_json::to_value(&loaded[0].request).unwrap(), expected);
+        for state in [
+            TaskState::Failed,
+            TaskState::Cancelled,
+            TaskState::Interrupted,
+        ] {
+            loaded[0].snapshot.state = state;
+            assert!(!removable_history(&loaded[0]));
+        }
+        loaded[0].snapshot.state = TaskState::Succeeded;
+        assert!(removable_history(&loaded[0]));
+    }
+
+    #[test]
+    fn unfinished_initial_mod_install_is_retained_when_history_is_pruned() {
+        for state in [
+            TaskState::Failed,
+            TaskState::Cancelled,
+            TaskState::Interrupted,
+        ] {
+            let mut task = record(state);
+            task.request = TaskRequest::GameInstall {
+                game_id: "game".into(),
+                initial_mod_plan: Some(initial_plan()),
+                initial_environment_plan: None,
+                initial_shared_configs: Vec::new(),
+                initial_personal_options: None,
+            };
+            assert!(!removable_history(&task));
+            task.snapshot.state = TaskState::Succeeded;
+            assert!(removable_history(&task));
+        }
+        assert!(removable_history(&record(TaskState::Succeeded)));
+    }
+
+    #[tokio::test]
+    async fn initial_mod_stage_never_runs_after_base_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let result = initial_mods_after_base(
+            async { Err("base failed".into()) },
+            Some(&initial_plan()),
+            directory.path(),
+            OperationControl::new(Arc::new(|_| {})),
+        )
+        .await;
+        assert!(matches!(result, Err(error) if error == "base failed"));
+        assert!(!directory.path().join("mods").exists());
+    }
+
+    #[tokio::test]
+    async fn initial_mod_stage_failure_or_cancellation_cannot_complete_game_install() {
+        let directory = tempfile::tempdir().unwrap();
+        let control = OperationControl::new(Arc::new(|_| {}));
+        let cancelled = control.clone();
+        let result = initial_mods_after_base(
+            async move {
+                cancelled.cancel();
+                Ok(())
+            },
+            Some(&initial_plan()),
+            directory.path(),
+            control,
+        )
+        .await;
+        assert!(matches!(result, Err(error) if error.contains("取消")));
+        assert!(!directory.path().join("mods").exists());
+        let mut plan = initial_plan();
+        plan.mods[0].file.sha1 = "invalid".into();
+        let result = initial_mods_after_base(
+            async { Ok(()) },
+            Some(&plan),
+            directory.path(),
+            OperationControl::new(Arc::new(|_| {})),
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(terminal_state(result.is_ok(), false), TaskState::Failed);
+    }
+
+    #[tokio::test]
+    async fn initial_mod_stage_completes_only_after_exact_plan_is_committed_and_can_resume() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::create_dir(directory.path().join("mods")).unwrap();
+        fs::write(directory.path().join("mods/fixture.jar"), b"fixture").unwrap();
+        let plan = initial_plan();
+        for _ in 0..2 {
+            let result = initial_mods_after_base(
+                async { Ok(()) },
+                Some(&plan),
+                directory.path(),
+                OperationControl::new(Arc::new(|_| {})),
+            )
+            .await;
+            assert!(matches!(result, Ok(TaskResult::Game)));
+            let managed = cobble_core::list_managed_modrinth_mods(directory.path()).unwrap();
+            assert_eq!(managed.len(), 1);
+            assert_eq!(managed[0].version_id, "selected");
+        }
+    }
+
     fn record(state: TaskState) -> StoredTask {
         StoredTask {
             snapshot: TaskSnapshot {
@@ -1006,8 +2299,77 @@ mod tests {
             },
             request: TaskRequest::GameInstall {
                 game_id: "game".into(),
+                initial_mod_plan: None,
+                initial_environment_plan: None,
+                initial_shared_configs: Vec::new(),
+                initial_personal_options: None,
             },
         }
+    }
+
+    #[test]
+    fn same_game_queue_is_fifo_and_cancelled_head_releases_next() {
+        let mut first = record(TaskState::Running);
+        first.snapshot.id = "first".into();
+        let mut second = record(TaskState::Queued);
+        second.snapshot.id = "second".into();
+        let mut third = record(TaskState::Queued);
+        third.snapshot.id = "third".into();
+        let mut records = vec![first, second, third];
+        assert!(TaskState::Queued.active());
+        assert!(should_queue(&records[..1], Some("game")));
+        assert!(!can_start(&records, 1));
+        records[0].snapshot.state = TaskState::Succeeded;
+        assert!(can_start(&records, 1));
+        assert!(!can_start(&records, 2));
+        records[1].snapshot.state = TaskState::Cancelled;
+        assert!(can_start(&records, 2));
+    }
+
+    #[test]
+    fn directory_migration_is_an_exclusive_fifo_barrier_and_recovers_for_retry() {
+        let plan = serde_json::from_value(serde_json::json!({"id":"abc123","source":"C:/old/games","target":"D:/new/games","entries":[]})).unwrap();
+        let mut migration = record(TaskState::Queued);
+        migration.snapshot.game_id = None;
+        migration.request = TaskRequest::DirectoryMigration { plan };
+        let mut later = record(TaskState::Queued);
+        later.snapshot.game_id = Some("other".into());
+        let mut records = vec![record(TaskState::Running), migration, later];
+        assert!(should_queue(&records, Some("new")));
+        assert!(!can_start(&records, 1));
+        assert!(!can_start(&records, 2));
+        records[0].snapshot.state = TaskState::Succeeded;
+        assert!(can_start(&records, 1));
+        records[1].snapshot.state = TaskState::Running;
+        assert!(!can_start(&records, 2));
+        let serialized = serde_json::to_vec(&records).unwrap();
+        let mut recovered: Vec<StoredTask> = serde_json::from_slice(&serialized).unwrap();
+        recover_records(&mut recovered);
+        assert_eq!(recovered[1].snapshot.state, TaskState::Interrupted);
+        assert!(recovered[1].snapshot.can_retry);
+        assert!(!removable_history(&recovered[1]));
+        records[1].snapshot.state = TaskState::Cancelled;
+        assert!(can_start(&records, 2));
+    }
+
+    #[test]
+    fn four_running_slots_allow_a_different_game_after_one_finishes() {
+        let mut records = (0..4)
+            .map(|index| {
+                let mut task = record(TaskState::Running);
+                task.snapshot.id = format!("running-{index}");
+                task.snapshot.game_id = Some(format!("game-{index}"));
+                task
+            })
+            .collect::<Vec<_>>();
+        let mut next = record(TaskState::Queued);
+        next.snapshot.id = "next".into();
+        next.snapshot.game_id = Some("other".into());
+        assert!(should_queue(&records, Some("other")));
+        records.push(next);
+        assert!(!can_start(&records, 4));
+        records[0].snapshot.state = TaskState::Succeeded;
+        assert!(can_start(&records, 4));
     }
 
     #[test]
@@ -1075,5 +2437,76 @@ mod tests {
         assert_eq!(terminal_state(true, true), TaskState::Succeeded);
         let stamp = now();
         assert!(advance(stamp) > stamp);
+    }
+
+    #[test]
+    fn interrupted_external_copy_requires_inspection_not_automatic_retry() {
+        let mut copy = record(TaskState::Running);
+        copy.request = TaskRequest::TrialCopy {
+            game_id: "game".into(),
+        };
+        copy.snapshot.kind = copy.request.kind().into();
+        let mut move_task = record(TaskState::Cancelling);
+        move_task.request = TaskRequest::StorageMove {
+            game_id: "game".into(),
+        };
+        move_task.snapshot.kind = move_task.request.kind().into();
+        let mut pack_copy = record(TaskState::Running);
+        pack_copy.request = TaskRequest::PackUpdateCopy {
+            game_id: "game".into(),
+            target_id: "a".repeat(32),
+            archive_id: "b".repeat(32),
+        };
+        pack_copy.snapshot.kind = pack_copy.request.kind().into();
+        let mut records = [copy, move_task, pack_copy];
+        recover_records(&mut records);
+        for record in &records {
+            assert_eq!(record.snapshot.state, TaskState::Interrupted);
+            assert!(!record.snapshot.can_retry);
+            assert!(record.snapshot.error.as_deref().unwrap().contains("检查"));
+        }
+    }
+
+    #[test]
+    fn interrupted_pack_cleanup_requires_exact_unpublished_owned_marker() {
+        let base = std::env::temp_dir().join(format!(
+            "cobble-pack-cleanup-{}-{}",
+            std::process::id(),
+            now()
+        ));
+        fs::create_dir(&base).unwrap();
+        let target_id = "a".repeat(32);
+        let archive_id = "b".repeat(32);
+        let target = base.join(&target_id);
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("synthetic.txt"), b"fixture").unwrap();
+        let marker = base.join(format!(".cobble-pack-update-{target_id}.json"));
+        let receipt = serde_json::json!({"taskId":"task","sourceGameId":"source","targetId":target_id,"archiveId":archive_id});
+        fs::write(&marker, serde_json::to_vec(&receipt).unwrap()).unwrap();
+        let registered = vec![(target_id.clone(), target.clone())];
+        assert!(
+            !cleanup_pack_copy_target(
+                &base,
+                &registered,
+                "task",
+                "source",
+                &target_id,
+                &archive_id
+            )
+            .unwrap()
+        );
+        assert!(target.exists());
+        assert!(
+            !cleanup_pack_copy_target(&base, &[], "other-task", "source", &target_id, &archive_id)
+                .unwrap()
+        );
+        assert!(target.exists());
+        assert!(
+            cleanup_pack_copy_target(&base, &[], "task", "source", &target_id, &archive_id)
+                .unwrap()
+        );
+        assert!(!target.exists());
+        assert!(!marker.exists());
+        fs::remove_dir(base).unwrap();
     }
 }

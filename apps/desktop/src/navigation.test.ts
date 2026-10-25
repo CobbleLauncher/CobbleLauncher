@@ -4,6 +4,23 @@ import { activeSection, extensionDetailPage, backPage, enterPage, goToParent, in
 import { BLUEPRINTS_TOOL_ID } from './tools';
 
 describe('workspace page hierarchy', () => {
+  it('keeps the storage wizard under settings with one return destination', () => {
+    const settings = enterPage(initialNavigation(), { view: 'settings' });
+    const moving = enterPage(settings, { view: 'move-games', taskId: 'move-1' });
+    expect(activeSection(moving.current, moving.parents)).toBe('settings');
+    expect(goToParent(moving).current).toEqual({ view: 'settings' });
+    expect(enterPage(moving, { view: 'move-games', taskId: 'move-1' }).parents).toEqual(moving.parents);
+  });
+  it('returns game tools and invitations to the same running session', () => {
+    const running = enterPage(initialNavigation(), { view: 'running', gameId: 'live-game' });
+    const tool = toolPage(running, { pluginId: 'command-pocket', instanceId: 'live-game' });
+    expect(goToParent(tool).current).toEqual({ view: 'running', gameId: 'live-game' });
+    const mesh = enterPage(running, { view: 'mesh', gameId: 'live-game' });
+    expect(goToParent(mesh).current).toEqual(running.current);
+    const meshGroup = enterPage(running, { view: 'mesh-group', gameId: 'live-game' });
+    expect(goToParent(meshGroup).current).toEqual(running.current);
+    expect(activeSection(running.current, running.parents)).toBe('library');
+  });
   it('clears child history on every explicit top-level destination', () => {
     const details = enterPage(initialNavigation(), { view: 'details', gameId: 'game-a' });
     const child = enterPage(details, { view: 'mesh', gameId: 'game-a' });
@@ -77,6 +94,23 @@ describe('workspace page hierarchy', () => {
     expect(state.parents).toHaveLength(1);
     expect(goToParent(state).current).toEqual({view:'extensions',candidate});
     expect(extensionDetailPage(initialNavigation(),'missing-plugin').parents).toEqual([{view:'extensions'}]);
+  });
+
+  it('refreshes a receiver handoff token without adding another page frame',()=>{
+    const initial = toolPage(enterPage(initialNavigation(), {view:'running',gameId:'game-a'}), {pluginId:'coordinate-book',instanceId:'game-a',handoffId:'token-one'});
+    const refreshed = toolPage(initial, {pluginId:'coordinate-book',instanceId:'game-a',handoffId:'token-two'});
+    expect(refreshed.current).toMatchObject({view:'tools',location:{pluginId:'coordinate-book',instanceId:'game-a',handoffId:'token-two'}});
+    expect(refreshed.parents).toEqual(initial.parents);
+    expect(goToParent(refreshed).current).toEqual({view:'running',gameId:'game-a'});
+  });
+
+  it('does not retain a consumed handoff token in tool navigation history',()=>{
+    const receiver = toolPage(enterPage(initialNavigation(), {view:'running',gameId:'game-a'}), {pluginId:'coordinate-book',instanceId:'game-a',handoffId:'token-one'});
+    const otherTool = toolPage(receiver, {pluginId:'another-tool',instanceId:'game-a'});
+    expect(receiver.current).toMatchObject({view:'tools',location:{handoffId:'token-one'}});
+    expect(otherTool.current).toMatchObject({view:'tools',location:{pluginId:'another-tool'}});
+    expect(otherTool.parents.at(-1)).toEqual({view:'tools',location:{pluginId:'coordinate-book',instanceId:'game-a'}});
+    expect(goToParent(otherTool).current).toEqual({view:'tools',location:{pluginId:'coordinate-book',instanceId:'game-a'}});
   });
 
 });

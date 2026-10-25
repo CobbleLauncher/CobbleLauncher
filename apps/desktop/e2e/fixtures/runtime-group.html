@@ -1,0 +1,25 @@
+<!doctype html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Runtime group fixture</title></head>
+<body><main id="app" style="max-width:860px;margin:auto"></main><script type="module">
+import {createApp,h,ref} from 'vue';
+import GameRuntimeSettings from '../../src/GameRuntimeSettings.vue';
+import {setLocale} from '../../src/i18n';
+import '../../src/style.css';import '../../src/ui.css';
+const query=new URLSearchParams(location.search);
+setLocale(query.get('locale')==='zh-CN'?'zh-CN':'en-US');
+document.documentElement.dataset.theme=query.get('theme')==='dark'?'dark':'light';
+let game={id:'runtime-fixture',name:'Forest World',version:'1.21.1',directory:'synthetic',status:'installed',error:null,progress:null,launch_state:'idle',runtime_overrides:{java:{mode:'inherit'},memory_mb:8192}};
+const candidate={id:'java-fixture21',version:'21.0.1',major:21,arch:'x86_64',vendor:'Fixture',executable:'C:\\Tools\\Java21\\bin\\javaw.exe',recommended:true};
+window.__runtimeWrites=[];
+window.__TAURI_INTERNALS__={invoke:async(command,args)=>{
+ if(command==='get_launcher_preferences')return {memory_mb:4096,game_directory:'synthetic',custom_game_directory:false};
+ if(command==='get_java_settings')return {mode:'automatic',executable:null,runtime:null};
+ if(command==='list_game_java_runtimes')return {runtimes:[candidate],requiredMajor:21,recommendedId:candidate.id};
+ if(command==='pick_game_java_candidate')return candidate;
+ if(command==='set_game_java_runtime'){window.__runtimeWrites.push({command,args});game={...game,runtime_overrides:{...game.runtime_overrides,java:{mode:'custom',executable:candidate.executable}}};return structuredClone(game);}
+ if(command==='set_game_java_mode'){window.__runtimeWrites.push({command,args});game={...game,runtime_overrides:{...game.runtime_overrides,java:{mode:args.mode}}};return structuredClone(game);}
+ if(command==='set_game_memory'){window.__runtimeWrites.push({command,args});if(query.get('fail')==='memory')throw new Error('Synthetic memory failure');game={...game,runtime_overrides:{...game.runtime_overrides,memory_mb:args.memoryMb}};return structuredClone(game);}
+ throw new Error('Unsupported fixture command');
+}};
+createApp({setup(){const current=ref(structuredClone(game));return()=>h(GameRuntimeSettings,{game:current.value,onUpdated:updated=>{current.value=updated;}});}}).mount('#app');
+</script></body></html>

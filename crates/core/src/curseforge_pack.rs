@@ -44,7 +44,10 @@ struct State {
 pub fn inspect_curseforge_pack(archive: &Path) -> Result<CurseForgePackInspection, Error> {
     inspect(archive, &OperationControl::new(Arc::new(|_| {})))
 }
-fn inspect(archive: &Path, control: &OperationControl) -> Result<CurseForgePackInspection, Error> {
+pub(crate) fn inspect(
+    archive: &Path,
+    control: &OperationControl,
+) -> Result<CurseForgePackInspection, Error> {
     let mut input = std::fs::File::open(archive)?;
     if !input.metadata()?.is_file() || input.metadata()?.len() > 16 * 1024 * 1024 * 1024 {
         return Err("CurseForge archive must be a regular file no larger than 16 GiB".into());
@@ -119,7 +122,16 @@ pub fn validate_curseforge_pack_plan(
         .as_ref()
         .map(|loader| loader.kind.as_str())
         .unwrap_or("minecraft");
-    if !cobble_content::supported_pack_target(&pack.minecraft_version, loader) {
+    if !cobble_content::supported_pack_target(&pack.minecraft_version, loader)
+        || !cobble_content::query_compatibility(
+            &pack.minecraft_version,
+            Some(loader),
+            pack.loader.as_ref().map(|item| item.version.as_str()),
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+        )
+        .allowed()
+    {
         return Err("Unsupported Minecraft version or CurseForge pack loader".into());
     }
     let pins = curseforge_pack_pins(pack, &plan.optional_files)?;

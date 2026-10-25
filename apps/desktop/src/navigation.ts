@@ -2,6 +2,8 @@
 import type { GameAction } from './games';
 import type { MarketKind } from './market';
 import type { ResolvedCommand } from './extensions/contributions';
+import type { SnapshotRestoreTarget } from './world-snapshots';
+import type { ConfigRestoreTarget, RecoveryDetailTarget } from './recovery-navigation';
 
 export type MainSection = 'library' | 'discover-packs' | 'tools' | 'extensions' | 'mesh' | 'settings';
 export type BlueprintView = 'library' | 'online' | 'viewer';
@@ -10,18 +12,25 @@ export interface ToolLocation {
   command?: ResolvedCommand;
   instanceId?: string;
   keybindingTargetId?: string;
+  configRestoreTarget?: ConfigRestoreTarget;
+  handoffId?: string;
   blueprintView?: BlueprintView;
+  blueprintId?: string;
   title?: string;
 }
 export interface ExtensionCandidate { sourceId: string; pluginId: string }
 export type MarketPage = { view: 'discover-packs'; kind: MarketKind; gameId: string; query?: string };
 export type AppPage =
-  | { view: 'library' | 'create' | 'import' | 'cf-import' | 'import-launcher' | 'settings' | 'profiles' | 'add-profile' }
+  | { view: 'first-run' | 'library' | 'create' | 'import' | 'cf-import' | 'import-launcher' | 'settings' | 'profiles' | 'add-profile' }
   | { view: 'extensions'; candidate?: ExtensionCandidate }
+  | { view: 'move-games'; taskId?: string }
   | { view: 'extension-detail'; pluginId: string; title?: string }
-  | { view: 'details'; gameId: string }
+  | { view: 'details'; gameId: string; snapshotRestore?: SnapshotRestoreTarget; recoveryTarget?: RecoveryDetailTarget }
+  | { view: 'running'; gameId: string }
+  | { view: 'readiness'; gameId: string }
+  | { view: 'mesh-group'; gameId: string; invitation?: string }
   | { view: 'game-action'; gameId: string; action: GameAction }
-  | { view: 'mesh'; gameId: string }
+  | { view: 'mesh'; gameId: string; initialMode?: 'host' | 'join' | 'contacts'; initialContactId?: string; contactRequestId?: number }
   | MarketPage
   | { view: 'tools'; location?: ToolLocation };
 
@@ -41,9 +50,19 @@ export function rootPage(section: MainSection): AppPage {
 }
 export function enterPage(state: NavigationState, page: AppPage, mode: 'push' | 'replace' | 'root' = 'push'): NavigationState {
   if(mode==='push' && pageKey(state.current)===pageKey(page)) mode='replace';
+  let parent = state.current;
+  if (parent.view === 'tools' && (parent.location?.handoffId || parent.location?.configRestoreTarget)) {
+    const { handoffId: _handoffId, configRestoreTarget: _restoreTarget, ...location } = parent.location;
+    void _handoffId; void _restoreTarget;
+    parent = { ...parent, location };
+  }
+  if (parent.view === 'details' && parent.recoveryTarget) {
+    const { recoveryTarget: _recoveryTarget, ...location } = parent;
+    void _recoveryTarget; parent = location;
+  }
   return {
     current: page,
-    parents: mode === 'root' ? [] : mode === 'replace' ? state.parents : [...state.parents, state.current],
+    parents: mode === 'root' ? [] : mode === 'replace' ? state.parents : [...state.parents, parent],
     market: page.view === 'discover-packs' ? page : state.market,
     lastGameId: 'gameId' in page && page.gameId ? page.gameId : state.lastGameId,
   };
@@ -63,6 +82,7 @@ export function returnToGameDetails(state:NavigationState,gameId:string):Navigat
     : enterPage(enterPage(state,{view:'library'},'root'),{view:'details',gameId});
 }
 export function activeSection(page: AppPage, parents:AppPage[]=[]): MainSection {
+  if (page.view === 'move-games') return 'settings';
   if (['settings', 'extensions', 'tools', 'discover-packs', 'mesh'].includes(page.view)) return page.view as MainSection;
   for(let index=parents.length-1;index>=0;index--) {
     const parent=parents[index]!;
@@ -92,9 +112,11 @@ export function toolPage(state: NavigationState, location: ToolLocation): Naviga
   return enterPage(state, { view: 'tools', location });
 }
 export function pageKey(page:AppPage):string {
-  if(page.view==='tools') {const location=page.location;return JSON.stringify([page.view,location?.pluginId,location?.blueprintView,location?.instanceId,location?.keybindingTargetId,location?.command]);}
+  if(page.view==='move-games') return JSON.stringify([page.view,page.taskId]);
+  if(page.view==='tools') {const location=page.location;return JSON.stringify([page.view,location?.pluginId,location?.blueprintView,location?.instanceId,location?.keybindingTargetId,location?.handoffId,location?.configRestoreTarget,location?.command]);}
   if(page.view==='extension-detail') return JSON.stringify([page.view,page.pluginId]);
   if(page.view==='game-action') return JSON.stringify([page.view,page.gameId,page.action]);
   if(page.view==='discover-packs') return JSON.stringify([page.view,page.gameId,page.kind,page.query]);
   return JSON.stringify([page.view,'gameId' in page?page.gameId:null]);
 }
+

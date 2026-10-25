@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: MIT
+package launcher:tool-form@0.1.0;
+interface tool {
+  record failure { code: string, message: string }
+  record request { locale: string, input-json: string }
+  record text-block { label: option<string>, text: string }
+  record output { title: string, blocks: list<text-block> }
+  // Pure computation over explicit form values. No host imports or implicit context.
+  run: func(request: request) -> result<output, failure>;
+}
+world tool-form { export tool; }

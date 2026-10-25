@@ -190,6 +190,18 @@ pub fn read_curseforge_pack_file<R: Read + Seek>(source: R) -> Result<CurseForge
     }
 
     let loader = parse_loader(&manifest.minecraft.mod_loaders)?;
+    if let Some(selected) = &loader
+        && !crate::query_compatibility(
+            &manifest.minecraft.version,
+            Some(&selected.kind),
+            Some(&selected.version),
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+        )
+        .allowed()
+    {
+        return Err(invalid("Unsupported CurseForge Minecraft or loader target").into());
+    }
     let override_root = SafeRelativePath::parse(&manifest.overrides)?
         .as_str()
         .to_owned();

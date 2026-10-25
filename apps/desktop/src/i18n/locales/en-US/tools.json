@@ -1,5 +1,11 @@
 {
   "title": "Tools",
+  "open": "Open",
+  "manageExtension": "Manage extension",
+  "manageExtensions": "Manage extensions",
+  "unavailable": "This tool is currently unavailable.",
+  "dependencyMap": "Mod dependencies",
+  "packFile": "Modpack file",
   "search": "Search tools",
   "clearSearch": "Clear search",
   "noResults": "No tools found.",

@@ -1,9 +1,11 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
+import CompatibilityNotice from './CompatibilityNotice.vue';
 import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { RadioGroupItem, RadioGroupRoot } from 'reka-ui';
 import { t } from './i18n';
+import AppIcon from './ui/AppIcon.vue';
 import type { Game } from './games';
 import { curseForgeLoaderLabel, type CurseForgePackPreview } from './curseforge';
 import CurseForgePackPreparation from './CurseForgePackPreparation.vue';
@@ -78,6 +80,11 @@ onUnmounted(() => { disposed = true; });
       <div class="pack-title">
         <h2>{{ preview.name }}</h2><span class="count">{{ preview.version_id }}</span><span class="mod-state">CurseForge</span>
       </div>
+      <CompatibilityNotice
+        :minecraft-version="preview.minecraft_version"
+        :loader-kind="preview.loader_kind"
+        :loader-version="preview.loader_version"
+      />
       <div class="compatibility-tags">
         <span>Minecraft {{ preview.minecraft_version }}</span><span v-if="preview.loader_kind">{{ curseForgeLoaderLabel(preview.loader_kind) }} {{ preview.loader_version }}</span>
       </div>
@@ -131,7 +138,7 @@ onUnmounted(() => { disposed = true; });
         </RadioGroupRoot>
       </div>
       <details class="cf-advanced">
-        <summary>{{ t('curseforge.installLocation') }}</summary><button
+        <summary><AppIcon name="chevron-right" />{{ t('curseforge.installLocation') }}</summary><button
           type="button"
           class="folder-button"
           :disabled="working"
@@ -157,5 +164,5 @@ onUnmounted(() => { disposed = true; });
     </p>
   </div>
 </template>
-<style scoped>.cf-pack-install .create-form { margin-top: 20px; }.cf-pack-install .compatibility-tags { margin: 12px 0; }.cf-advanced { margin: 20px 0; }.cf-advanced summary { cursor: pointer; font-size: 12px; }.cf-advanced button { margin-top: 12px; }.cf-pack-install { overflow-wrap: anywhere; }</style>
+<style scoped>.cf-pack-install .create-form { margin-top: 20px; }.cf-pack-install .compatibility-tags { margin: 12px 0; }.cf-advanced { margin: 20px 0; }.cf-advanced summary { display:flex;align-items:center;gap:var(--ui-space-2);list-style:none;cursor:pointer;font-size:12px; }.cf-advanced summary::-webkit-details-marker { display:none; }.cf-advanced summary::marker { content:''; }.cf-advanced summary :deep(svg) { width:14px;height:14px;flex:none;transition:transform .15s ease; }.cf-advanced[open] summary :deep(svg) { transform:rotate(90deg); }.cf-advanced button { margin-top: 12px; }.cf-pack-install { overflow-wrap: anywhere; }</style>
 

@@ -1,10 +1,68 @@
 // SPDX-License-Identifier: MIT
 use super::*;
+#[derive(Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutingAuthorization {
+    #[default]
+    Coordination,
+    Community,
+    Private,
+    LegacyTest,
+}
+#[derive(Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoutingPolicy {
+    #[serde(default)]
+    pub authorization: RoutingAuthorization,
+    #[serde(default)]
+    pub observer: Option<String>,
+}
+impl RoutingPolicy {
+    fn validate(&self) -> Result<(), String> {
+        if self
+            .observer
+            .as_ref()
+            .is_some_and(|value| !valid_relay(value) || !value.starts_with("/ip4/"))
+        {
+            return Err("MESH_INVALID_ROUTE_POLICY".into());
+        }
+        Ok(())
+    }
+}
+#[cfg(test)]
+mod route_policy_tests {
+    use super::*;
+    #[test]
+    fn production_fallback_is_local_explicit_and_rejects_unknown_permissions() {
+        assert_eq!(
+            serde_json::to_value(RoutingPolicy::default()).unwrap()["authorization"],
+            "coordination"
+        );
+        assert!(
+            serde_json::from_value::<RoutingPolicy>(
+                json!({"authorization":"automatic_game_relay"})
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<RoutingPolicy>(
+                json!({"authorization":"community","secret":"unexpected"})
+            )
+            .is_err()
+        );
+        let policy: RoutingPolicy = serde_json::from_value(
+            json!({"authorization":"private","observer":"/dns4/unapproved/tcp/4001/p2p/id"}),
+        )
+        .unwrap();
+        assert!(policy.validate().is_err());
+    }
+}
 #[derive(Clone, Serialize)]
 pub struct RelaySelection {
     pub address: Option<String>,
     pub source: Option<&'static str>,
     pub state: &'static str,
+    pub route_policy: RoutingPolicy,
 }
 fn relay_path() -> Result<PathBuf, String> {
     Ok(dirs::config_dir()
@@ -13,6 +71,13 @@ fn relay_path() -> Result<PathBuf, String> {
 }
 pub(super) fn saved_relay() -> RelaySelection {
     let address = relay_path().ok().and_then(|path| read_saved_relay(&path));
+    let route_policy = relay_path()
+        .ok()
+        .and_then(|path| read_saved_config(&path))
+        .and_then(|value| value.get("route_policy").cloned())
+        .and_then(|value| serde_json::from_value::<RoutingPolicy>(value).ok())
+        .filter(|policy| policy.validate().is_ok())
+        .unwrap_or_default();
     RelaySelection {
         state: if address.is_some() {
             "configured"
@@ -21,9 +86,17 @@ pub(super) fn saved_relay() -> RelaySelection {
         },
         source: address.as_ref().map(|_| "last_successful"),
         address,
+        route_policy,
     }
 }
 fn read_saved_relay(path: &std::path::Path) -> Option<String> {
+    read_saved_config(path)?
+        .get("relay")?
+        .as_str()
+        .filter(|s| valid_relay(s))
+        .map(str::to_owned)
+}
+fn read_saved_config(path: &std::path::Path) -> Option<Value> {
     let metadata = std::fs::symlink_metadata(path).ok()?;
     if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 4096 {
         return None;
@@ -46,14 +119,49 @@ fn read_saved_relay(path: &std::path::Path) -> Option<String> {
         return None;
     }
     let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    if value.get("schema_version")?.as_u64() != Some(1) {
+    if !matches!(value.get("schema_version")?.as_u64(), Some(1 | 2)) {
         return None;
     }
-    value
-        .get("relay")?
-        .as_str()
-        .filter(|s| valid_relay(s))
-        .map(str::to_owned)
+    Some(value)
+}
+
+#[tauri::command]
+pub async fn mesh_route_policy_save(
+    relay: String,
+    route_policy: RoutingPolicy,
+) -> Result<RelaySelection, String> {
+    route_policy.validate()?;
+    if !valid_relay(&relay) {
+        return Err("MESH_INVALID_ROUTE_POLICY".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        save_relay_policy(&relay, &route_policy)?;
+        app_route::reconcile_now()?;
+        Ok(saved_relay())
+    })
+    .await
+    .map_err(|_| "MESH_EVENT_ROUTE_FAILED")?
+}
+pub(super) fn save_relay_policy(address: &str, route_policy: &RoutingPolicy) -> Result<(), String> {
+    save_relay(address)?;
+    // Same verified local directory/atomic file workflow as the existing relay selection.
+    let path = relay_path()?;
+    let parent = path.parent().ok_or("MESH_STORAGE_UNAVAILABLE")?;
+    use std::io::Write;
+    let mut file =
+        tempfile::NamedTempFile::new_in(parent).map_err(|_| "MESH_STORAGE_UNAVAILABLE")?;
+    file.write_all(
+        &serde_json::to_vec(
+            &json!({"schema_version":2,"relay":address,"route_policy":route_policy}),
+        )
+        .map_err(|_| "MESH_STORAGE_UNAVAILABLE")?,
+    )
+    .map_err(|_| "MESH_STORAGE_UNAVAILABLE")?;
+    file.as_file()
+        .sync_all()
+        .map_err(|_| "MESH_STORAGE_UNAVAILABLE")?;
+    file.persist(path).map_err(|_| "MESH_STORAGE_UNAVAILABLE")?;
+    Ok(())
 }
 
 pub(super) fn valid_relay(value: &str) -> bool {
@@ -206,7 +314,7 @@ fn view(broker: &mut Broker) -> Result<Overview, String> {
         } else {
             "idle"
         },
-        mode: "explicit_relay",
+        mode: "automatic",
         discovery_state: if broker.discovery.state.is_empty() {
             "inactive".into()
         } else {
@@ -224,8 +332,8 @@ fn view(broker: &mut Broker) -> Result<Overview, String> {
         neighbors: Vec::new(),
         capabilities: Capabilities {
             relay: available,
-            direct: false,
-            hole_punch: false,
+            direct: available,
+            hole_punch: available,
         },
         relay: saved_relay(),
         session,
@@ -285,7 +393,7 @@ pub async fn mesh_discover() -> Result<Overview, String> {
         enabled::require(&mut broker)?;
         let attempt = (|| -> Result<Discovery, String> {
             if broker.discovery_client.is_none() {
-                broker.discovery_client = Some(client::Client::spawn(&helper_path()?)?);
+                broker.shared_client()?;
             }
             let value = broker
                 .discovery_client
@@ -348,8 +456,10 @@ mod tests {
     fn configured_seed_is_not_a_signed_node_or_relay_capability() {
         let discovery:Discovery=serde_json::from_value(json!({"state":"published","source":"https://cobble-mesh-v0.yuzhes.com/v1/bootstrap","total":0,"nodes":[],"configured_services":[{"id":"official-relay","kind":"relay","endpoint":"/dns4/seed.example/tcp/443/p2p/fixture","state":"authenticated","discovery":"unavailable","game_relay":false}]})).unwrap();
         assert!(valid_discovery(&discovery));
-        let mut broker = Broker::default();
-        broker.discovery = discovery;
+        let mut broker = Broker {
+            discovery,
+            ..Broker::default()
+        };
         let overview = view(&mut broker).unwrap();
         assert!(overview.nodes.is_empty());
         assert_eq!(overview.discovery_total, 0);

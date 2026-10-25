@@ -3,8 +3,16 @@ import type { CatalogManifest } from './plugin-catalogs';
 import { manifestSettingFields } from './extensions/manifest-settings';
 export type InspectionScope = 'mods'|'packs'|'worlds'|'backups'|'screenshots'|'storage'|'runtime'|'options'|'datapacks'|'servers';
 export type PermissionNode =
+ | {permission:'launcher:mesh/events/send'|'launcher:mesh/events/receive';namespaces:string[]}
+ | {permission:'launcher:ai/chat'|'launcher:ai/configure'}
+ | {permission:'launcher:game-config/write'|'launcher:storage/cache/clear'|'launcher:instances/move-request'|'launcher:instances/copy-request'|'launcher:game-recovery/read'|'launcher:game-recovery/open-request'|'launcher:play-manifest/export'|'launcher:files/import-request'}
+ | {permission:'launcher:blueprints/generated-save'}
+ | {permission:'launcher:exports/text'}
+ | {permission:'launcher:clipboard/write'}
+ | {permission:'launcher:storage/private'}
  | {permission:'launcher:game-inspection/read';scopes:InspectionScope[]}
- | {permission:'launcher:ui/webview'|'launcher:game-config/read'|'launcher:game-diagnostics/read'|'launcher:game-keybindings/read'|'launcher:game-keybindings/write'}
+ | {permission:'launcher:worlds/seed/read'}
+ | {permission:'launcher:ui/webview'|'launcher:game-config/read'|'launcher:game-diagnostics/read'|'launcher:game-keybindings/read'|'launcher:game-keybindings/write'|'launcher:world-snapshots/read'|'launcher:world-snapshots/restore-request'}
  | {permission:'launcher:resource/selected/read';extensions:string[]}
  | {permission:'launcher:resource/selected-folder/read';extensions:string[]}
  | {permission:'launcher:provider/https/get';origins:string[]}
@@ -33,6 +41,11 @@ export function addedPermissionNodes(next:CatalogManifest,previous:CatalogManife
   if('scopes'in node&&'scopes'in prior){const scopes=node.scopes.filter(value=>!prior.scopes.includes(value));return scopes.length?[{...node,scopes}]:[];}
   if('origins'in node&&'origins'in prior){const origins=node.origins.filter(value=>!prior.origins.includes(value));return origins.length?[{...node,origins}]:[];}
   if('keys'in node&&'keys'in prior){const keys=node.keys.filter(value=>!prior.keys.includes(value));return keys.length?[{...node,keys}]:[];}
+  if('namespaces'in node&&'namespaces'in prior){const namespaces=node.namespaces.filter(value=>!prior.namespaces.includes(value));return namespaces.length?[{...node,namespaces}]:[];}
   return [];
  });
+}
+/** Structural namespace validation only; this does not authenticate a publisher. */
+export function validMeshNamespace(value:string):boolean {
+ return value.length<=96 && !/[^a-z0-9.-]/.test(value) && /^(?!cobble\.)(?:[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value);
 }

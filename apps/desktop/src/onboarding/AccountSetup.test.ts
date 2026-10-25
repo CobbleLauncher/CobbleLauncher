@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: MIT
+import { mount, flushPromises } from '@vue/test-utils';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { invoke } from '@tauri-apps/api/core';
+import AccountSetup from './AccountSetup.vue';
+import type { ProfileLibrary } from '../games';
+vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => true, invoke: vi.fn() }));
+vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({ writeText: vi.fn() }));
+const library: ProfileLibrary = { profiles: [], active_id: null };
+const saved: ProfileLibrary = { profiles: [{ id: 'alex', name: 'Alex', uuid: 'fixture', kind: 'offline', note: null }], active_id: 'alex' };
+const props = { library, busy: false, ready: true, error: '' };
+beforeEach(() => { vi.useFakeTimers(); vi.mocked(invoke).mockReset(); });
+afterEach(() => { vi.useRealTimers(); });
+it('starts with two choices and never initiates sign-in merely by choosing a tile', async () => {
+  const wrapper = mount(AccountSetup, { props });
+  expect(wrapper.findAll('.account-choice')).toHaveLength(2);
+  await wrapper.get('[aria-label="正版账号"]').trigger('click');
+  expect(invoke).not.toHaveBeenCalled();
+  expect(wrapper.find('.account-scene-content').text()).toContain('Microsoft');
+  wrapper.unmount();
+});
+it('validates offline names and waits for saved state before showing success', async () => {
+  const wrapper = mount(AccountSetup, { props });
+  await wrapper.get('[aria-label="离线档案"]').trigger('click');
+  await wrapper.get('form').trigger('submit');
+  expect(wrapper.emitted('add')).toBeUndefined();
+  await wrapper.get('input').setValue('Alex');
+  await wrapper.get('form').trigger('submit');
+  expect(wrapper.emitted('add')).toEqual([['Alex', null]]);
+  expect(wrapper.find('.account-complete-scene').exists()).toBe(false);
+  await wrapper.setProps({ error: '保存失败' });
+  expect(wrapper.get('input').element.value).toBe('Alex');
+  expect(wrapper.find('.account-complete-scene').exists()).toBe(false);
+  await wrapper.setProps({ library: saved, error: '' });
+  expect(wrapper.get('.account-complete-scene').text()).toContain('Alex');
+  expect(wrapper.emitted('complete')).toBeUndefined();
+  await wrapper.get('.account-footer .primary-button').trigger('click');
+  expect(wrapper.emitted('complete')).toHaveLength(1);
+  wrapper.unmount();
+});
+it('selects an existing offline profile without creating a duplicate', async () => {
+  const wrapper = mount(AccountSetup, { props: { ...props, library: saved } });
+  await wrapper.get('[aria-label="离线档案"]').trigger('click');
+  await wrapper.get('input').setValue('Alex');
+  await wrapper.get('form').trigger('submit');
+  expect(wrapper.emitted('select')).toEqual([['alex']]);
+  expect(wrapper.emitted('add')).toBeUndefined();
+  wrapper.unmount();
+});
+it('cancels the real device flow before returning to the choice screen', async () => {
+  vi.mocked(invoke).mockImplementation(async command => command === 'begin_microsoft_login' ? { flow_id: 'one', user_code: 'CODE1234', expires_in: 600, interval: 5 } : null);
+  const wrapper = mount(AccountSetup, { props });
+  await wrapper.get('[aria-label="正版账号"]').trigger('click');
+  await wrapper.get('.account-footer .primary-button').trigger('click'); await flushPromises();
+  expect(wrapper.get('.account-login-code').text()).toContain('CODE1234');
+  await wrapper.get('.account-back').trigger('click'); await flushPromises();
+  expect(invoke).toHaveBeenCalledWith('cancel_microsoft_login', { flowId: 'one' });
+  expect(wrapper.findAll('.account-choice')).toHaveLength(2);
+  wrapper.unmount();
+});

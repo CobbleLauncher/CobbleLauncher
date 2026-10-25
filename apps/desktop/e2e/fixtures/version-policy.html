@@ -1,0 +1,38 @@
+<!doctype html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Version policy fixture</title></head>
+<body><main id="app" style="max-width:920px;margin:auto"></main><script type="module">
+import {createApp,h,onMounted,ref} from 'vue';
+import ModVersionPolicy from '../../src/ModVersionPolicy.vue';
+import RecentGameMaintenance from '../../src/RecentGameMaintenance.vue';
+import CurseForgeUpdates from '../../src/CurseForgeUpdates.vue';
+import {setLocale} from '../../src/i18n';
+import '../../src/style.css';import '../../src/ui.css';
+const query=new URLSearchParams(location.search);
+setLocale(query.get('locale')==='zh-CN'?'zh-CN':'en-US');
+document.documentElement.dataset.theme=query.get('theme')==='dark'?'dark':'light';
+let policy={schema_version:1,channel:'stable',projects:{'modrinth:ForestMap':{ignored_versions:['v2']},'curseforge:42':{ignored_versions:['84']},'curseforge:44':{ignored_versions:['88']}}};
+const cfMods=[{project_id:'42',version_id:'80',filename:'forest-map.jar',name:'Forest Map',enabled:true,pinned:false},{project_id:'43',version_id:'81',filename:'leaf-textures.jar',name:'Leaf Textures',enabled:false,pinned:false}];
+const changes=[{project_id:'42',name:'Forest Map',from_version:'1.0',to_version:'2.0',filename:'forest-map.jar',enabled:true},{project_id:'43',name:'Leaf Textures',from_version:'1.0',to_version:'2.0',filename:'leaf-textures.jar',enabled:false},{project_id:'44',name:'Required API',from_version:null,to_version:'1.0',filename:'api.jar',enabled:true}];
+const missing=[{project_id:'44',file_id:'88',name:'Required API',file_name:'api.jar',size_bytes:10,website_url:null,reason:'manual'}];
+window.__policyWrites=[];
+window.__TAURI_INTERNALS__={invoke:async(command,args)=>{
+ if(command==='get_game_mod_update_policy')return structuredClone(policy);
+ if(command==='set_game_mod_update_policy'){policy=structuredClone(args.policy);window.__policyWrites.push(policy);return null;}
+ if(command==='list_game_curseforge_mods')return structuredClone(cfMods);
+ if(command==='check_game_curseforge_updates')return cfMods.filter(item=>!item.pinned&&!policy.projects['curseforge:'+item.project_id]?.ignored_versions.includes('85')).map(item=>({...item,current_version:'1.0',version_id:'85',version_number:'2.0'}));
+ if(command==='set_game_mod_pinned'){cfMods.find(item=>item.project_id===args.projectId).pinned=args.pinned;return null;}
+ if(command==='preview_game_curseforge_updates')return {plan_id:'update-fixture',changes,missing,ready:false};
+ if(command==='select_curseforge_manual_file')return {plan_id:'update-fixture',missing:[],ready:true};
+ if(command==='apply_game_mod_updates')return {updated:2,added:1};
+ if(command==='list_game_maintenance')return {limited:false,unavailable:[],items:[
+  {kind:'mod',id:'mods-1',createdAt:Date.UTC(2026,9,25,9),title:'Forest Map',status:'applied'},
+  {kind:'config',id:'config-1',createdAt:Date.UTC(2026,9,25,8),title:'settings.json',status:'retained'},
+  {kind:'world',id:'world-1',createdAt:'2026-10-25T07:00:00Z[UTC]',title:'Forest World',status:'automatic'},
+  {kind:'clean_exit',id:'clean-1',createdAt:Date.UTC(2026,9,25,6),title:'',status:'exit_zero'}]};
+ throw new Error('Unsupported fixture command');
+}};
+createApp({setup(){const cf=ref();onMounted(()=>{if(query.get('provider')==='curseforge')cf.value?.check();});return()=>query.get('provider')==='curseforge'?h(CurseForgeUpdates,{ref:cf,gameId:'fixture-game',locked:false}):h('div',[
+ h(ModVersionPolicy,{gameId:'fixture-game',projectId:'ForestMap',selectedVersion:{version_id:'v3',version_number:'3.0 beta'}}),
+ h(RecentGameMaintenance,{gameId:'fixture-game'})
+]);}}).mount('#app');
+</script></body></html>

@@ -1,5 +1,6 @@
 {
-  "chooseForGame": "Choose a profile for this game, then return to the game.",
+  "chooseForGame": "Choose a profile for this game.",
+  "loading": "Loading profiles…",
   "addProfile": "Add profile",
   "reload": "Reload profiles",
   "listLabel": "Player profiles",

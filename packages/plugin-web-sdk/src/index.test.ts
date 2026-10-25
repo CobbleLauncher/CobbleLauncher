@@ -2,12 +2,52 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { connect, createClient, type Request } from './index.ts';
+test('world metadata uses a scoped direct world ID without accepting a path', async () => {
+ const calls:Request[]=[];const client=createClient(async request=>{calls.push(request);return null;});
+ await client.worlds.metadata('registered-game','世界 One');
+ assert.deepEqual(calls,[{method:'worlds.metadata',params:{gameId:'registered-game',worldId:'世界 One'}}]);
+ for(const world of ['../private','C:\\private','.',''])assert.throws(()=>client.worlds.metadata('registered-game',world));
+ assert.equal(calls.length,1);
+});
+test('seed prediction preserves decimal seed text and cancels only its explicit request ID', async () => {
+ const calls:Request[]=[];const client=createClient(async request=>{calls.push(request);return request.method==='seedMap.cancel'?true:null;});
+ const map={seed:'-9223372036854775808',version:'1.21.1',dimension:'overworld' as const,preset:'default' as const,y:64,x:0,z:0,width:16,height:16,step:4};
+ const search={seed:'9223372036854775807',version:'1.21.1',dimension:'overworld' as const,preset:'default' as const,y:64,x:0,z:0,radius:1024,target:{kind:'biome' as const,id:'plains'},limit:16};
+ await client.seedMap.capabilities();await client.seedMap.generate({requestId:'map-1',map});await client.seedMap.search({requestId:'search-1',search});
+ assert.equal(await client.seedMap.cancel({requestId:'search-1'}),true);
+ assert.deepEqual(calls,[{method:'seedMap.capabilities',params:{}},{method:'seedMap.generate',params:{requestId:'map-1',map}},{method:'seedMap.search',params:{requestId:'search-1',search}},{method:'seedMap.cancel',params:{requestId:'search-1'}}]);
+ assert.throws(()=>client.seedMap.generate({requestId:'bad/path',map}));
+ assert.throws(()=>client.seedMap.generate({requestId:'numeric',map:{...map,seed:123 as never}}));
+ assert.equal(calls.length,4);
+});
+test('selected-file report picker supplies no paths or implicit diagnostic scope', async () => {
+ const calls:Request[]=[];const client=createClient(async request=>{calls.push(request);return null;});
+ assert.equal(await client.report.pick(),null);
+ assert.deepEqual(calls,[{method:'report.pick',params:{}}]);
+ assert.equal('readFile' in client.report,false);
+});
 test('inspection requires an explicit closed scope and current snapshot revision',async()=>{
  const calls:Request[]=[];const client=createClient(async request=>{calls.push(request);return null;});
  await client.inspection.snapshot('game','mods');await client.inspection.check('game','mods','revision');
  assert.deepEqual(calls,[{method:'inspection.snapshot',params:{gameId:'game',scope:'mods'}},{method:'inspection.check',params:{gameId:'game',scope:'mods',revision:'revision'}}]);
  assert.throws(()=>client.inspection.check('game','mods',''));assert.throws(()=>client.inspection.snapshot('game','accounts' as never));assert.equal(calls.length,2);
  assert.equal('write' in client.inspection,false);
+});
+test('world snapshot API keeps game and world IDs scoped and pages bounded', async () => {
+ const calls: Request[]=[];const client=createClient(async request=>{calls.push(request);return null;});
+ await client.worldSnapshots.list('game','World One');
+ await client.worldSnapshots.compare('game','World One','before','after',50,50,'region');
+ await client.worldSnapshots.openRestore('game','World One','snapshot');
+ assert.deepEqual(calls,[
+  {method:'worldSnapshots.list',params:{gameId:'game',worldId:'World One'}},
+  {method:'worldSnapshots.compare',params:{gameId:'game',worldId:'World One',beforeId:'before',afterId:'after',offset:50,limit:50,query:'region'}},
+  {method:'worldSnapshots.openRestore',params:{gameId:'game',worldId:'World One',snapshotId:'snapshot'}},
+ ]);
+ assert.throws(()=>client.worldSnapshots.compare('game','world','a','b',0,101));
+ assert.throws(()=>client.worldSnapshots.compare('game','world','a','b',-1,10));
+ assert.throws(()=>client.worldSnapshots.compare('game','world','a','b',0,10,'x'.repeat(121)));
+ assert.throws(()=>client.worldSnapshots.openRestore('game\nprivate','world','snapshot'));
+ assert.equal(calls.length,3);
 });
 
 test('diagnostics uses explicit game scope and immutable revision without paths',async()=>{

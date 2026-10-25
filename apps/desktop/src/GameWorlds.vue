@@ -10,7 +10,13 @@ import WorldSnapshotsPanel from './WorldSnapshotsPanel.vue';
 import { locale, t } from './i18n';
 import type { LocalWorld } from './games';
 import type { WorldBackup, WorldRestoreResult } from './world-backups';
-const props = defineProps<{ tasks?: TaskSnapshot[]; gameId: string; locked: boolean; revision?: number }>();
+import type { SnapshotRestoreTarget } from './world-snapshots';
+import SearchField from './ui/SearchField.vue';
+import AppIconButton from './ui/AppIconButton.vue';
+import AppIcon from './ui/AppIcon.vue';
+import LoadingIndicator from './ui/LoadingIndicator.vue';
+import { DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenuContent, DropdownMenuItem } from 'reka-ui';
+const props = defineProps<{ tasks?: TaskSnapshot[]; gameId: string; locked: boolean; revision?: number; snapshotRestore?: SnapshotRestoreTarget }>();
 const emit = defineEmits<{ busy: [value: boolean] }>();
 const worlds = ref<LocalWorld[]>([]);
 const recentBackups = ref<Record<string, string>>({});
@@ -26,6 +32,7 @@ const restoreBusy = ref(false);
 const datapackWorld = ref<LocalWorld | null>(null);
 const snapshotWorld = ref<LocalWorld | null>(null);
 const snapshotBusy = ref(false);
+const worldMenuOpen = ref<string | null>(null);
 function setSnapshotBusy(value: boolean) { snapshotBusy.value = value; emit('busy', value); }
 const backups = ref<WorldBackup[]>([]);
 const readingBackups = ref(false);
@@ -106,8 +113,22 @@ async function exportWorld(world: LocalWorld) {
   catch (cause) { actionError.value = { folder: world.folder_name, message: t('worlds.exportError', { error: String(cause) }) }; }
   finally { exporting.value = null; emit('busy', false); }
 }
-watch(() => props.gameId, () => { datapackWorld.value = null; snapshotWorld.value = null; worlds.value = []; backups.value = []; query.value = ''; exported.value = null; actionError.value = null; restoreOpen.value = false; selectedBackup.value = null; restoreResult.value = false; lastRollback.value = null; rollbackError.value = ''; refresh(); }, { immediate: true });
+function openWorldMenu(event: MouseEvent, folder: string) {
+  if (event.target instanceof HTMLElement && event.target.closest('input,textarea,select')) return;
+  event.preventDefault(); worldMenuOpen.value = folder;
+}
+watch(() => props.gameId, () => { worldMenuOpen.value = null; datapackWorld.value = null; snapshotWorld.value = null; worlds.value = []; backups.value = []; query.value = ''; exported.value = null; actionError.value = null; restoreOpen.value = false; selectedBackup.value = null; restoreResult.value = false; lastRollback.value = null; rollbackError.value = ''; refresh(); }, { immediate: true });
 watch(() => props.revision, () => { restoreOpen.value = false; selectedBackup.value = null; restoreResult.value = false; lastRollback.value = null; rollbackError.value = ''; actionError.value = null; exported.value = null; refresh(); });
+let handledRestore: SnapshotRestoreTarget | undefined;
+watch([() => props.snapshotRestore, worlds, reading], ([target]) => {
+  if (!target || target === handledRestore || reading.value || readError.value || worldBusy.value) return;
+  const world = worlds.value.find(item => item.folder_name === target.worldId);
+  handledRestore = target;
+  if (!world) { readError.value = t('worldSnapshots.targetMissing'); return; }
+  restoreOpen.value = false;
+  datapackWorld.value = null;
+  snapshotWorld.value = world;
+}, { immediate: true });
 onUnmounted(() => { ++request; ++backupRequest; });
 </script>
 <template>
@@ -137,13 +158,23 @@ onUnmounted(() => { ++request; ++backupRequest; });
       :game-id="gameId"
       :world="snapshotWorld"
       :locked="locked"
+      :restore-target="snapshotRestore?.worldId === snapshotWorld.folder_name ? snapshotRestore : undefined"
       @busy="setSnapshotBusy"
       @close="snapshotWorld = null"
       @restored="restored"
     />
     <template v-else>
       <div class="content-heading">
-        <h2>{{ t('worlds.title') }} <span class="count">{{ worlds.length }}</span></h2><div class="world-heading-actions">
+        <SearchField
+          v-model="query"
+          class="world-search-field"
+          :label="t('worlds.searchLabel')"
+          :placeholder="t('worlds.searchPlaceholder')"
+          :disabled="worldBusy"
+        />
+        <p class="worlds-count">
+          {{ t('worlds.title') }} <span class="count">{{ worlds.length }}</span>
+        </p><div class="world-heading-actions">
           <button
             class="secondary-button"
             :disabled="locked || worldBusy || reading"
@@ -172,15 +203,6 @@ onUnmounted(() => { ++request; ++backupRequest; });
         :revision="revision"
         @recent="recentBackups = $event"
       />
-      <div class="content-toolbar world-search">
-        <input
-          v-model="query"
-          type="search"
-          :aria-label="t('worlds.searchLabel')"
-          :placeholder="t('worlds.searchPlaceholder')"
-          :disabled="worldBusy"
-        >
-      </div>
       <div
         v-if="readError"
         class="inline-error"
@@ -194,13 +216,10 @@ onUnmounted(() => { ++request; ++backupRequest; });
           {{ t('worlds.retryRead') }}
         </button>
       </div>
-      <p
+      <LoadingIndicator
         v-if="reading && !worlds.length"
-        class="content-empty"
-        role="status"
-      >
-        {{ t('worlds.loadingWorlds') }}
-      </p>
+        :label="t('worlds.loadingWorlds')"
+      />
       <ul
         v-else-if="filtered.length"
         class="world-list"
@@ -210,6 +229,8 @@ onUnmounted(() => { ++request; ++backupRequest; });
           v-for="world in filtered"
           :key="world.folder_name"
           class="world-row"
+          :aria-busy="exporting === world.folder_name"
+          @contextmenu="openWorldMenu($event, world.folder_name)"
         >
           <div class="world-row-main">
             <span
@@ -250,38 +271,59 @@ onUnmounted(() => { ++request; ++backupRequest; });
             </div>
           </div><div class="world-actions">
             <button
-              class="text-button"
-              :disabled="worldBusy || reading"
-              @click="datapackWorld = world"
-            >
-              {{ t('worlds.datapacks') }}
-            </button>
-            <button
-              class="text-button"
+              class="secondary-button"
               :disabled="worldBusy || reading"
               @click="snapshotWorld = world"
             >
               {{ t('worldSnapshots.history') }}
             </button>
-            <button
-              class="text-button"
-              :aria-label="t('worlds.openFolder', { name: world.name })"
-              :disabled="!!opening"
-              @click="openFolder(world)"
+            <AppIcon
+              v-if="exporting === world.folder_name"
+              name="loader-circle"
+              class="ui-busy-icon"
+              :title="t('worlds.exporting')"
+            />
+            <DropdownMenuRoot
+              :open="worldMenuOpen === world.folder_name"
+              @update:open="worldMenuOpen = $event ? world.folder_name : null"
             >
-              {{ t('worlds.openFolderAction') }}
-            </button><button
-              class="secondary-button"
-              :aria-label="t('worlds.exportBackupFor', { name: world.name })"
-              :disabled="locked || worldBusy || reading"
-              @click="exportWorld(world)"
-            >
-              <span
-                v-if="exporting === world.folder_name"
-                class="busy-spinner"
-                aria-hidden="true"
-              />{{ exporting === world.folder_name ? t('worlds.exporting') : t('worlds.exportBackup') }}
-            </button>
+              <DropdownMenuTrigger as-child>
+                <AppIconButton
+                  icon="more-horizontal"
+                  :label="t('worlds.moreActions', {name: world.name})"
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuContent
+                  class="profile-menu"
+                  align="end"
+                  :side-offset="6"
+                  :collision-padding="12"
+                >
+                  <DropdownMenuItem
+                    class="profile-menu-item"
+                    :disabled="worldBusy || reading"
+                    @select="datapackWorld = world"
+                  >
+                    {{ t('worlds.datapacks') }}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    class="profile-menu-item"
+                    :disabled="!!opening"
+                    @select="openFolder(world)"
+                  >
+                    <AppIcon name="folder" />{{ t('worlds.openFolderAction') }}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    class="profile-menu-item"
+                    :disabled="locked || worldBusy || reading"
+                    @select="exportWorld(world)"
+                  >
+                    <AppIcon name="download" />{{ t('worlds.exportBackup') }}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenuPortal>
+            </DropdownMenuRoot>
           </div><p
             v-if="exported === world.folder_name"
             class="world-action-result"
@@ -398,5 +440,5 @@ onUnmounted(() => { ++request; ++backupRequest; });
 </template>
 
 <style scoped>
-.world-heading-actions{display:flex;align-items:center;gap:17px}.world-heading-actions .secondary-button{min-height:36px;padding:0 13px;font-size:11px}.world-restore-result{display:flex;align-items:center;justify-content:flex-end;gap:17px;margin-top:15px;flex-wrap:wrap}.world-restore-result .world-action-result{margin:0}.world-restore-result .text-button{color:var(--ink)}.world-backup-confirm{margin-top:20px;padding:17px 18px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}.world-backup-confirm h3{font-size:14px;font-weight:600;margin:0;overflow-wrap:anywhere}.world-backup-confirm>p{font-size:12px;line-height:1.8;color:var(--muted);margin-top:9px;overflow-wrap:anywhere}.world-backup-confirm .profile-form-actions{margin-top:13px}.world-backup-confirm .secondary-button{min-height:36px;padding:0 14px;font-size:11px}.world-backups{border-top:1px solid var(--line);margin-top:27px;padding-top:23px}.world-backups>h2{font-size:15px;font-weight:600}.world-backups>.setting-hint{margin-top:7px;font-size:11px}.world-backup-list{list-style:none;padding:0;margin:10px 0 0}.world-backup-list>li{display:flex;align-items:center;gap:15px;padding:14px 0;border-bottom:1px solid var(--line)}.world-backup-list h3{font-size:13px;font-weight:500;margin:0;overflow-wrap:anywhere}.world-backup-list .text-button{flex-shrink:0}@media(max-width:560px){.world-heading-actions{gap:12px}.world-heading-actions .secondary-button{padding:0 11px}.world-backup-confirm{padding:15px}.world-backups{margin-top:24px}}
+.game-worlds{min-width:0}.game-worlds .content-heading{display:flex;align-items:center;flex-wrap:wrap;gap:var(--ui-space-3);margin:0 0 var(--ui-space-4)}.world-search-field{flex:1;min-width:220px}.worlds-count{margin:0;color:var(--ui-text-muted);font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption);white-space:nowrap}.world-heading-actions{display:flex;align-items:center;gap:var(--ui-space-2)}.world-heading-actions button{min-height:var(--ui-control-height);padding:0 var(--ui-space-3);font-size:var(--ui-text-label)}.game-worlds .world-list{margin:var(--ui-space-4) 0 0;padding:0;list-style:none}.game-worlds .world-row{padding:var(--ui-space-4) 0;border-bottom:1px solid var(--ui-border);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--ui-space-3);align-items:center}.game-worlds .world-row-main{display:flex;align-items:flex-start;gap:var(--ui-space-3)}.game-worlds .world-row-main>div{min-width:0;overflow-wrap:anywhere}.game-worlds .world-row-main h3{font-size:var(--ui-text-body);line-height:var(--ui-leading-body);font-weight:600;margin:0}.game-worlds .world-icon{display:grid;place-items:center;flex:none;width:44px;height:44px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-md);background:var(--ui-surface-2);color:var(--ui-text-muted)}.game-worlds .world-icon svg{width:28px;height:28px}.game-worlds .world-metadata{display:flex;gap:var(--ui-space-2);flex-wrap:wrap;margin-top:var(--ui-space-1);font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption);color:var(--ui-text-muted)}.game-worlds .mod-meta,.game-worlds .mod-filename{font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption);margin-top:var(--ui-space-1)}.game-worlds .world-metadata-warning{font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption);color:var(--ui-warning);margin-top:var(--ui-space-1)}.game-worlds .world-actions{display:flex;align-items:center;justify-content:flex-end;gap:var(--ui-space-2);margin:0}.game-worlds .world-actions button{min-height:var(--ui-control-height);font-size:var(--ui-text-label)}.world-action-result,.world-row>.settings-error{grid-column:1/-1;margin:0;font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption)}.world-restore-result{display:flex;align-items:center;justify-content:flex-end;gap:var(--ui-space-3);margin-top:var(--ui-space-4);flex-wrap:wrap}.world-restore-result .world-action-result{margin:0}.world-backup-confirm{margin-top:var(--ui-space-4);padding:var(--ui-space-4);border:1px solid var(--ui-border);border-radius:var(--ui-radius-lg);background:var(--ui-surface-1)}.world-backup-confirm h3{font-size:var(--ui-text-body);line-height:var(--ui-leading-body);font-weight:600;margin:0;overflow-wrap:anywhere}.world-backup-confirm>p{font-size:var(--ui-text-body);line-height:var(--ui-leading-body);color:var(--ui-text-muted);margin-top:var(--ui-space-2);overflow-wrap:anywhere}.world-backup-confirm .profile-form-actions{margin-top:var(--ui-space-3)}.world-backup-confirm button{min-height:var(--ui-control-height);font-size:var(--ui-text-label)}.world-backups{border-top:1px solid var(--ui-border);margin-top:var(--ui-space-5);padding-top:var(--ui-space-4)}.world-backups>h2{font-size:var(--ui-text-section);line-height:var(--ui-leading-section);font-weight:600}.world-backups>.setting-hint{margin-top:var(--ui-space-2);font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption)}.world-backup-list{list-style:none;padding:0;margin:var(--ui-space-3) 0 0}.world-backup-list>li{display:flex;align-items:center;gap:var(--ui-space-3);padding:var(--ui-space-3) 0;border-bottom:1px solid var(--ui-border)}.world-backup-list h3{font-size:var(--ui-text-body);line-height:var(--ui-leading-body);font-weight:500;margin:0;overflow-wrap:anywhere}.world-backup-list .text-button{flex:none;min-height:var(--ui-control-height)}@media(max-width:600px){.world-search-field{flex-basis:100%}.game-worlds .world-row{grid-template-columns:minmax(0,1fr)}.game-worlds .world-actions{padding-left:56px}.world-heading-actions{margin-left:auto}.worlds-count{margin-right:auto}}
 </style>

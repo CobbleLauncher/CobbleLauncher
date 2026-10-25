@@ -1,6 +1,7 @@
 {
-  "chooseForGame": "选择本次游戏要使用的身份，之后返回游戏。",
+  "chooseForGame": "选择本次游戏要使用的身份。",
   "addProfile": "添加档案",
+  "loading": "正在读取玩家档案…",
   "reload": "重新读取档案",
   "listLabel": "玩家档案",
   "switch": "切换玩家档案",

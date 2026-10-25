@@ -188,6 +188,7 @@ pub(super) mod tests {
                     api_version: cobble_plugin_api::API_VERSION.into(),
                     publisher: "Original test fixture".into(),
                     capabilities: vec!["viewer".into()],
+                    tool_form: None,
                     composer_permissions: Default::default(),
                     interfaces: Default::default(),
                     file_extensions: vec!["schem".into()],

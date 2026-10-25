@@ -1,5 +1,6 @@
 {
   "history": "Version history",
+  "targetMissing": "This world or saved version is no longer available.",
   "historyFor": "{world} · Version history",
   "back": "Back to worlds",
   "name": "Version name",

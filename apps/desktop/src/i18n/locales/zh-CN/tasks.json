@@ -1,7 +1,25 @@
 {
   "repairGame": "修复游戏文件",
+  "javaRuntime": "准备 Java 运行环境",
   "snapshotSave": "保存世界版本",
   "snapshotRestore": "恢复世界版本",
+  "trialCopy": "创建试更新副本",
+  "gameCopy": "复制游戏",
+  "errorDetails": "技术详情",
+  "failureRetry": "任务未能完成，可以重试。",
+  "failureReview": "任务未能完成，请查看详情后继续。",
+  "personalOptionsConflict": "新游戏的个人设置有改动。将 options.txt 移出游戏目录备份后重试；若仍失败，请从邀请重新准备游戏。",
+  "personalOptionsChanged": "个人设置的迁移计划已变化，请从邀请重新准备游戏。",
+  "personalOptionsFailed": "个人设置未能写入，请检查新游戏的文件夹后重试。",
+  "updateManualFiles": "需要手动下载的文件已不可用。请打开游戏管理，重新预览 Mod 更新并补齐文件。",
+  "copyErrors": {
+    "space": "空间不足，请清理后重试。",
+    "changed": "复制期间原游戏发生了变化，请重试以复制最新文件。",
+    "target": "副本目标位置已变化，请重新创建副本。",
+    "link": "游戏中包含链接文件，请检查后再创建副本。"
+  },
+  "storageMove": "迁移游戏",
+  "packUpdateCopy": "创建更新副本",
   "cancel": "取消任务",
   "cancelling": "取消中…",
   "processed": "已处理 {size}",
@@ -28,6 +46,7 @@
   "actionError": "操作未完成：{cause}",
   "sources": { "official": "官方", "custom": "自定义源" },
   "states": {
+    "queued": "排队中",
     "running": "进行中",
     "cancelling": "正在取消",
     "succeeded": "已完成",
@@ -36,6 +55,10 @@
     "interrupted": "已中断"
   },
   "phases": {
+    "java-metadata": "检查 Java 运行环境",
+    "java-download": "下载 Java 运行环境",
+    "java-install": "安装 Java 运行环境",
+    "java-verify": "验证 Java 运行环境",
     "metadata": "读取信息",
     "files": "下载文件",
     "assets": "下载游戏资源",
@@ -48,6 +71,8 @@
     "mod-download": "下载 Mod",
     "mod-install": "安装 Mod",
     "import-copy": "复制游戏内容",
+    "copying": "复制游戏文件",
+    "personal-options": "沿用按键与画面设置",
     "complete": "安装完成",
     "pack-base-complete": "准备整合包文件",
     "processing": "正在处理",

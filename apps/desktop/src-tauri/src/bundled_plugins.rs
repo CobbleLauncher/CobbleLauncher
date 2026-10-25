@@ -2,7 +2,7 @@
 use cobble_plugin_api::PluginManifest;
 use std::path::PathBuf;
 
-const BUNDLED_IDS: [&str; 18] = [
+const BUNDLED_IDS: [&str; 30] = [
     "schematic-viewer",
     "crash-doctor",
     "modpack-inspector",
@@ -14,6 +14,18 @@ const BUNDLED_IDS: [&str; 18] = [
     "mod-conflicts",
     "resource-pack-stack",
     "world-dashboard",
+    "world-chronicle",
+    "command-pocket",
+    "seed-compass",
+    "coordinate-book",
+    "material-planner",
+    "trial-copy",
+    "file-inbox",
+    "ai-assistant",
+    "anvil-planner",
+    "geometry-builder",
+    "play-manifest",
+    "lang-doctor",
     "backup-auditor",
     "datapack-auditor",
     "serverbook-inspector",

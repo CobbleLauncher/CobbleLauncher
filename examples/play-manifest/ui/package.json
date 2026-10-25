@@ -1,0 +1,1 @@
+{"name":"play-manifest-example","private":true,"type":"module","scripts":{"build":"node ../../../packages/plugin-workbench/build.mjs play-manifest","test":"node --test src/model.test.ts"}}

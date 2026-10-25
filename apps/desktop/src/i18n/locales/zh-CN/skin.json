@@ -1,4 +1,6 @@
 {
+  "working": "正在处理…",
+  "empty": "尚未选择皮肤",
   "previewError": "无法显示三维预览",
   "loadError": "无法读取皮肤，请重试",
   "preview": "皮肤三维预览",

@@ -10,6 +10,7 @@ mod composer_worker;
 mod image_layout_worker;
 mod provider_worker;
 mod report_worker;
+mod tool_form_worker;
 wasmtime::component::bindgen!({ path:"../../contracts",world:"viewer-plugin" });
 fn read_frame(input: &mut impl Read, maximum: usize) -> Result<Vec<u8>, PluginError> {
     let mut size = [0; 4];
@@ -166,6 +167,12 @@ fn execute() -> Result<(), PluginError> {
     }
 }
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--tool-form-stdio") {
+        if let Err(error) = tool_form_worker::execute() {
+            let _ = send::<cobble_plugin_api::ToolFormOutput>(&Err(error));
+        }
+        return;
+    }
     if std::env::args().nth(1).as_deref() == Some("--image-layout-stdio") {
         if let Err(error) = image_layout_worker::execute() {
             let _ = send::<cobble_plugin_api::ImageSheet>(&Err(error));

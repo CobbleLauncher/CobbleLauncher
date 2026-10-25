@@ -1,5 +1,12 @@
 [
   {
+    "package": "resolvo-0.12.2",
+    "file": "rust/resolvo-0.12.2/LICENSE",
+    "source": "https://github.com/prefix-dev/resolvo/blob/f8a5147b1d25399bda9a5b15efd8aa9c48d512b9/LICENSE",
+    "retrieved": "2026-10-25",
+    "note": "Unmodified BSD-3-Clause license copied from the pinned published crate."
+  },
+  {
     "package": "alloc-stdlib-0.3.0",
     "file": "rust/alloc-stdlib-0.3.0/LICENSE",
     "source": "https://raw.githubusercontent.com/dropbox/rust-alloc-no-stdlib/0a81fd6928ea3b33c8cd484aa4575d50ffb98012/LICENSE",
@@ -594,5 +601,33 @@
     "grant_sources": [
       "https://raw.githubusercontent.com/chipsenkbeil/typed-path/08cae85913d37b862b1d0e1aa2fa9e3857e9312e/Cargo.toml"
     ]
+  },
+  {
+    "package": "libp2p-autonat-0.16.0",
+    "file": "rust/libp2p-autonat-0.16.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "note": "Original upstream MIT license at the exact crate VCS revision; reused already-retained identical repository-root license.",
+    "retrieved": "2026-10-23"
+  },
+  {
+    "package": "libp2p-autonat-0.16.0",
+    "file": "rust/libp2p-autonat-0.16.0/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/libp2p-autonat/0.16.0/download",
+    "note": "Verbatim copyright notices retained from Rust headers in the exact published crate archive.",
+    "retrieved": "2026-10-23"
+  },
+  {
+    "package": "libp2p-identify-0.48.0",
+    "file": "rust/libp2p-identify-0.48.0/LICENSE",
+    "source": "https://raw.githubusercontent.com/libp2p/rust-libp2p/7171dce2f90c05ba7892d4ba926abb1881db27c7/LICENSE",
+    "note": "Original upstream MIT license at the exact crate VCS revision; reused already-retained identical repository-root license.",
+    "retrieved": "2026-10-23"
+  },
+  {
+    "package": "libp2p-identify-0.48.0",
+    "file": "rust/libp2p-identify-0.48.0/LICENSE-COPYRIGHTS.txt",
+    "source": "https://crates.io/api/v1/crates/libp2p-identify/0.48.0/download",
+    "note": "Verbatim copyright notices retained from Rust headers in the exact published crate archive.",
+    "retrieved": "2026-10-23"
   }
 ]

@@ -1,0 +1,73 @@
+{
+  "id": "play-manifest",
+  "name": "Play Configuration",
+  "version": "0.1.0",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "report"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:report",
+        "version": "0.2.0"
+      },
+      {
+        "id": "launcher:web-frontend",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "file_extensions": [],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Share a reviewed game configuration as a Modrinth pack",
+    "zh-CN": "预览并分享开玩配置"
+  },
+  "tags": [
+    "packs",
+    "sharing",
+    "utilities"
+  ],
+  "permissions": [
+    {
+      "permission": "launcher:ui/webview"
+    },
+    {
+      "permission": "launcher:play-manifest/export"
+    }
+  ],
+  "frontend": {
+    "entry": "ui/index.html",
+    "api_version": "0.1.0",
+    "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "contributions": {
+    "schema_version": 1,
+    "commands": [
+      {
+        "id": "play-manifest.open",
+        "label": {
+          "en": "Share play configuration",
+          "zh-CN": "分享开玩配置"
+        },
+        "menus": [
+          {
+            "position": "tools",
+            "when": "always"
+          },
+          {
+            "position": "instance",
+            "when": "instance_selected"
+          }
+        ],
+        "workflow": "report"
+      }
+    ]
+  },
+  "icon": {
+    "file": "icon.png",
+    "sha256": "af1701e3778204df983e0c4807e60be700db65b780848ee0aa1f51598ab12ced"
+  }
+}

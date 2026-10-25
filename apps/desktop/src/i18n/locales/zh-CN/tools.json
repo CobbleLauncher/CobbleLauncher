@@ -1,5 +1,11 @@
 {
   "title": "工具",
+  "open": "打开",
+  "manageExtension": "管理扩展",
+  "manageExtensions": "管理扩展",
+  "unavailable": "此工具当前不可用。",
+  "dependencyMap": "模组依赖",
+  "packFile": "整合包文件",
   "search": "搜索工具",
   "clearSearch": "清除搜索",
   "noResults": "没有找到工具。",

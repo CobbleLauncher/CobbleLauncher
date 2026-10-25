@@ -5,6 +5,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parseLocalCredential, runtimeEnvironment, main } from './launch-desktop-local.mjs';
 import { desktopBuildArguments, embeddedCredential, parseArguments, withoutProviderCredentials } from './package-windows.mjs';
+import { localPackageArguments } from './package-local-windows.mjs';
+
+test('local experience packaging always opts into embedding on a fresh build', () => {
+  assert.deepEqual(localPackageArguments(['--label', 'preview']), ['package:windows', '--embedded-curseforge-key', '--label', 'preview']);
+  assert.throws(() => localPackageArguments(['--skip-build']), /fresh/);
+});
 test('loads only the exact provider assignment without executing shell syntax or expanding dollars', () => {
   assert.equal(parseLocalCredential('MCS_API=ignored\nCOURSE_FORGE_API="synthetic$literal-key"\nOTHER=ignored'), 'synthetic$literal-key');
   assert.equal(parseLocalCredential("export COURSE_FORGE_API='synthetic$(literal)-key'"), 'synthetic$(literal)-key');

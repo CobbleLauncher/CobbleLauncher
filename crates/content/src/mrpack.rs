@@ -215,12 +215,16 @@ pub fn read_mrpack_file(source: File) -> Result<Mrpack, BoxError> {
             loader_version = Some(version.clone());
         }
     }
-    if matches!(loader_kind.as_deref(), Some("forge" | "neoforge")) && minecraft_version != "1.21.1"
+    if !crate::query_compatibility(
+        &minecraft_version,
+        loader_kind.as_deref(),
+        loader_version.as_deref(),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+    )
+    .allowed()
     {
-        return Err(invalid(
-            "MRPACK Forge and NeoForge imports currently support Minecraft 1.21.1 only",
-        )
-        .into());
+        return Err(invalid("Unsupported MRPACK Minecraft or loader target").into());
     }
     let mut files = Vec::new();
     for file in index.files {
@@ -544,6 +548,22 @@ mod tests {
     }
 
     #[test]
+    fn experimental_targets_preserve_exact_loader_and_reject_wrong_line() {
+        for (mc, dependency, version, wrong) in [
+            ("1.20.1", "forge", "47.4.28", "52.1.0"),
+            ("1.21.4", "neoforge", "21.4.157", "21.1.9"),
+        ] {
+            let mut fixture = index();
+            fixture["dependencies"] = json!({"minecraft":mc, (dependency):version});
+            let parsed = parse_bytes(&bytes(&fixture, &[])).unwrap();
+            assert_eq!(parsed.minecraft_version, mc);
+            assert_eq!(parsed.loader_version.as_deref(), Some(version));
+            fixture["dependencies"][dependency] = json!(wrong);
+            assert!(parse_bytes(&bytes(&fixture, &[])).is_err());
+        }
+    }
+
+    #[test]
     fn vanilla_and_supported_loaders_preserve_exact_kind_and_version() {
         let mut vanilla = index();
         vanilla["dependencies"] = json!({"minecraft":"1.21.1"});
@@ -569,7 +589,7 @@ mod tests {
                     result
                         .unwrap_err()
                         .to_string()
-                        .contains("Minecraft 1.21.1 only")
+                        .contains("Unsupported MRPACK Minecraft or loader target")
                 );
             }
         }

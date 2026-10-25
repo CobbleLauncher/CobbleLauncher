@@ -55,7 +55,8 @@
         "enum": [
           "cobble.mrpack-page@1",
           "cobble.pack-metadata@1",
-          "cobble.config-folder@1"
+          "cobble.config-folder@1",
+          "cobble.lang-package@1"
         ]
       }
     },
@@ -149,7 +150,7 @@
     },
     "permissions": {
       "type": "array",
-      "maxItems": 8,
+      "maxItems": 16,
       "uniqueItems": true,
       "items": {
         "oneOf": [
@@ -356,6 +357,30 @@
             ],
             "properties": {
               "permission": {
+                "const": "launcher:storage/private"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:clipboard/write"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
                 "const": "launcher:game-config/read"
               }
             }
@@ -400,6 +425,30 @@
             "type": "object",
             "additionalProperties": false,
             "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:ai/chat"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:ai/configure"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
               "permission",
               "scopes"
             ],
@@ -428,6 +477,182 @@
                 }
               }
             }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:worlds/seed/read"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:exports/text"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:blueprints/generated-save"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:game-config/write"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:storage/cache/clear"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:instances/move-request"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:instances/copy-request"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:game-recovery/read"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:game-recovery/open-request"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:play-manifest/export"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:files/import-request"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "permission",
+              "namespaces"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:mesh/events/send"
+              },
+              "namespaces": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 8,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/meshNamespace"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "permission",
+              "namespaces"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:mesh/events/receive"
+              },
+              "namespaces": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 8,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/meshNamespace"
+                }
+              }
+            }
           }
         ]
       }
@@ -452,6 +677,9 @@
           "pattern": "^[a-fA-F0-9]{64}$"
         }
       }
+    },
+    "tool_form": {
+      "$ref": "#/$defs/toolForm"
     }
   },
   "oneOf": [
@@ -582,7 +810,13 @@
                   ],
                   "properties": {
                     "permission": {
-                      "const": "launcher:game-inspection/read"
+                      "enum": [
+                        "launcher:game-inspection/read",
+                        "launcher:storage/private",
+                        "launcher:play-manifest/export",
+                        "launcher:files/import-request",
+                        "launcher:ui/webview"
+                      ]
                     }
                   }
                 }
@@ -689,7 +923,7 @@
         },
         "permissions": {
           "minItems": 2,
-          "maxItems": 3,
+          "maxItems": 8,
           "allOf": [
             {
               "contains": {
@@ -726,6 +960,37 @@
             }
           }
         }
+      }
+    },
+    {
+      "required": [
+        "tool_form"
+      ],
+      "properties": {
+        "api_version": {
+          "const": "0.1.0"
+        },
+        "capabilities": {
+          "const": [
+            "tool-form"
+          ]
+        },
+        "file_extensions": {
+          "const": []
+        },
+        "report_protocols": {
+          "maxItems": 0
+        },
+        "provider_origins": {
+          "maxItems": 0
+        },
+        "composer_permissions": {
+          "maxItems": 0
+        },
+        "permissions": {
+          "maxItems": 0
+        },
+        "frontend": false
       }
     }
   ],
@@ -796,10 +1061,39 @@
         "label": {
           "$ref": "#/$defs/label"
         },
+        "icon": {
+          "enum": [
+            "puzzle",
+            "compass",
+            "settings",
+            "search",
+            "play",
+            "folder",
+            "info"
+          ]
+        },
+        "search_keywords": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          }
+        },
+        "quick_entry": {
+          "type": "boolean"
+        },
+        "suggested_shortcut": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
         "workflow": {
           "enum": [
             "report",
-            "viewer"
+            "viewer",
+            "tool_form"
           ]
         },
         "menus": {
@@ -1352,6 +1646,9 @@
                   "const": false
                 }
               ]
+            },
+            "rule": {
+              "$ref": "#/$defs/formVisibilityRule"
             }
           }
         },
@@ -1376,6 +1673,9 @@
               "items": {
                 "$ref": "#/$defs/settingsUiNode"
               }
+            },
+            "rule": {
+              "$ref": "#/$defs/formVisibilityRule"
             }
           }
         },
@@ -1402,6 +1702,9 @@
               "items": {
                 "$ref": "#/$defs/settingsUiNode"
               }
+            },
+            "rule": {
+              "$ref": "#/$defs/formVisibilityRule"
             }
           }
         }
@@ -1493,9 +1796,321 @@
           }
         }
       }
+    },
+    "toolForm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "schema"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "additionalProperties",
+            "properties",
+            "required"
+          ],
+          "properties": {
+            "$schema": {
+              "const": "https://json-schema.org/draft/2020-12/schema"
+            },
+            "type": {
+              "const": "object"
+            },
+            "additionalProperties": {
+              "const": false
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "properties": {
+              "type": "object",
+              "minProperties": 1,
+              "maxProperties": 64,
+              "propertyNames": {
+                "$ref": "#/$defs/localId"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/formProperty"
+              }
+            },
+            "required": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 64,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/localId"
+              }
+            }
+          }
+        },
+        "ui_schema": {
+          "$ref": "#/$defs/settingsUiNode"
+        },
+        "translations": {
+          "type": "object",
+          "propertyNames": {
+            "enum": [
+              "en",
+              "zh-CN"
+            ]
+          },
+          "additionalProperties": {
+            "type": "object",
+            "maxProperties": 256,
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        }
+      }
+    },
+    "formVisibilityRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "effect",
+        "condition"
+      ],
+      "properties": {
+        "effect": {
+          "enum": [
+            "SHOW",
+            "HIDE"
+          ]
+        },
+        "condition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope",
+            "schema"
+          ],
+          "properties": {
+            "scope": {
+              "type": "string",
+              "pattern": "^#/properties/[a-z0-9_-]{1,64}$"
+            },
+            "schema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "const"
+              ],
+              "properties": {
+                "const": {
+                  "$ref": "#/$defs/scalar"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "diagnosticRecoveryInspection": {
+      "type": "object",
+      "required": [
+        "frontend",
+        "api_version",
+        "capabilities",
+        "file_extensions",
+        "permissions"
+      ],
+      "properties": {
+        "api_version": {
+          "const": "0.1.0"
+        },
+        "capabilities": {
+          "const": [
+            "report"
+          ]
+        },
+        "file_extensions": {
+          "const": [
+            "log",
+            "txt"
+          ]
+        },
+        "report_protocols": {
+          "maxItems": 0
+        },
+        "permissions": {
+          "maxItems": 16,
+          "allOf": [
+            {
+              "contains": {
+                "type": "object",
+                "required": [
+                  "permission"
+                ],
+                "properties": {
+                  "permission": {
+                    "const": "launcher:game-diagnostics/read"
+                  }
+                }
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "required": [
+                  "permission"
+                ],
+                "properties": {
+                  "permission": {
+                    "const": "launcher:game-recovery/read"
+                  }
+                }
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "required": [
+                  "permission"
+                ],
+                "properties": {
+                  "permission": {
+                    "const": "launcher:instances/copy-request"
+                  }
+                }
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "required": [
+                  "permission"
+                ],
+                "properties": {
+                  "permission": {
+                    "const": "launcher:storage/private"
+                  }
+                }
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "required": [
+                  "permission"
+                ],
+                "properties": {
+                  "permission": {
+                    "const": "launcher:resource/selected/read"
+                  },
+                  "extensions": {
+                    "const": [
+                      "log",
+                      "txt"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "required": [
+                  "permission"
+                ],
+                "properties": {
+                  "permission": {
+                    "const": "launcher:game-inspection/read"
+                  },
+                  "scopes": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "uniqueItems": true,
+                    "items": {
+                      "enum": [
+                        "mods",
+                        "storage"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "meshNamespace": {
+      "type": "string",
+      "maxLength": 96,
+      "pattern": "^(?!cobble\\.)(?:[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+      "not": {
+        "pattern": "[^a-z0-9.-]"
+      }
     }
   },
   "allOf": [
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "required": [
+                "permission"
+              ],
+              "properties": {
+                "permission": {
+                  "const": "launcher:clipboard/write"
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "frontend"
+        ]
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "required": [
+                "permission"
+              ],
+              "properties": {
+                "permission": {
+                  "const": "launcher:storage/private"
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "frontend"
+        ]
+      }
+    },
     {
       "if": {
         "required": [
@@ -1754,9 +2369,329 @@
         }
       },
       "then": {
+        "anyOf": [
+          {
+            "required": [
+              "frontend"
+            ],
+            "properties": {
+              "api_version": {
+                "const": "0.2.0"
+              },
+              "capabilities": {
+                "const": [
+                  "report"
+                ]
+              },
+              "file_extensions": {
+                "oneOf": [
+                  {
+                    "const": []
+                  },
+                  {
+                    "const": [
+                      "json"
+                    ]
+                  }
+                ]
+              },
+              "report_protocols": {
+                "maxItems": 0
+              }
+            }
+          },
+          {
+            "$ref": "#/$defs/diagnosticRecoveryInspection"
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "tool_form"
+        ]
+      },
+      "then": {
+        "properties": {
+          "capabilities": {
+            "const": [
+              "tool-form"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "type": "object",
+              "required": [
+                "permission"
+              ],
+              "properties": {
+                "permission": {
+                  "const": "launcher:worlds/seed/read"
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
         "required": [
           "frontend"
         ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "type": "object",
+              "required": [
+                "permission",
+                "scopes"
+              ],
+              "properties": {
+                "permission": {
+                  "const": "launcher:game-inspection/read"
+                },
+                "scopes": {
+                  "contains": {
+                    "const": "worlds"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "required": [
+                "permission"
+              ],
+              "properties": {
+                "permission": {
+                  "const": "launcher:exports/text"
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "frontend"
+        ]
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "required": [
+                "permission"
+              ],
+              "properties": {
+                "permission": {
+                  "const": "launcher:blueprints/generated-save"
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "frontend"
+        ]
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "required": [
+                "permission"
+              ],
+              "properties": {
+                "permission": {
+                  "enum": [
+                    "launcher:game-config/write",
+                    "launcher:storage/cache/clear",
+                    "launcher:instances/move-request",
+                    "launcher:instances/copy-request",
+                    "launcher:game-recovery/read",
+                    "launcher:game-recovery/open-request",
+                    "launcher:play-manifest/export",
+                    "launcher:files/import-request"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "frontend"
+        ]
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "required": [
+                "permission"
+              ],
+              "properties": {
+                "permission": {
+                  "const": "launcher:game-config/write"
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "permissions": {
+            "contains": {
+              "required": [
+                "permission"
+              ],
+              "properties": {
+                "permission": {
+                  "const": "launcher:game-config/read"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "required": [
+                "permission"
+              ],
+              "properties": {
+                "permission": {
+                  "const": "launcher:game-recovery/open-request"
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "permissions": {
+            "contains": {
+              "required": [
+                "permission"
+              ],
+              "properties": {
+                "permission": {
+                  "const": "launcher:game-recovery/read"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "required": [
+                "permission"
+              ],
+              "properties": {
+                "permission": {
+                  "enum": [
+                    "launcher:storage/cache/clear",
+                    "launcher:instances/move-request",
+                    "launcher:instances/copy-request"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "permissions": {
+            "contains": {
+              "required": [
+                "permission",
+                "scopes"
+              ],
+              "properties": {
+                "permission": {
+                  "const": "launcher:game-inspection/read"
+                },
+                "scopes": {
+                  "contains": {
+                    "const": "storage"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "report_protocols"
+        ],
+        "properties": {
+          "report_protocols": {
+            "contains": {
+              "const": "cobble.lang-package@1"
+            }
+          }
+        }
+      },
+      "then": {
         "properties": {
           "api_version": {
             "const": "0.2.0"
@@ -1767,20 +2702,101 @@
             ]
           },
           "file_extensions": {
-            "oneOf": [
-              {
-                "const": []
-              },
-              {
-                "const": [
-                  "json"
-                ]
-              }
-            ]
-          },
-          "report_protocols": {
-            "maxItems": 0
+            "items": {
+              "enum": [
+                "json",
+                "zip"
+              ]
+            }
           }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "required": [
+                "permission"
+              ],
+              "properties": {
+                "permission": {
+                  "const": "launcher:mesh/events/send"
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "frontend"
+        ]
+      }
+    },
+    {
+      "properties": {
+        "permissions": {
+          "contains": {
+            "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:mesh/events/send"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "required": [
+                "permission"
+              ],
+              "properties": {
+                "permission": {
+                  "const": "launcher:mesh/events/receive"
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "frontend"
+        ]
+      }
+    },
+    {
+      "properties": {
+        "permissions": {
+          "contains": {
+            "required": [
+              "permission"
+            ],
+            "properties": {
+              "permission": {
+                "const": "launcher:mesh/events/receive"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
         }
       }
     }

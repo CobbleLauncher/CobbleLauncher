@@ -77,6 +77,7 @@ async fn install_with_downloads(
 ) -> Result<crate::ModrinthInstallOutcome, Error> {
     validate_provider_plan(&plan.graph, ModProvider::CurseForge)?;
     control.check_cancelled()?;
+    crate::validate_curseforge_mod_pins(directory, &plan.graph)?;
     check_curseforge_incompatibilities(directory, plan)?;
     let root = Dir::open_ambient_dir(directory, cap_std::ambient_authority())?;
     check_provider_pending_plan(&root, &plan.graph, ModProvider::CurseForge)?;

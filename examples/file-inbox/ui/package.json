@@ -1,0 +1,1 @@
+{"name":"file-inbox-example","private":true,"type":"module","scripts":{"build":"node ../../../packages/plugin-workbench/build.mjs file-inbox"}}

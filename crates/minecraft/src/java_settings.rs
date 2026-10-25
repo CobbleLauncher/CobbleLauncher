@@ -59,7 +59,7 @@ pub async fn resolve_java_override(
     validate_runtime(required_major, runtime)
 }
 
-fn selected_java_path(
+pub fn selected_java_path(
     choice: &JavaOverride,
     inherited: impl FnOnce() -> Result<Option<PathBuf>, SettingsError>,
 ) -> Result<Option<PathBuf>, SettingsError> {

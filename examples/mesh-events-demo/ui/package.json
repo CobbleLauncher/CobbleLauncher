@@ -1,0 +1,10 @@
+{
+  "name": "mesh-events-demo-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ../../../packages/plugin-workbench/build.mjs mesh-events-demo",
+    "test": "node --test src/ready.test.ts",
+    "typecheck": "pnpm --dir ../../../apps/desktop exec tsc --noEmit --project ../../examples/mesh-events-demo/ui/tsconfig.json"
+  }
+}

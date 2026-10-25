@@ -52,6 +52,86 @@ fn runtime_id(java: &JavaRuntime) -> String {
     format!("java-{:016x}", hash.finish())
 }
 
+/// Reuses the existing session registry; this never saves global or game settings.
+fn register_candidate(runtime: JavaRuntime, required: u32) -> Result<DiscoveredJava, String> {
+    if cobble_minecraft::recommend_java(
+        std::slice::from_ref(&runtime),
+        required,
+        std::env::consts::ARCH,
+    )
+    .is_none()
+    {
+        return Err(format!(
+            "请选择 Java {required} 且架构与此电脑匹配的运行环境"
+        ));
+    }
+    let id = runtime_id(&runtime);
+    remember_discovered(std::slice::from_ref(&runtime))?;
+    Ok(DiscoveredJava {
+        id,
+        runtime: runtime.into(),
+        recommended: false,
+    })
+}
+
+fn remember_discovered(runtimes: &[JavaRuntime]) -> Result<(), String> {
+    let mut discovered = DISCOVERED
+        .get_or_init(Default::default)
+        .lock()
+        .map_err(|_| "Java 列表不可用")?;
+    for runtime in runtimes {
+        if let Some(previous) = discovered
+            .iter_mut()
+            .find(|item| item.executable == runtime.executable)
+        {
+            *previous = runtime.clone();
+        } else {
+            discovered.push(runtime.clone());
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn pick_java_candidate(window: WebviewWindow) -> Result<Option<DiscoveredJava>, String> {
+    let dialog = rfd::AsyncFileDialog::new()
+        .set_parent(&window)
+        .set_title("选择 Java 程序");
+    #[cfg(windows)]
+    let dialog = dialog.add_filter("Java (java.exe / javaw.exe)", &["exe"]);
+    let Some(file) = dialog.pick_file().await else {
+        return Ok(None);
+    };
+    let runtime = cobble_minecraft::probe_java(file.path())
+        .await
+        .map_err(|error| format!("无法使用这个 Java 程序：{error}"))?;
+    // Global preferences have no single game's required major. Keep the same
+    // architecture validation and opaque registry used by game candidates.
+    let major = runtime.major;
+    register_candidate(runtime, major).map(Some)
+}
+
+#[tauri::command]
+pub async fn pick_game_java_candidate(
+    window: WebviewWindow,
+    library: tauri::State<'_, crate::games::GameLibrary>,
+    id: String,
+) -> Result<Option<DiscoveredJava>, String> {
+    let required = crate::games::runtime::game_java_requirement(&library, &id)?;
+    let dialog = rfd::AsyncFileDialog::new()
+        .set_parent(&window)
+        .set_title("选择此游戏使用的 Java");
+    #[cfg(windows)]
+    let dialog = dialog.add_filter("Java (java.exe / javaw.exe)", &["exe"]);
+    let Some(file) = dialog.pick_file().await else {
+        return Ok(None);
+    };
+    let runtime = cobble_minecraft::probe_java(file.path())
+        .await
+        .map_err(|error| format!("无法使用这个 Java 程序：{error}"))?;
+    register_candidate(runtime, required).map(Some)
+}
+
 #[tauri::command]
 pub async fn list_java_runtimes(
     required_major: Option<u32>,
@@ -76,10 +156,10 @@ pub async fn list_java_runtimes(
             cobble_minecraft::recommend_java(&runtimes, major, std::env::consts::ARCH)
         })
         .map(runtime_id);
-    *DISCOVERED
-        .get_or_init(Default::default)
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = runtimes.clone();
+    // A refresh must not revoke an unsaved picker candidate. The response is
+    // the fresh scan; previously authorized IDs remain session-local and are
+    // probed again by the save command before becoming a persisted choice.
+    remember_discovered(&runtimes)?;
     Ok(JavaRuntimeList {
         runtimes: runtimes
             .into_iter()
@@ -205,4 +285,82 @@ pub async fn pick_java_executable(window: WebviewWindow) -> Result<Option<JavaSe
     })
     .map_err(|e| e.to_string())?;
     Ok(Some(JavaSelection::custom(runtime)))
+}
+
+#[cfg(test)]
+mod candidate_tests {
+    use super::*;
+    #[test]
+    fn readonly_java_candidate_registers_valid_ids_and_rejects_incompatible_metadata() {
+        let path = std::env::temp_dir().join("cobble-readonly-candidate-java.exe");
+        let runtime = JavaRuntime {
+            executable: path.clone(),
+            version: "21.0.1".into(),
+            major: 21,
+            arch: std::env::consts::ARCH.into(),
+            vendor: "Fixture".into(),
+        };
+        let candidate = register_candidate(runtime.clone(), 21).unwrap();
+        assert!(candidate.id.starts_with("java-"));
+        assert!(
+            DISCOVERED
+                .get()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|value| value.executable == path)
+        );
+        let count = DISCOVERED.get().unwrap().lock().unwrap().len();
+        assert!(
+            register_candidate(
+                JavaRuntime {
+                    major: 17,
+                    ..runtime.clone()
+                },
+                21
+            )
+            .is_err()
+        );
+        assert!(
+            register_candidate(
+                JavaRuntime {
+                    arch: "unsupported".into(),
+                    ..runtime
+                },
+                21
+            )
+            .is_err()
+        );
+        assert_eq!(DISCOVERED.get().unwrap().lock().unwrap().len(), count);
+        // Global selection has no game-specific major; a different probed
+        // major is still a candidate, with the same host-issued executable ID.
+        let global = JavaRuntime {
+            executable: path.clone(),
+            version: "17.0.1".into(),
+            major: 17,
+            arch: std::env::consts::ARCH.into(),
+            vendor: "Fixture".into(),
+        };
+        let global_major = global.major;
+        let global_candidate = register_candidate(global, global_major).unwrap();
+        assert_eq!(global_candidate.id, candidate.id);
+        assert_eq!(global_candidate.runtime.major, 17);
+        remember_discovered(&[]).unwrap();
+        assert!(
+            DISCOVERED
+                .get()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|value| runtime_id(value) == candidate.id)
+        );
+        DISCOVERED
+            .get()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .retain(|value| value.executable != path);
+    }
 }

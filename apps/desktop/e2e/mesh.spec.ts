@@ -15,7 +15,7 @@ async function mockMesh(page: Page) {
     const callbacks = new Map<number, (event: unknown) => void>();
     let session: MeshSession | null = null;
     let nextSessionId = 1;
-    let discoveryPublished = false;
+    let discoveryPublished = true;
     let expiredHost = false;
     target.__meshScenario = scenario => {
       if (scenario === 'disconnect' && session) session = { ...session, state: 'failed' };
@@ -65,7 +65,7 @@ test('synthetic Mesh guided host, server and join render at wide and narrow widt
   await expect(page.getByRole('button', { name: '和朋友一起玩', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText('进入世界，按 Esc → 对局域网开放 → 创建局域网世界。', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '创建邀请', exact: true })).toBeEnabled();
-  expect(await calls(page, 'mesh_discover')).toHaveLength(1);
+  expect(await calls(page, 'mesh_discover')).toHaveLength(0);
   await expect(page.getByLabel('公共中转地址', { exact: true })).not.toBeVisible();
   const capture = async (name: string) => {
     const path = testInfo.outputPath(`${name}.png`);

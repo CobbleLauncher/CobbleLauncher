@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1, "protocol": "cobble.lang-package@1", "sourceName": "original-language-fixture.zip", "packFormat": 34,
+  "namespace": "example", "baselineLocale": "en_us", "targetLocale": "zh_cn",
+  "files": [
+    { "id": "file-0", "name": "assets/example/lang/en_us.json", "locale": "en_us", "text": "{\n  \"greeting\": \"Hello %s\",\n  \"missing\": \"Only in the reference\",\n  \"count\": \"%1$s / %2$d\"\n}" },
+    { "id": "file-1", "name": "assets/example/lang/zh_cn.json", "locale": "zh_cn", "text": "{\n  \"greeting\": \"你好\",\n  \"count\": \"%1$s / %2$s\",\n  \"duplicate\": \"第一项\",\n  \"duplicate\": \"第二项\"\n}" }
+  ]
+}

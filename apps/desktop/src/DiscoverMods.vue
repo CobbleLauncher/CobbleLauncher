@@ -1,15 +1,20 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
+import SearchField from './ui/SearchField.vue';
+import SettingsDisclosure from './ui/settings/SettingsDisclosure.vue';
 import MarketImage from "./MarketImage.vue";
 import { marketReturn } from './market-return';
 import MarketGallery from "./MarketGallery.vue";
-import { onUnmounted, ref, watch } from 'vue';
+import { onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { t } from './i18n';
+import { locale, t } from './i18n';
 import LoadingIndicator from './ui/LoadingIndicator.vue';
 import type { Game, ModSearchHit, ModSearchPage, ModInstallPreview, ModVersion } from './games';
 import ModVersionPicker from './ModVersionPicker.vue';
-const props = defineProps<{ game: Game; locked: boolean; initialQuery?: string }>();
+import AppIcon from './ui/AppIcon.vue';
+import { isMarketSaved, toggleMarketSaved, type SavedMarketItem } from './market-saved';
+import { marketWorkstate, rememberMarketWorkstate, restoreMarketScroll } from './market-workstate';
+const props = defineProps<{ game: Game; locked: boolean; initialQuery?: string; sharedMode?: boolean; sharedRequest?: { serial: number; query: string }; savedRequest?: { serial: number; item: SavedMarketItem } }>();
 const emit = defineEmits<{ installing: [value: boolean]; installed: [] }>();
 const root = ref<HTMLElement>();
 const detailReturn = marketReturn(root);
@@ -43,7 +48,7 @@ async function search(offset = 0, retry = false) {
     if (current !== searchRequest) return;
     hits.value = offset ? [...hits.value, ...result.hits] : result.hits;
     total.value = result.total_hits;
-  } catch { if (current === searchRequest) searchError.value = '暂时无法获取 Mod，请稍后重试。'; }
+  } catch { if (current === searchRequest) searchError.value = t('market.modSearchFailed'); }
   finally { if (current === searchRequest) searching.value = false; }
 }
 function select(hit: ModSearchHit) {
@@ -81,10 +86,33 @@ async function install() {
 }
 watch([() => props.game.id, () => props.initialQuery], () => {
   ++searchRequest; ++previewRequest; hits.value = []; total.value = 0; searched.value = false;
-  query.value = props.initialQuery ?? ''; selected.value = null; preview.value = null; searching.value = false; resolving.value = false;
+  query.value = props.sharedMode ? props.sharedRequest?.query ?? props.initialQuery ?? '' : props.initialQuery ?? ''; selected.value = null; preview.value = null; searching.value = false; resolving.value = false;
   void search();
 }, { immediate: true });
-onUnmounted(() => { ++searchRequest; ++previewRequest; });
+watch(() => props.savedRequest?.serial, () => {
+  const item = props.savedRequest?.item;
+  if (item?.provider === 'modrinth' && item.kind === 'mod' && item.hit.project_id === item.project_id) {
+    ++searchRequest; searching.value = false; select(item.hit as ModSearchHit);
+  }
+}, { immediate: true });
+watch(() => props.sharedRequest?.serial, () => {
+  if (!props.sharedMode || !props.sharedRequest || installing.value) return;
+  query.value = props.sharedRequest.query;
+  selected.value = null; preview.value = null; ++previewRequest;
+  void search();
+});
+function workKey() { return `modrinth:mod:${props.game.id}`; }
+function remember() {
+  rememberMarketWorkstate(workKey(), { query: query.value, submitted: submitted.value, hits: hits.value, total: total.value, searched: searched.value }, root.value);
+}
+onMounted(() => {
+  if (props.savedRequest) return;
+  const state = marketWorkstate<{ query: string; submitted: string; hits: ModSearchHit[]; total: number; searched: boolean }>(workKey());
+  if (state && (!props.sharedMode || state.query === (props.sharedRequest?.query ?? props.initialQuery ?? ''))) { ++searchRequest; query.value = state.query; submitted.value = state.submitted; hits.value = state.hits; total.value = state.total; searched.value = state.searched; searching.value = false; restoreMarketScroll(workKey(), root.value); }
+});
+onActivated(() => restoreMarketScroll(workKey(), root.value));
+onDeactivated(remember);
+onUnmounted(() => { remember(); ++searchRequest; ++previewRequest; });
 </script>
 <template>
   <div
@@ -100,11 +128,11 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
     <template v-else>
       <template v-if="selected">
         <button
-          class="text-button"
+          class="text-button market-back-button"
           :disabled="installing"
           @click="back"
         >
-          ← 返回搜索结果
+          <AppIcon name="arrow-left" />{{ t('market.backResults') }}
         </button>
         <div class="mod-preview">
           <MarketImage
@@ -121,6 +149,18 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
         <p class="preview-description">
           {{ selected.description }}
         </p>
+        <button
+          class="text-button market-save-button"
+          @click="toggleMarketSaved('modrinth', 'mod', selected)"
+        >
+          {{ t(isMarketSaved('modrinth', 'mod', selected.project_id) ? 'market.removeSaved' : 'market.saveLater') }}
+        </button>
+        <button
+          class="text-button"
+          @click="toggleMarketSaved('modrinth', 'mod', selected, 'favorite')"
+        >
+          {{ t(isMarketSaved('modrinth', 'mod', selected.project_id, 'favorite') ? 'market.removeFavorite' : 'market.favorite') }}
+        </button>
         <MarketGallery
           v-if="selected.gallery?.length"
           provider="modrinth"
@@ -158,7 +198,7 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
             aria-label="安装内容"
           >
             <li
-              v-for="mod in preview.mods"
+              v-for="mod in preview.mods.filter(item => !item.required_by)"
               :key="mod.project_id"
               class="mod-row"
             >
@@ -175,6 +215,27 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
               <span class="mod-state">{{ mod.required_by ? '必需依赖' : '所选 Mod' }}</span>
             </li>
           </ul>
+          <SettingsDisclosure
+            v-if="preview.mods.some(item => item.required_by)"
+            :key="preview.plan_id"
+            :title="t('market.dependencies', { count: preview.mods.filter(item => item.required_by).length })"
+          >
+            <ul class="mod-list">
+              <li
+                v-for="mod in preview.mods.filter(item => item.required_by)"
+                :key="mod.project_id"
+                class="mod-row"
+              >
+                <div class="mod-info">
+                  <h3>{{ mod.name }}</h3><p class="mod-meta">
+                    {{ mod.version_number }}
+                  </p><p class="mod-meta">
+                    {{ mod.required_by }}
+                  </p>
+                </div>
+              </li>
+            </ul>
+          </SettingsDisclosure>
           <div class="plan-actions">
             <button
               class="primary-button"
@@ -212,26 +273,27 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
       </template>
       <template v-else>
         <form
+          v-if="!sharedMode"
           class="content-toolbar discover-search"
           @submit.prevent="search()"
         >
-          <input
+          <SearchField
             v-model="query"
-            type="search"
-            aria-label="搜索 Modrinth"
-            placeholder="搜索想要的 Mod"
-          >
+            :label="t('market.searchMods')"
+            :placeholder="t('market.modSearchPlaceholder')"
+            @submit="search()"
+          />
           <button
             class="secondary-button"
             type="submit"
           >
-            搜索
+            {{ t('curseforge.search') }}
           </button>
         </form>
         <ul
           v-if="hits.length"
           class="mod-list discover-list"
-          aria-label="发现 Mod"
+          :aria-label="t('market.mod')"
         >
           <li
             v-for="hit in hits"
@@ -247,7 +309,7 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
               <h3>{{ hit.title }}</h3><p class="mod-description">
                 {{ hit.description }}
               </p><p class="mod-meta">
-                {{ hit.author }} · {{ new Intl.NumberFormat('zh-CN', { notation: 'compact' }).format(hit.downloads) }} 次下载
+                {{ hit.author }} · {{ t('market.downloads', { count: new Intl.NumberFormat(locale, { notation: 'compact' }).format(hit.downloads) }) }}
               </p>
             </div>
             <button
@@ -255,10 +317,10 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
               type="button"
               :disabled="searching || installing"
               :data-market-project="hit.project_id"
-              :aria-label="`查看 ${hit.title}`"
+              :aria-label="t('market.viewProject', { name: hit.title })"
               @click="select(hit)"
             >
-              查看
+              {{ t('market.view') }}
             </button>
           </li>
         </ul>
@@ -271,7 +333,7 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
             class="text-button"
             @click="search(failedOffset, true)"
           >
-            重试
+            {{ t('market.retry') }}
           </button>
         </div>
         <LoadingIndicator
@@ -284,16 +346,18 @@ onUnmounted(() => { ++searchRequest; ++previewRequest; });
           v-else-if="searched && !hits.length"
           class="content-empty"
         >
-          没有找到适用的 Mod，换个关键词试试。
+          {{ t('market.emptyMods') }}
         </p>
         <button
           v-else-if="hits.length < total"
           class="load-more secondary-button"
           @click="search(hits.length)"
         >
-          加载更多
+          {{ t('market.loadMore') }}
         </button>
       </template>
     </template>
   </div>
 </template>
+
+<style scoped>.discover-search .search-field{flex:1;min-width:0}.discover-search{gap:var(--ui-space-3)}</style>

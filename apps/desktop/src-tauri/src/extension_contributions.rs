@@ -76,6 +76,14 @@ pub struct CommandDescriptor {
     label: String,
     workflow: Workflow,
     menus: Vec<MenuContribution>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    icon: Option<String>,
+    #[serde(rename = "searchKeywords", skip_serializing_if = "Vec::is_empty")]
+    search_keywords: Vec<String>,
+    #[serde(rename = "quickEntry")]
+    quick_entry: bool,
+    #[serde(rename = "suggestedShortcut", skip_serializing_if = "Option::is_none")]
+    suggested_shortcut: Option<String>,
 }
 fn command_descriptor(
     command: &CommandContribution,
@@ -96,6 +104,10 @@ fn command_descriptor(
         label: command.label.resolve(locale).into(),
         workflow: command.workflow,
         menus,
+        icon: command.icon.clone(),
+        search_keywords: command.search_keywords.clone(),
+        quick_entry: command.quick_entry,
+        suggested_shortcut: command.suggested_shortcut.clone(),
     })
 }
 #[derive(Serialize)]
@@ -225,6 +237,10 @@ mod tests {
                 position: MenuPosition::Tools,
                 when: ContextCondition::Always,
             }],
+            icon: None,
+            search_keywords: Vec::new(),
+            quick_entry: false,
+            suggested_shortcut: None,
         };
         assert_eq!(
             command_descriptor(&command, &checked(false, false, false), "zh-CN", None)
@@ -232,6 +248,17 @@ mod tests {
                 .label,
             "检查"
         );
+        let mut discovery = command.clone();
+        discovery.icon = Some("search".into());
+        discovery.search_keywords = vec!["inspect".into()];
+        discovery.quick_entry = true;
+        discovery.suggested_shortcut = Some("Ctrl+Shift+I".into());
+        let descriptor =
+            command_descriptor(&discovery, &checked(false, false, false), "en", None).unwrap();
+        let value = serde_json::to_value(descriptor).unwrap();
+        assert_eq!(value["searchKeywords"], serde_json::json!(["inspect"]));
+        assert_eq!(value["quickEntry"], true);
+        assert_eq!(value["suggestedShortcut"], "Ctrl+Shift+I");
         assert!(
             command_descriptor(
                 &command,

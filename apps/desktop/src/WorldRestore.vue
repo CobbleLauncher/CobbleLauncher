@@ -3,6 +3,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { RadioGroupItem, RadioGroupRoot } from 'reka-ui';
+import ConfirmationDialog from './ui/ConfirmationDialog.vue';
 import { locale, t } from './i18n';
 import type { LocalWorld } from './games';
 import type { WorldBackupPreview, WorldRestoreResult } from './world-backups';
@@ -13,7 +14,7 @@ const mode = ref('new');
 const folderName = ref('');
 const targetFolder = ref('');
 const target = computed(() => props.worlds.find((world) => world.folder_name === targetFolder.value));
-const confirmed = ref(false);
+const confirming = ref(false);
 const picking = ref(false);
 const restoring = ref(false);
 const busy = computed(() => picking.value || restoring.value);
@@ -32,16 +33,17 @@ async function choose() {
     const value = await invoke<WorldBackupPreview | null>('preview_world_backup', { id: props.gameId });
     if (disposed) return;
     if (!value) { if (!preview.value) emit('cancel'); return; }
-    preview.value = value; folderName.value = value.suggested_folder; mode.value = 'new'; targetFolder.value = ''; confirmed.value = false;
+    preview.value = value; folderName.value = value.suggested_folder; mode.value = 'new'; targetFolder.value = ''; confirming.value = false;
   } catch (cause) { if (!disposed) error.value = t('worlds.backupReadError', { error: String(cause) }); }
   finally { picking.value = false; emit('busy', false); }
 }
-async function restore() {
+function requestRestore() { if (busy.value || props.locked) return; if (mode.value === 'replace' && target.value) confirming.value = true; else void restore(); }
+async function restore(approved = false) {
   if (!preview.value || busy.value || props.locked) return;
   error.value = '';
   const folder = mode.value === 'replace' ? target.value?.folder_name : folderName.value.trim();
   if (!folder) { error.value = mode.value === 'replace' ? t('worlds.chooseTarget') : t('worlds.enterFolder'); return; }
-  if (mode.value === 'replace' && !confirmed.value) return;
+  if (mode.value === 'replace' && !approved) return;
   if (mode.value === 'new' && (/[/\\<>:"|?*]/.test(folder) || [...folder].some((character) => character.charCodeAt(0) < 32) || folder === '.' || folder === '..' || folder.endsWith('.'))) { error.value = t('worlds.invalidFolder'); return; }
   if (mode.value === 'new' && props.worlds.some((world) => world.folder_name.toLocaleLowerCase() === folder.toLocaleLowerCase())) { error.value = t('worlds.folderExists'); return; }
   restoring.value = true; emit('busy', true);
@@ -51,7 +53,7 @@ async function restore() {
   } catch (cause) { if (!disposed) error.value = t('worlds.restoreError', { error: String(cause) }); }
   finally { restoring.value = false; emit('busy', false); }
 }
-watch([mode, targetFolder], () => { confirmed.value = false; error.value = ''; });
+watch([mode, targetFolder,()=>props.gameId], () => { confirming.value = false; error.value = ''; });
 onMounted(() => { void choose(); });
 onUnmounted(() => { disposed = true; });
 </script>
@@ -85,7 +87,7 @@ onUnmounted(() => { disposed = true; });
     <form
       v-if="preview"
       class="create-form pack-form"
-      @submit.prevent="restore"
+      @submit.prevent="requestRestore"
     >
       <section
         class="pack-summary"
@@ -164,26 +166,28 @@ onUnmounted(() => { disposed = true; });
             </option>
           </select>
         </div>
-        <div
-          v-if="target"
-          class="world-replace-confirm"
-        >
-          <p>{{ t('worlds.replaceWarning', { name: target.name }) }}</p><label class="pack-optional"><input
-            v-model="confirmed"
-            type="checkbox"
-            :disabled="busy || locked"
-          ><span>{{ t('worlds.confirmReplace', { name: target.name }) }}</span></label>
-        </div>
       </template>
       <button
         class="done-button"
         :class="{ 'danger-text': mode === 'replace' }"
         type="submit"
-        :disabled="busy || locked || (mode === 'replace' && (!target || !confirmed))"
+        :disabled="busy || locked || (mode === 'replace' && !target)"
       >
         {{ restoring ? t('worlds.restoring') : mode === 'replace' ? t('worlds.replaceAndKeep') : t('worlds.restoreTitle') }}
       </button>
     </form>
+    <ConfirmationDialog
+      v-model:open="confirming"
+      :title="t('worlds.replaceAndKeep')"
+      :description="target ? t('worlds.replaceWarning', { name: target.name }) : ''"
+      :confirm-label="t('worlds.replaceAndKeep')"
+      danger
+      require-delay
+      :disabled="busy || locked || !target"
+      @confirm="restore(true)"
+    >
+      <strong>{{ target?.name }}</strong><p>{{ preview?.name }}</p>
+    </ConfirmationDialog>
     <p
       v-if="error"
       class="settings-error pack-error"

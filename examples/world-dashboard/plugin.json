@@ -1,7 +1,7 @@
 {
   "id": "world-dashboard",
-  "name": "World Dashboard",
-  "version": "0.1.0",
+  "name": "World Time Machine",
+  "version": "0.2.0",
   "api_version": "0.2.0",
   "publisher": "CobbleLauncher",
   "capabilities": [
@@ -22,12 +22,13 @@
   "file_extensions": [],
   "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "description": {
-    "en": "Browse world versions and recent play",
-    "zh-CN": "查看世界版本和最近游玩记录"
+    "en": "Compare world snapshots and review recovery",
+    "zh-CN": "对比世界快照并查看恢复选项"
   },
   "tags": [
     "worlds",
-    "inspection"
+    "snapshots",
+    "recovery"
   ],
   "permissions": [
     {
@@ -38,6 +39,12 @@
       "scopes": [
         "worlds"
       ]
+    },
+    {
+      "permission": "launcher:world-snapshots/read"
+    },
+    {
+      "permission": "launcher:world-snapshots/restore-request"
     }
   ],
   "frontend": {
@@ -50,8 +57,8 @@
     "commands": [
       {
         "label": {
-          "zh-CN": "查看世界",
-          "en": "Review worlds"
+          "zh-CN": "打开世界时光机",
+          "en": "Open World Time Machine"
         },
         "id": "world-dashboard.inspect",
         "menus": [

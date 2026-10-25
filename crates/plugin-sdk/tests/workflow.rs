@@ -8,6 +8,38 @@ use std::{
 };
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+#[test]
+fn tool_form_scaffold_has_real_wit_and_no_resource_permissions() {
+    let scratch = Scratch::new();
+    let project = scratch.0.join("tool");
+    let output = sdk("new-tool-form", &[Path::new("pure-tool"), &project]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let manifest: cobble_plugin_api::PluginManifest =
+        serde_json::from_slice(&fs::read(project.join("plugin.json")).unwrap()).unwrap();
+    manifest.validate().unwrap();
+    assert_eq!(manifest.capabilities, ["tool-form"]);
+    assert!(manifest.effective_permissions().is_empty());
+    assert!(
+        fs::read_to_string(project.join("wit/tool.wit"))
+            .unwrap()
+            .contains("package launcher:tool-form@0.1.0")
+    );
+    assert!(
+        fs::read_to_string(project.join("src/lib.rs"))
+            .unwrap()
+            .contains("impl Guest for Tool")
+    );
+    assert!(
+        !sdk("new-tool-form", &[Path::new("pure-tool"), &project])
+            .status
+            .success()
+    );
+}
+
 struct Scratch(PathBuf);
 impl Scratch {
     fn new() -> Self {

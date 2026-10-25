@@ -202,6 +202,33 @@ pub(crate) struct SameOriginGrant {
     mirror_redirects: bool,
     official_origins: Vec<Origin>,
     official_files_path: bool,
+    adoptium_release_prefix: Option<String>,
+}
+pub(crate) fn adoptium_release_endpoint(endpoint: &Endpoint) -> bool {
+    let parts = endpoint.url.path().split('/').collect::<Vec<_>>();
+    // Official release tags encode '+'; this anonymous digest-bound grant
+    // accepts only that extra encoding, without widening credential paths.
+    let tag_path = endpoint
+        .url
+        .path()
+        .replace("%2B", "")
+        .replace("%2b", "")
+        .replace('+', "");
+    crate::policy::path_safe(&tag_path)
+        && endpoint.url.host_str() == Some("github.com")
+        && endpoint.url.query().is_none()
+        && parts.len() == 7
+        && parts[1] == "adoptium"
+        && parts[2]
+            .strip_prefix("temurin")
+            .and_then(|name| name.strip_suffix("-binaries"))
+            .is_some_and(|major| {
+                !major.is_empty() && major.len() <= 2 && major.bytes().all(|b| b.is_ascii_digit())
+            })
+        && parts[3] == "releases"
+        && parts[4] == "download"
+        && !parts[5].is_empty()
+        && parts[6].ends_with(".zip")
 }
 pub(crate) fn curseforge_endpoint(endpoint: &Endpoint) -> bool {
     endpoint.credential_path_safe
@@ -222,6 +249,7 @@ impl SameOriginGrant {
             mirror_redirects: false,
             official_origins: Vec::new(),
             official_files_path: false,
+            adoptium_release_prefix: None,
         }
     }
     pub(crate) fn with_mirror(mut self, mirror_redirects: bool) -> Self {
@@ -243,6 +271,16 @@ impl SameOriginGrant {
         self
     }
     fn permits(&self, endpoint: &Endpoint) -> bool {
+        if let Some(prefix) = &self.adoptium_release_prefix {
+            return (adoptium_release_endpoint(endpoint)
+                && endpoint.url.path().starts_with(prefix))
+                || (endpoint.credential_path_safe
+                    && endpoint.url.host_str() == Some("release-assets.githubusercontent.com")
+                    && endpoint
+                        .url
+                        .path()
+                        .starts_with("/github-production-release-asset/"));
+        }
         if self.official_files_path {
             return endpoint.credential_path_safe
                 && self.official_origins.contains(&endpoint.origin())
@@ -253,6 +291,16 @@ impl SameOriginGrant {
         // The selected anonymous mirror delegates CDN routing. Every hop still
         // passes the broker's HTTPS/public-IP/TLS limits and final digest checks.
         self.mirror_redirects || self.origin == endpoint.origin()
+    }
+    pub(crate) fn with_adoptium(mut self, enabled: bool, original: &Endpoint) -> Self {
+        if enabled && adoptium_release_endpoint(original) {
+            self.adoptium_release_prefix = original
+                .url
+                .path()
+                .split_once("/releases/download/")
+                .map(|(repo, _)| format!("{repo}/releases/download/"));
+        }
+        self
     }
 }
 
@@ -924,6 +972,22 @@ mod curseforge_redirect_tests {
             "https://mediafilez.forgecdn.net/files/%2e%2e/other/a.jar",
         ] {
             assert!(!grant.permits(&Endpoint::parse(url).unwrap()));
+        }
+    }
+    #[test]
+    fn adoptium_grant_is_anonymous_and_bound_to_release_repo_and_asset_host() {
+        let start = Endpoint::parse("https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.1%2B1/runtime.zip").unwrap();
+        let grant = SameOriginGrant::new(&start).with_adoptium(true, &start);
+        assert!(grant.permits(&start));
+        assert!(grant.permits(&Endpoint::parse("https://release-assets.githubusercontent.com/github-production-release-asset/123/asset?signature=synthetic").unwrap()));
+        for url in [
+            "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21/runtime.zip",
+            "https://github.com/evil/temurin17-binaries/releases/download/tag/runtime.zip",
+            "https://release-assets.githubusercontent.com/other/asset",
+            "https://release-assets.githubusercontent.com.evil.invalid/github-production-release-asset/a",
+            "https://objects.githubusercontent.com/github-production-release-asset/a",
+        ] {
+            assert!(!grant.permits(&Endpoint::parse(url).unwrap()), "{url}");
         }
     }
     #[tokio::test]

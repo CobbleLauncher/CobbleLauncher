@@ -1,0 +1,96 @@
+{
+  "name": "cubiomes",
+  "repository": "https://github.com/Cubitect/cubiomes",
+  "revision": "e61f90580cbdd883214a8054670dacae655e59c0",
+  "retrieved": "2026-10-23",
+  "license": "MIT",
+  "licensePath": "LICENSE",
+  "copyright": "Copyright (c) 2020 Cubitect",
+  "usage": "Unmodified selected C/header/table source statically compiled by crates/seed-map; no Cubiomes Viewer or Chunkbase code",
+  "files": [
+    {
+      "path": "biomenoise.c",
+      "sha256": "ec7229f66426e4f8eab0ac32658855844e7a81124efc5580a753a3fa4b4e4b01"
+    },
+    {
+      "path": "biomenoise.h",
+      "sha256": "bc499fc72f62156be6f62451ed42883c3e06736f4780e47739699971d6f4eadc"
+    },
+    {
+      "path": "biomes.c",
+      "sha256": "e527fb47813f61e6d16e9b9a29e634b00489671dceaa644cebce8e1ddf637d2e"
+    },
+    {
+      "path": "biomes.h",
+      "sha256": "44669f6d98d78060474c8bc2f7df57b184b5d38c6b470188c9c75ce5f13a2488"
+    },
+    {
+      "path": "finders.c",
+      "sha256": "5b0d86e1e2702a50de5c4674889c7df926565a5980a178f6097d4767a2137ecd"
+    },
+    {
+      "path": "finders.h",
+      "sha256": "2ed5c9fe239b690afad4347dda589aad11d8914505c61850ffe729070d78ea9e"
+    },
+    {
+      "path": "generator.c",
+      "sha256": "14e1cdccb28661624085a952b15ef9fb2db7004681216b769112700382a55aac"
+    },
+    {
+      "path": "generator.h",
+      "sha256": "3f05bf54e114c8d8c1ff00f3bfd733ebc3d5139df7f15232d898128d732a637f"
+    },
+    {
+      "path": "layers.c",
+      "sha256": "602a5837ad166f80dc1fd4395a9ac8f0063e801dd0cc47fe9dc2848b008a63a2"
+    },
+    {
+      "path": "layers.h",
+      "sha256": "5901cbfea83b0c1454ddae89fcb6cac6297bc4aac0be0cff562b5aa9dc8467cd"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "24a6e9ce12e5c7731c35f1c645fc065512195f38f551d3d6ff9b8fd0f9e85988"
+    },
+    {
+      "path": "noise.c",
+      "sha256": "e504dc0078ad462541a52bde07312b686b93b95aa56b8680db319190e0aa38b0"
+    },
+    {
+      "path": "noise.h",
+      "sha256": "f004dbab714c711d441ee3e7916888a23fe64004eed2ac98bfdb46b89430ff5e"
+    },
+    {
+      "path": "rng.h",
+      "sha256": "7e6fd8627914535efae5b7e91409a285cfde67d58b9302ab0922749d164787fb"
+    },
+    {
+      "path": "tables/btree18.h",
+      "sha256": "ffabeb009aec59bb61dbad24ea6f5c082ca3e7621bdd33ef5a7a7366830989c2"
+    },
+    {
+      "path": "tables/btree19.h",
+      "sha256": "3a11862be451e1eb6aa1068ee37bcf1d281509a9493687b79e9bbf6c1c3d4f5f"
+    },
+    {
+      "path": "tables/btree192.h",
+      "sha256": "444b5fe0e5f32ee0b62db92e5416353e593cea4283079a697404c6a346dac050"
+    },
+    {
+      "path": "tables/btree20.h",
+      "sha256": "0156820dc82323ec129a7afbf5138a4c0fe116293530e1badb244ed9381f39dc"
+    },
+    {
+      "path": "tables/btree21wd.h",
+      "sha256": "c64b7d9b22f69fe74a8f9a1865b8e693139fe7f853db71faf8f3f3807404392c"
+    },
+    {
+      "path": "util.c",
+      "sha256": "bbf1f4d923b25591b3e4ae9bbd24a729bcf2c4898e06d87882ee5a3bdf0c4b13"
+    },
+    {
+      "path": "util.h",
+      "sha256": "f954ffb08ac4a0d8bf1fdfd8d9d058b7421eff985f6b0b9e98fb729ea2e157d4"
+    }
+  ]
+}

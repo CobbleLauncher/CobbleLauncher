@@ -18,6 +18,7 @@
   "keepPath": "Folder to keep",
   "lockedWarning": "Close the game and wait for the current task to finish first.",
   "copyBusy": "Copying…",
+  "copyStarted": "Copy started. Progress and cancellation are available in Tasks.",
   "exportBusy": "Exporting…",
   "removeBusy": "Removing…",
   "copyButton": "Create copy",

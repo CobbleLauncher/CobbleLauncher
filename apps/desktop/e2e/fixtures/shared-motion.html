@@ -1,0 +1,26 @@
+<!doctype html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Shared motion fixture</title></head>
+<body><div id="app"></div><script type="module">
+import { createApp, h, ref } from 'vue';
+import SettingsDisclosure from '../../src/ui/settings/SettingsDisclosure.vue';
+import ConfirmationDialog from '../../src/ui/ConfirmationDialog.vue';
+import { setLocale } from '../../src/i18n';
+import '../../src/ui.css';
+setLocale('en-US');
+const query = new URLSearchParams(location.search);
+document.documentElement.dataset.theme=query.get('theme') || 'light';
+createApp({setup(){
+ const draft=ref('12'),open=ref(false);
+ return ()=>h('main',[
+  h('h1','Downloads'),
+  h(SettingsDisclosure,{title:'Concurrency',icon:'sliders-horizontal',value:`${draft.value} / 4`},{default:()=>[
+   h('label',{for:'draft-limit'},'Maximum downloads'),
+   h('input',{id:'draft-limit',type:'number',value:draft.value,onInput:event=>draft.value=event.target.value}),
+   h('label',{for:'per-origin'},'Per source'),
+   h('input',{id:'per-origin',type:'number',value:'4'}),
+  ]}),
+  h('button',{id:'reset-opener',class:'secondary-button',onClick:()=>open.value=true},'Restore defaults'),
+  h(ConfirmationDialog,{open:open.value,title:'Restore defaults?',description:'Your download limits will be reset.',confirmLabel:'Restore defaults','onUpdate:open':value=>open.value=value}),
+ ]);
+}}).mount('#app');
+</script><style>body{margin:0;background:var(--ui-bg);color:var(--ui-text)}main{max-width:800px;margin:32px auto;padding:0 24px}h1{margin:0 0 24px}.settings-disclosure-content{display:grid;gap:12px}input{box-sizing:border-box;max-width:320px;width:100%;min-height:40px;padding:8px 12px;color:var(--ui-text);background:var(--ui-surface-1);border:1px solid var(--ui-border-strong);border-radius:var(--ui-radius-sm);font:inherit}label{font-weight:500}#reset-opener{margin-top:24px}</style></body></html>

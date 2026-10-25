@@ -1,0 +1,4 @@
+// SPDX-License-Identifier: MIT
+import{test}from'node:test';import assert from'node:assert/strict';import{counters,time,distance,percent}from'./model.ts';
+test('exact integer time and distance conversion',()=>{assert.equal(time(72000n,false),'1h 0m');assert.equal(distance(1234567n,false),'12.3 km');assert.equal(percent(5n,10n),50);assert.equal(percent(0n,0n),0);});
+test('report rows preserve u64 precision and reject invalid machine rows',()=>{const report={schema_version:1,findings:[],tables:[{columns:['category','id','value'],rows:[['custom','minecraft:play_time','18446744073709551615'],['custom','bad','-1'],['custom','large','18446744073709551616'],['mined','minecraft:stone','7']]}]};assert.deepEqual(counters(report,'custom'),[{id:'minecraft:play_time',value:18446744073709551615n}]);assert.equal(counters(report,'killed').length,0);});

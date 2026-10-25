@@ -11,10 +11,13 @@ pub use metadata::{
     VersionMetadata,
 };
 mod java;
+mod managed_java;
 pub use java::{JavaError, JavaRuntime, discover_java, find_java, probe_java, recommend_java};
+pub use managed_java::managed_java_root;
 mod java_settings;
 pub use java_settings::{
     JavaSettings, read_java_settings, resolve_java, resolve_java_override, save_java_settings,
+    selected_java_path,
 };
 mod preferences;
 pub use preferences::{

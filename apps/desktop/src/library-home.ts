@@ -2,6 +2,7 @@
 import type { Game } from './games';
 
 export type HomeGame = Game;
+export function homeLaunchState(game: HomeGame): NonNullable<Game['launch_state']> { return game.launch_state ?? 'idle'; }
 function launchTime(game: HomeGame): number {
   const value = game.last_launched_at;
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;

@@ -1,0 +1,73 @@
+{
+  "id": "mesh-events-demo",
+  "name": "Ready check (developer example)",
+  "version": "0.1.0",
+  "api_version": "0.2.0",
+  "publisher": "Local developer",
+  "capabilities": [
+    "report"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:report",
+        "version": "0.2.0"
+      },
+      {
+        "id": "launcher:web-frontend",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "file_extensions": [],
+  "component_sha256": "ceb02f6e760661ce5a276157d8d94276cc23ae3409073eaea8b65e2978bccd1f",
+  "description": {
+    "en": "Exchange readiness with Mesh friends",
+    "zh-CN": "通过 Mesh 与朋友交换准备状态"
+  },
+  "tags": [
+    "multiplayer",
+    "utilities"
+  ],
+  "permissions": [
+    {
+      "permission": "launcher:ui/webview"
+    },
+    {
+      "permission": "launcher:mesh/events/send",
+      "namespaces": [
+        "org.example.ready.v1"
+      ]
+    },
+    {
+      "permission": "launcher:mesh/events/receive",
+      "namespaces": [
+        "org.example.ready.v1"
+      ]
+    }
+  ],
+  "frontend": {
+    "entry": "ui/index.html",
+    "api_version": "0.1.0",
+    "assets_sha256": "505547fc481cc51e64bfb09782487b6fd2193f001cb5aff1928c6ebc1e7ee830"
+  },
+  "contributions": {
+    "schema_version": 1,
+    "commands": [
+      {
+        "id": "mesh-events-demo.open",
+        "label": {
+          "en": "Ready check",
+          "zh-CN": "准备状态"
+        },
+        "workflow": "report",
+        "menus": [
+          {
+            "position": "tools",
+            "when": "always"
+          }
+        ]
+      }
+    ]
+  }
+}

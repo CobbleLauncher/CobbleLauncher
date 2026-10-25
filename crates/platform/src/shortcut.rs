@@ -1,6 +1,76 @@
 // SPDX-License-Identifier: MIT
 //! Windows Shell Link adapter. Call from a dedicated blocking thread.
 use std::path::Path;
+/// Reads a local Shell Link's recorded target. Never resolves, launches or updates it.
+pub fn read_shortcut_target(path: &Path) -> Result<std::path::PathBuf, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::fs::MetadataExt;
+        use windows::{
+            Win32::{
+                System::Com::{
+                    CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance,
+                    CoInitializeEx, CoUninitialize, IPersistFile, STGM_READ,
+                },
+                UI::Shell::{IShellLinkW, SLGP_RAWPATH, ShellLink},
+            },
+            core::{HSTRING, Interface},
+        };
+        let meta = std::fs::symlink_metadata(path).map_err(|_| "SHORTCUT_UNAVAILABLE")?;
+        if !meta.is_file()
+            || meta.file_attributes() & 0x400 != 0
+            || meta.len() > 1024 * 1024
+            || !path
+                .extension()
+                .is_some_and(|v| v.eq_ignore_ascii_case("lnk"))
+        {
+            return Err("SHORTCUT_INVALID".into());
+        }
+        struct Apartment;
+        impl Drop for Apartment {
+            fn drop(&mut self) {
+                // SAFETY: balances this thread's successful COM initialization.
+                unsafe {
+                    CoUninitialize();
+                }
+            }
+        }
+        // SAFETY: no reserved pointer; the blocking caller owns this apartment.
+        unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok() }
+            .map_err(|_| "SHORTCUT_UNAVAILABLE")?;
+        let _apartment = Apartment;
+        // SAFETY: the standard Shell Link CLSID implements the requested interface.
+        let link: IShellLinkW = unsafe { CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER) }
+            .map_err(|_| "SHORTCUT_UNAVAILABLE")?;
+        let persist: IPersistFile = link.cast().map_err(|_| "SHORTCUT_UNAVAILABLE")?;
+        let mut buffer = [0u16; 4096];
+        // SAFETY: buffers outlive synchronous read-only methods; no Resolve or execution.
+        unsafe {
+            persist
+                .Load(&HSTRING::from(path.as_os_str()), STGM_READ)
+                .map_err(|_| "SHORTCUT_INVALID")?;
+            link.GetPath(&mut buffer, std::ptr::null_mut(), SLGP_RAWPATH.0 as u32)
+                .map_err(|_| "SHORTCUT_INVALID")?;
+        }
+        let end = buffer
+            .iter()
+            .position(|v| *v == 0)
+            .ok_or("SHORTCUT_INVALID")?;
+        let target = std::path::PathBuf::from(
+            String::from_utf16(&buffer[..end]).map_err(|_| "SHORTCUT_INVALID")?,
+        );
+        let text = target.to_string_lossy();
+        if !target.is_absolute() || text.starts_with(r"\\") || text.starts_with("//") {
+            return Err("SHORTCUT_INVALID".into());
+        }
+        Ok(target)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = path;
+        Err("SHORTCUT_UNSUPPORTED_PLATFORM".into())
+    }
+}
 pub fn create_launch_shortcut(
     executable: &Path,
     destination: &Path,
@@ -103,6 +173,10 @@ mod tests {
         create_launch_shortcut(&std::env::current_exe().unwrap(), &target, "legacy_test-1")
             .unwrap();
         let original = std::fs::read(&target).unwrap();
+        assert_eq!(
+            read_shortcut_target(&target).unwrap(),
+            std::env::current_exe().unwrap()
+        );
         assert!(
             create_launch_shortcut(&std::env::current_exe().unwrap(), &target, "other").is_err()
         );

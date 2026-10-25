@@ -5,6 +5,7 @@ members = [
   "crates/blueprint-catalog",
   "crates/diagnostics",
   "crates/modpack-inspector",
+  "crates/seed-map",
   "crates/domain",
   "crates/core",
   "crates/store",
@@ -28,6 +29,18 @@ members = [
   "examples/mod-conflicts",
   "examples/resource-pack-stack",
   "examples/world-dashboard",
+  "examples/world-chronicle",
+  "examples/command-pocket",
+  "examples/seed-compass",
+  "examples/coordinate-book",
+  "examples/material-planner",
+  "examples/play-manifest",
+  "examples/lang-doctor",
+  "examples/trial-copy",
+  "examples/file-inbox",
+  "examples/ai-assistant",
+  "examples/anvil-planner",
+  "examples/geometry-builder",
   "examples/backup-auditor",
   "examples/screenshot-timeline",
   "examples/controls-auditor",
@@ -57,6 +70,7 @@ cobble-domain = { path = "crates/domain" }
 cobble-store = { path = "crates/store" }
 cobble-net = { path = "crates/net" }
 cobble-minecraft = { path = "crates/minecraft" }
+cobble-seed-map = { path = "crates/seed-map" }
 jsonschema = { version = "=0.59.0", default-features = false }
 rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled", "serialize", "limits"] }
 cap-std = "=4.0.3"

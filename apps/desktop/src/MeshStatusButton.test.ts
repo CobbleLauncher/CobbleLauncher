@@ -2,172 +2,111 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import MeshStatusButton from './MeshStatusButton.vue';
+import MeshContactsButton from './MeshContactsButton.vue';
 import { setLocale } from './i18n';
+import type { MeshNetworkSnapshot } from './mesh';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-
-beforeEach(() => {
-  vi.useFakeTimers(); vi.mocked(invoke).mockReset();
-  Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
+const snapshot = (phase: MeshNetworkSnapshot['phase'], generation: number, enabled = true): MeshNetworkSnapshot => ({
+  enabled, phase, generation, attempt: 0, retry_at: null, profile: null, services: [], last_error: null,
+  relay_available: phase === 'online', session_route: null, checks: [],
 });
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); setLocale('zh-CN'); document.body.innerHTML = ''; });
-
+let event: ((value: { payload: MeshNetworkSnapshot }) => void) | undefined;
+const unlisten = vi.fn();
+beforeEach(() => {
+  setLocale('en-US');
+  vi.mocked(invoke).mockReset();
+  vi.mocked(listen).mockReset();
+  unlisten.mockReset();
+  vi.mocked(listen).mockImplementation(async (_name, handler) => { event = handler as typeof event; return unlisten; });
+});
+afterEach(() => { event = undefined; setLocale('zh-CN'); document.body.innerHTML = ''; });
 async function selectMenuItem(label: string) {
-  await vi.waitFor(() => {
-    if (![...document.querySelectorAll('[role="menuitem"]')].some(item => item.textContent?.includes(label))) {
-      throw new Error(`Menu item not found: ${label}; body=${document.body.innerText}`);
-    }
-  });
-  const item = [...document.querySelectorAll('[role="menuitem"]')].find(candidate => candidate.textContent?.includes(label));
-  if (!item) throw new Error(`Menu item not found: ${label}`);
-  item.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await vi.waitFor(() => expect([...document.querySelectorAll('[role="menuitem"]')].some(item => item.textContent?.includes(label))).toBe(true));
+  document.querySelectorAll<HTMLElement>('[role="menuitem"]').forEach(item => { if (item.textContent?.includes(label)) item.click(); });
 }
 
-it('shows the native connected snapshot, emits open, and stops polling when hidden or unmounted', async () => {
-  setLocale('en-US');
-  vi.mocked(invoke).mockResolvedValue({ connected: true });
-  const removed = vi.spyOn(document, 'removeEventListener');
+it('reads the cached snapshot once and follows newer native events without polling', async () => {
+  vi.mocked(invoke).mockResolvedValue(snapshot('online', 2));
   const wrapper = mount(MeshStatusButton, { props: { active: true } });
-  await vi.advanceTimersByTimeAsync(0);
   await flushPromises();
-
-  expect(invoke).toHaveBeenCalledExactlyOnceWith('mesh_network_status');
-  expect(wrapper.get('button').classes()).toContain('is-connected');
-  expect(wrapper.get('button').attributes('aria-label')).toBe('Mesh connected');
+  expect(invoke).toHaveBeenCalledExactlyOnceWith('mesh_network_snapshot');
+  expect(wrapper.get('button').text()).toBe('Online');
   expect(wrapper.get('button').attributes('aria-current')).toBe('page');
-  await wrapper.get('button').trigger('click');
-  await selectMenuItem('Multiplayer & contacts');
-  expect(wrapper.emitted('open')).toHaveLength(1);
-
-  Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
-  document.dispatchEvent(new Event('visibilitychange'));
-  await vi.advanceTimersByTimeAsync(30_000);
-  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === 'mesh_network_status')).toHaveLength(2);
+  event?.({ payload: snapshot('reconnecting', 3) });
+  await flushPromises();
+  expect(wrapper.get('button').text()).toBe('Reconnecting');
+  expect(wrapper.emitted('changed')).toHaveLength(1);
+  event?.({ payload: snapshot('offline', 1, false) });
+  await flushPromises();
+  expect(wrapper.get('button').text()).toBe('Reconnecting');
+  expect(wrapper.emitted('changed')).toHaveLength(1);
   wrapper.unmount();
-  expect(removed).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+  expect(unlisten).toHaveBeenCalledOnce();
 });
 
-it('changes Mesh status natively, honors the leave guard, and discovers only on explicit re-enable', async () => {
-  setLocale('en-US');
-  let networkEnabled = false;
-  vi.mocked(invoke).mockImplementation(async (command, args) => {
-    if (command === 'mesh_network_status') return { enabled: networkEnabled, connected: false };
-    if (command === 'mesh_set_enabled') {
-      networkEnabled = typeof args === 'object' && args !== null && !Array.isArray(args) && 'enabled' in args && args.enabled === true;
-      return { enabled: networkEnabled, connected: false };
-    }
-    return null;
-  });
-  const beforeChange = vi.fn().mockResolvedValue(true);
-  const wrapper = mount(MeshStatusButton, { props: { beforeChange } });
-  await vi.advanceTimersByTimeAsync(0);
+it('enables the contacts entry from the cached online snapshot and forwards its destinations', async () => {
+  vi.mocked(invoke).mockResolvedValue(snapshot('online', 2));
+  const wrapper = mount(MeshStatusButton);
   await flushPromises();
+  const contacts = wrapper.findComponent(MeshContactsButton);
+  expect(contacts.props('available')).toBe(true);
+  expect(invoke).toHaveBeenCalledExactlyOnceWith('mesh_network_snapshot');
+  contacts.vm.$emit('contact', 'exact-peer-id');
+  contacts.vm.$emit('join');
+  contacts.vm.$emit('open');
+  expect(wrapper.emitted('contact')).toEqual([['exact-peer-id']]);
+  expect(wrapper.emitted('join')).toEqual([[]]);
+  expect(wrapper.emitted('contacts')).toEqual([[]]);
+  expect(invoke).toHaveBeenCalledTimes(1);
+  wrapper.unmount();
+});
 
+it('keeps a same-generation online event when an older cached read finishes later', async () => {
+  let finishRead!: (value: MeshNetworkSnapshot) => void;
+  vi.mocked(invoke).mockReturnValue(new Promise(resolve => { finishRead = resolve; }));
+  const wrapper = mount(MeshStatusButton);
+  await flushPromises();
+  event?.({ payload: snapshot('online', 3) });
+  await flushPromises();
+  finishRead(snapshot('connecting', 3));
+  await flushPromises();
+  expect(wrapper.get('button').text()).toBe('Online');
+  wrapper.unmount();
+});
+
+it('uses retry only for a real failed state and honors the leave guard', async () => {
+  const beforeChange = vi.fn().mockResolvedValue(false);
+  vi.mocked(invoke).mockImplementation(async command => command === 'mesh_network_retry' ? snapshot('connecting', 3) : snapshot('failed', 2));
+  const wrapper = mount(MeshStatusButton, { props: { beforeChange } });
+  await flushPromises();
+  expect(wrapper.get('button').text()).toBe('Connection failed');
+  await wrapper.get('button').trigger('click');
+  await selectMenuItem('Retry connection');
+  await flushPromises();
+  expect(invoke).not.toHaveBeenCalledWith('mesh_network_retry');
+  beforeChange.mockResolvedValue(true);
+  await wrapper.get('button').trigger('click');
+  await selectMenuItem('Retry connection');
+  await flushPromises();
+  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === 'mesh_network_retry')).toHaveLength(1);
+  expect(wrapper.get('button').text()).toBe('Connecting');
+  wrapper.unmount();
+});
+
+it('can go online from persisted offline state without calling discovery', async () => {
+  vi.mocked(invoke).mockImplementation(async command => command === 'mesh_network_set_enabled' ? snapshot('connecting', 4) : snapshot('offline', 3, false));
+  const wrapper = mount(MeshStatusButton);
+  await flushPromises();
+  expect(wrapper.get('button').text()).toBe('Offline');
   await wrapper.get('button').trigger('click');
   await selectMenuItem('Go online');
   await flushPromises();
-  expect(invoke).toHaveBeenCalledWith('mesh_set_enabled', { enabled: true });
-  expect(invoke).toHaveBeenCalledWith('mesh_discover');
-  expect(wrapper.emitted('changed')).toHaveLength(1);
-
-  beforeChange.mockResolvedValueOnce(false);
-  await wrapper.get('button').trigger('click');
-  await selectMenuItem('Go offline');
-  await flushPromises();
-  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === 'mesh_set_enabled')).toHaveLength(1);
-
-  // Retry after the rejected item selection closes the dropdown.
-  await wrapper.get('button').trigger('click');
-  await selectMenuItem('Go offline');
-  await flushPromises();
-  expect(invoke).toHaveBeenCalledWith('mesh_set_enabled', { enabled: false });
-  expect(wrapper.emitted('changed')).toHaveLength(2);
-  wrapper.unmount();
-});
-
-it('keeps null and failed snapshots gray and ignores replies after unmount', async () => {
-  setLocale('en-US');
-  vi.mocked(invoke).mockResolvedValue(null);
-  const wrapper = mount(MeshStatusButton);
-  await vi.advanceTimersByTimeAsync(0);
-  await flushPromises();
-  expect(wrapper.get('button').classes()).not.toContain('is-connected');
-  expect(wrapper.get('button').attributes('aria-label')).toBe('Mesh not connected');
-
-  vi.mocked(invoke).mockRejectedValueOnce(new Error('offline'));
-  await vi.advanceTimersByTimeAsync(15_000);
-  await flushPromises();
-  expect(wrapper.get('button').classes()).not.toContain('is-connected');
-
-  let resolveStatus!: (value: { connected: boolean }) => void;
-  vi.mocked(invoke).mockReturnValue(new Promise(resolve => { resolveStatus = resolve; }));
-  await vi.advanceTimersByTimeAsync(15_000);
-  expect(invoke).toHaveBeenCalledTimes(3);
-  const trigger = wrapper.get('button').element;
-  wrapper.unmount();
-  resolveStatus({ connected: true });
-  await flushPromises();
-  expect(trigger.classList.contains('is-connected')).toBe(false);
-});
-
-it('distinguishes a reachable relay from an active connection and offers identity setup separately', async () => {
-  setLocale('zh-CN');
-  let network = { enabled: true, connected: false, relay_available: true, discovery_checked: true };
-  vi.mocked(invoke).mockImplementation(async command => command === 'mesh_identity_state' ? { profile: null, mode: 'persistent', active: false } : network);
-  const wrapper = mount(MeshStatusButton);
-  await vi.advanceTimersByTimeAsync(0); await flushPromises();
-  expect(wrapper.get('button').text()).toBe('可联机');
-  expect(wrapper.get('button').attributes('title')).toBe('中继可用，尚未建立联机会话');
-  await wrapper.get('button').trigger('click'); await flushPromises();
-  await selectMenuItem('创建 Mesh 身份');
-  expect(wrapper.emitted('open')).toHaveLength(1);
-  network = { ...network, relay_available: false };
-  await vi.advanceTimersByTimeAsync(15_000); await flushPromises();
-  expect(wrapper.get('button').text()).toBe('未连接');
-  network = { ...network, discovery_checked: false };
-  await vi.advanceTimersByTimeAsync(15_000); await flushPromises();
-  expect(wrapper.get('button').text()).toBe('待检查');
-  network = { ...network, enabled: false };
-  await vi.advanceTimersByTimeAsync(15_000); await flushPromises();
-  expect(wrapper.get('button').text()).toBe('离线');
-  wrapper.unmount();
-});
-
-it('shows connecting during the explicit relay check and readiness after it finishes', async () => {
-  setLocale('en-US');
-  let checked = false;
-  let complete!: () => void;
-  vi.mocked(invoke).mockImplementation(async command => {
-    if (command === 'mesh_discover') { await new Promise<void>(resolve => { complete = resolve; }); checked = true; return {}; }
-    if (command === 'mesh_identity_state') return { profile: { display_name: 'Player' } };
-    return { enabled: true, connected: false, relay_available: checked, discovery_checked: checked };
-  });
-  const wrapper = mount(MeshStatusButton);
-  await vi.advanceTimersByTimeAsync(0); await flushPromises();
-  await wrapper.get('button').trigger('click');
-  await selectMenuItem('Check connection'); await flushPromises();
+  expect(invoke).toHaveBeenCalledWith('mesh_network_set_enabled', { enabled: true });
+  expect(invoke).not.toHaveBeenCalledWith('mesh_discover');
   expect(wrapper.get('button').text()).toBe('Connecting');
-  complete(); await flushPromises();
-  expect(wrapper.get('button').text()).toBe('Ready');
-  expect(wrapper.emitted('changed')).toHaveLength(1);
-  wrapper.unmount();
-});
-
-it('refreshes after an older status request finishes behind a connection check', async () => {
-  setLocale('en-US');
-  let first = true;
-  let oldReply!: (value: unknown) => void;
-  vi.mocked(invoke).mockImplementation(async command => {
-    if (command === 'mesh_network_status' && first) { first = false; return new Promise(resolve => { oldReply = resolve; }); }
-    return { enabled: true, connected: false, relay_available: true, discovery_checked: true };
-  });
-  const wrapper = mount(MeshStatusButton);
-  await vi.advanceTimersByTimeAsync(0); await flushPromises();
-  await wrapper.get('button').trigger('click');
-  await selectMenuItem('Check connection'); await flushPromises();
-  oldReply({ enabled: false, connected: false }); await flushPromises();
-  expect(wrapper.get('button').text()).toBe('Ready');
-  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === 'mesh_network_status')).toHaveLength(2);
   wrapper.unmount();
 });

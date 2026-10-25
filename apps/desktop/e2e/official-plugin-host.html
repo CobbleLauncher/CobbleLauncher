@@ -1,0 +1,12 @@
+<!doctype html><html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><div id="app" style="max-width:1200px;margin:auto;padding:20px"></div><script type="module">
+import{createApp,h}from'vue';import{setLocale,i18n}from'/src/i18n/index.ts';import'/src/style.css';import'/src/ui.css';
+const id=new URL(location.href).searchParams.get('id'),fixture=window.__auditFixture;setLocale(fixture.zh?'zh-CN':'en-US');document.documentElement.dataset.theme=fixture.dark?'dark':'light';
+const game={id:'audit-game',name:fixture.zh?'审计冒险世界':'Audit adventure world',version:'1.21.1',status:'installed',directory:'C:/synthetic',launch_state:'idle',error:null,progress:null};
+let component,props={};
+if(id==='schematic-viewer'){component=(await import('/src/BlueprintsPage.vue')).default;props={view:'viewer',games:[game],initialGameId:game.id,selectedCommand:{pluginId:id,commandId:'open',label:'Open',workflow:'viewer',blueprintId:'synthetic'}};}
+if(id==='mcs-provider'){component=(await import('/src/OnlineBlueprints.vue')).default;props={games:[game],initialGameId:game.id};}
+if(id==='pack-metadata'){component=(await import('/src/PluginReportPanel.vue')).default;props={pluginId:id,manifest:fixture.manifest,games:[game]};}
+if(id==='screenshot-sheet'){component=(await import('/src/ScreenshotSheetPanel.vue')).default;props={gameId:game.id,screenshots:[{id:'one',name:'Morning.png',modified_at:1,size_bytes:1024},{id:'two',name:'Evening.png',modified_at:2,size_bytes:1024}]};}
+if(id==='session-card'){component=(await import('/src/MeshSocialPanel.vue')).default;props={active:true,showContacts:true,games:[game],gameId:game.id};}
+createApp({render:()=>h(component,props)}).use(i18n).mount('#app');window.__auditHostReady=true;
+</script></html>

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f3e9"><meta name="description" content="圆石 Cobble Launcher，开源、本地优先的 Minecraft Java 启动器，支持游戏管理、内容安装与存档备份。">
+  <meta property="og:title" content="圆石 Cobble Launcher — Minecraft Java 启动器"><meta property="og:description" content="管理 Minecraft Java 游戏、Mod 和存档，使用社区插件与联机功能。"><meta property="og:type" content="website">
+  <title>圆石 Cobble Launcher — Minecraft Java 启动器</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="./style.css"><link rel="stylesheet" href="./landing.css"><script type="module" src="./app.js"></script>
+</head>
+<body class="landing">
+<a class="skip-link" href="#main" data-i18n="skip">跳到内容</a>
+<header class="site-header">
+  <a class="brand" href="#main" aria-label="Cobble Launcher"><img src="./favicon.svg" width="36" height="36" alt=""><span>cobble<span class="brand-cn" data-i18n="brand">圆石启动器</span></span></a>
+  <nav aria-label="主导航" data-label="nav"><a href="#community" data-i18n="navCommunity">社区</a><a href="#together" data-i18n="navTogether">连接</a><a href="./mesh.html" data-page="mesh">Mesh ↗</a></nav>
+  <div class="header-actions"><button class="icon-button" id="theme" aria-label="切换浅色或深色主题" data-label="theme"><svg class="icon" aria-hidden="true"><use href="./icons.svg#sun-moon"/></svg></button><button class="language" id="language" aria-label="Switch to English">EN</button><a class="button small" data-get href="https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.1/CobbleLauncher-windows-x64.zip" aria-label="下载 Windows x64 Beta 便携版" data-label="downloadWindows"><span data-i18n="get">Windows Beta</span><svg class="icon" aria-hidden="true"><use href="./icons.svg#arrow-down"/></svg></a></div>
+</header>
+<main id="main">
+  <section class="arrival chapter" aria-labelledby="hero-title">
+    <div class="arrival-copy">
+      <p class="minecraft-line"><span class="tiny-block" aria-hidden="true"></span> MINECRAFT JAVA EDITION</p>
+      <h1 id="hero-title"><span data-i18n="hero1">启动游戏。</span><br><span class="world-word" data-i18n="hero2">管理内容。</span></h1>
+      <p class="arrival-intro" data-i18n="intro">管理游戏、Mod 和存档。<br>准备好后，一键启动。</p>
+      <div class="arrival-actions"><a class="button download-primary" data-get href="https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.1/CobbleLauncher-windows-x64.zip" aria-label="下载 Windows x64 Beta 便携版" data-label="downloadWindows"><span data-i18n="get">Windows Beta</span><svg class="icon" aria-hidden="true"><use href="./icons.svg#arrow-down"/></svg></a><a class="source-link" href="https://github.com/CobbleLauncher/CobbleLauncher" target="_blank" rel="noopener noreferrer"><span data-i18n="source">查看源码</span><svg class="icon" aria-hidden="true"><use href="./icons.svg#arrow-up-right"/></svg></a></div>
+      <p class="arrival-platform"><span data-i18n="platformShort">Windows x64 · Beta 便携版</span><a href="https://github.com/CobbleLauncher/CobbleLauncher/releases" target="_blank" rel="noopener noreferrer" data-i18n="otherPlatforms">其他平台与版本 ↗</a></p>
+    </div>
+    <div class="world-scene" id="terrain-stage">
+      <div class="scene-orbit" aria-hidden="true"></div><div class="scene-grid" aria-hidden="true"></div>
+      <div class="scene-depth" data-depth="0.15"><canvas id="terrain" width="900" height="750" role="img" aria-label="原创方块浮岛，有河流、石拱、桥和树木，可切换季节和旋转" data-label="terrain"></canvas></div>
+      <svg class="sky-block sky-one" data-depth="0.3" aria-hidden="true" viewBox="0 0 100 110"><path fill="#cbd5a8" d="M50 8 90 31 50 55 10 31Z"/><path fill="#879d70" d="M10 31 50 55 50 101 10 77Z"/><path fill="#a2b382" d="M50 55 90 31 90 77 50 101Z"/></svg>
+      <svg class="sky-block sky-two" data-depth="-0.1" aria-hidden="true" viewBox="0 0 100 110"><path fill="#dec99b" d="M50 8 90 31 50 55 10 31Z"/><path fill="#b5926f" d="M10 31 50 55 50 101 10 77Z"/><path fill="#c9ac7e" d="M50 55 90 31 90 77 50 101Z"/></svg>
+      <div class="scene-controls"><div class="biome-switch" role="group" aria-label="风景" data-label="landscape"><button data-biome="meadow" aria-pressed="true"><span class="swatch meadow"></span><span data-i18n="meadow">原野</span></button><button data-biome="autumn" aria-pressed="false"><span class="swatch autumn"></span><span data-i18n="autumn">秋日</span></button><button data-biome="snow" aria-pressed="false"><span class="swatch snow"></span><span data-i18n="snow">初雪</span></button></div><button id="rotate" class="icon-button" aria-label="旋转岛屿" data-label="rotate"><svg class="icon" aria-hidden="true"><use href="./icons.svg#rotate-cw"/></svg></button></div>
+    </div>
+    <div class="chapter-bottom"><span data-i18n="openLocal">MIT 开源 · 本地优先</span><a href="#community" class="scroll-cue"><span data-i18n="keepGoing">查看社区插件</span><svg class="icon" aria-hidden="true"><use href="./icons.svg#arrow-down"/></svg></a><span class="chapter-number">01 / 03</span></div>
+  </section>
+  <section class="community chapter" id="community" aria-labelledby="community-title">
+    <div class="community-copy"><span class="section-mark" aria-hidden="true">✳</span><h2 id="community-title" data-i18n="communityTitle">社区工具，<br>按需使用。</h2><p data-i18n="communityIntro">建筑、探索、诊断等实用工具。<br>也可以用 SDK 开发自己的插件。</p><a class="community-link" href="https://github.com/CobbleLauncher/CobbleLauncher/tree/main/examples" target="_blank" rel="noopener noreferrer"><span data-i18n="exploreTools">探索社区工具</span><svg class="icon" aria-hidden="true"><use href="./icons.svg#arrow-up-right"/></svg></a></div>
+    <div class="tool-universe"><div class="tool-wall" id="tool-wall" aria-label="可选社区工具，横向滑动查看" data-label="communityTools"><div class="icon-grid" id="community-grid"></div></div><div class="wall-caption"><span class="wall-arrow" aria-hidden="true">↔</span></div></div>
+    <div class="chapter-bottom"><span data-i18n="communityFoot">开放 SDK · Wasm 插件 · 一起创造</span><a href="#together" class="scroll-cue"><span data-i18n="nextConnection">了解联机与订阅源</span><svg class="icon" aria-hidden="true"><use href="./icons.svg#arrow-down"/></svg></a><span class="chapter-number">02 / 03</span></div>
+  </section>
+  <section class="together chapter" id="together" aria-labelledby="together-title">
+    <div class="network-art">
+      <svg viewBox="0 0 760 680" role="img" aria-labelledby="network-title" aria-describedby="network-description"><title id="network-title" data-i18n="networkTitle">由玩家与社区连接的生态</title><desc id="network-description" data-i18n="networkDescription">示意图：玩家、社区服务和插件订阅源彼此协作，中心是圆石。</desc>
+        <defs><pattern id="network-grid" width="36" height="36" patternUnits="userSpaceOnUse" patternTransform="rotate(30)"><path d="M36 0H0V36" fill="none" stroke="currentColor" stroke-opacity=".06"/></pattern><linearGradient id="node-top" x2="1" y2="1"><stop stop-color="#e5eebd"/><stop offset="1" stop-color="#bfd793"/></linearGradient></defs>
+        <ellipse cx="380" cy="370" rx="340" ry="230" fill="url(#network-grid)"/>
+        <g class="network-lines" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M380 344 186 230 106 380 292 500 556 484 644 300 470 168 380 344"/><path d="M186 230 380 344 292 500M106 380 380 344 556 484M470 168 380 344 644 300"/></g>
+        <g class="network-travel" fill="none" stroke="#73915b" stroke-width="3" stroke-dasharray="5 180"><path d="M186 230 380 344 556 484"/><path d="M644 300 380 344 292 500"/></g>
+        <g class="network-node node-player" transform="translate(132 167)"><path fill="#c3cbbb" d="m0 37 54 31 54-31v22L54 90 0 59Z"/><path fill="#f6f8ea" d="m0 37 54-31 54 31-54 31Z"/><g transform="translate(36 12)" fill="none" stroke="#496047" stroke-width="2"><circle cx="18" cy="10" r="7"/><path d="M5 34v-4a13 13 0 0 1 26 0v4"/></g></g>
+        <g class="network-node node-source" transform="translate(419 101)"><path fill="#c7b99a" d="m0 37 54 31 54-31v22L54 90 0 59Z"/><path fill="#f4e8cc" d="m0 37 54-31 54 31-54 31Z"/><g transform="translate(36 12)" fill="none" stroke="#997743" stroke-width="2"><path d="m0 10 18-9 18 9-18 10Zm0 9 18 10 18-10M0 28l18 10 18-10"/></g></g>
+        <g class="network-node node-friend" transform="translate(593 236)"><path fill="#b2bfc1" d="m0 37 50 29 50-29v21L50 87 0 58Z"/><path fill="#e1ebeb" d="m0 37 50-29 50 29-50 29Z"/><g transform="translate(33 14)" fill="none" stroke="#4e7880" stroke-width="2"><circle cx="17" cy="9" r="7"/><path d="M4 32a13 13 0 0 1 26 0"/></g></g>
+        <g class="network-node node-server" transform="translate(506 424)"><path fill="#a8b498" d="m0 37 54 31 54-31v22L54 90 0 59Z"/><path fill="#e1eacb" d="m0 37 54-31 54 31-54 31Z"/><g transform="translate(36 11)" fill="none" stroke="#597143" stroke-width="2"><rect x="0" y="2" width="36" height="14" rx="3"/><rect x="0" y="21" width="36" height="14" rx="3"/><path d="M6 9h2m-2 19h2m13-19h9m-9 19h9"/></g></g>
+        <g class="network-node node-plugin" transform="translate(238 437)"><path fill="#b8aac5" d="m0 37 54 31 54-31v22L54 90 0 59Z"/><path fill="#e9dded" d="m0 37 54-31 54 31-54 31Z"/><g transform="translate(36 13)" fill="none" stroke="#836392" stroke-width="2"><path d="m10 4-9 14 9 14m16-28 9 14-9 14M22 0l-8 36"/></g></g>
+        <g class="network-node node-friend-two" transform="translate(55 316)"><path fill="#b8c6b4" d="m0 37 50 29 50-29v21L50 87 0 58Z"/><path fill="#f3f5e7" d="m0 37 50-29 50 29-50 29Z"/><g transform="translate(33 14)" fill="none" stroke="#6e8860" stroke-width="2"><circle cx="17" cy="9" r="7"/><path d="M4 32a13 13 0 0 1 26 0"/></g></g>
+        <g class="network-core" transform="translate(290 240)"><ellipse cx="90" cy="146" rx="90" ry="32" fill="#435b3620"/><path fill="#819c62" d="m0 57 90 52 90-52v46l-90 52-90-52Z"/><path fill="url(#node-top)" d="m0 57 90-52 90 52-90 52Z"/><image href="./favicon.svg" x="61" y="25" width="58" height="58"/></g>
+        <g class="network-labels" text-anchor="middle"><text x="380" y="429" class="local-node-label" data-i18n="nodeLocal">你的圆石</text><text x="186" y="150" data-i18n="nodePlayers">玩家</text><text x="473" y="83" data-i18n="nodeCatalogs">订阅源</text><text x="560" y="548" data-i18n="nodeServices">社区服务</text><text x="292" y="559" data-i18n="nodePlugins">插件作者</text></g>
+      </svg>
+    </div>
+    <div class="together-copy"><h2 id="together-title" data-i18n="togetherTitle">好友联机。<br>插件订阅源。</h2><p data-i18n="togetherIntro">通过 Mesh 邀请朋友联机。<br>从你选择的订阅源获取插件。</p><a class="mesh-link" href="./mesh.html" data-page="mesh"><span data-i18n="meshExplore">了解 Cobble Mesh</span><svg class="icon" aria-hidden="true"><use href="./icons.svg#arrow-up-right"/></svg></a><a class="source-link" href="https://github.com/CobbleLauncher/CobbleLauncher" target="_blank" rel="noopener noreferrer"><span data-i18n="joinBuilding">参与开发</span><svg class="icon" aria-hidden="true"><use href="./icons.svg#arrow-up-right"/></svg></a></div>
+    <div class="chapter-bottom"><a class="text-link" data-get href="https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.1/CobbleLauncher-windows-x64.zip" aria-label="下载 Windows x64 Beta 便携版" data-label="downloadWindows"><span data-i18n="get">Windows Beta</span><svg class="icon" aria-hidden="true"><use href="./icons.svg#arrow-down"/></svg></a><span class="chapter-number">03 / 03</span></div>
+  </section>
+</main>
+<footer class="site-footer"><div><a class="brand footer-brand" href="#main"><img src="./favicon.svg" width="25" height="25" alt=""><span>cobble</span></a><p data-i18n="disclaimer">非 Minecraft 官方产品，与 Mojang 或 Microsoft 无隶属关系。</p></div><div class="footer-links"><a href="https://github.com/CobbleLauncher/CobbleLauncher" target="_blank" rel="noopener noreferrer">GitHub ↗</a><a href="./privacy.html" data-page="privacy" data-i18n="privacy">隐私政策</a><a href="./terms.html" data-page="terms" data-i18n="terms">使用条款</a><a href="./licenses.txt" data-i18n="credits">资源许可</a><span>© 2026 COBBLE</span></div></footer>
+
+<div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
+</body></html>

@@ -1,0 +1,11 @@
+<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head><body><div id="app"></div><script type="module">
+import {createApp,h,ref} from 'vue';
+import FirstRunPage from '/src/FirstRunPage.vue';
+import LoadingIndicator from '/src/ui/LoadingIndicator.vue';
+import {applyAppearance} from '/src/theme.ts';
+import {setLocale} from '/src/i18n/index.ts';
+import '/src/style.css';import '/src/ui.css';
+const query=new URLSearchParams(location.search);setLocale(query.get('locale')||'en-US');
+applyAppearance({theme:query.get('theme')||'light',accent:'green',density:'standard',scale:Number(query.get('scale')||100),textSize:Number(query.get('text')||14),motion:query.get('motion')||'system'});
+createApp({setup(){const step=ref('consent'),accepted=ref(false);window.guideStep=value=>step.value=value;return()=>h('div',{class:'launcher'},[h('header',{class:'titlebar'},[h('div',{class:'drag-area'},'cobble.')]),h('main',{class:'app-workspace'},[h(FirstRunPage,{step:step.value,consentAccepted:accepted.value,meshChoice:null,onStep:value=>step.value=value,onAcceptConsent:()=>{accepted.value=true;step.value='welcome'}})]),query.has('loading')?h(LoadingIndicator,{label:'Loading',compact:true}):null]);}}).mount('#app');
+</script></body></html>

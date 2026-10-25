@@ -8,6 +8,7 @@ mod project;
 mod provider;
 mod report;
 mod scaffold;
+mod tool_form;
 mod viewer;
 use cobble_plugin_api::PluginManifest;
 use std::{error::Error, fs, path::Path};
@@ -21,6 +22,9 @@ fn main() {
 fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     match args.as_slice() {
+        [command, id, directory] if command == "new-tool-form" => tool_form::create(id, Path::new(directory))?,
+        [command, package, host, input] if command == "test-tool-form" => tool_form::test(Path::new(package),Path::new(host),Path::new(input),false)?,
+        [command, package, host, input, flag] if command == "test-tool-form" && flag == "--json" => tool_form::test(Path::new(package),Path::new(host),Path::new(input),true)?,
         [command, options @ ..] if command == "interfaces" => interfaces::inspect(options)?,
         [command, index] if command == "catalog-check" => {
             catalog::check(Path::new(index), false)?;
@@ -69,7 +73,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         [command, id, directory, origin] if command == "new-provider" => scaffold::create_provider(id, Path::new(directory), origin)?,
         [command, id, directory] if command == "new" => scaffold::create(id, Path::new(directory), false)?,
         [command, id, directory] if command == "new-report" => scaffold::create(id, Path::new(directory), true)?,
-        _ => return Err("Usage: cobble-plugin-sdk interfaces PACKAGE_DIR [--registry REGISTRY_DIR] [--json] | interfaces --installed ID --registry REGISTRY_DIR [--json] | new ID DIR | new-report ID DIR | new-provider ID DIR HTTPS_ORIGIN | build PROJECT NEW_PACKAGE_DIR | check PACKAGE_DIR | catalog-check INDEX_JSON [--json] | pack COMPONENT MANIFEST NEW_DIR | test PACKAGE_DIR HOST_EXE INPUT [--json] | test-image-layout PACKAGE HOST REQUEST_JSON [--json] | test-composer PACKAGE HOST REQUEST_JSON [--json] | test-provider PACKAGE HOST REQUEST_JSON RESPONSE_JSON [RESPONSE_JSON] [--json] | test-report PACKAGE_DIR HOST_EXE INPUT [--json] [--baseline PACK.mrpack] [--section overview|current|baseline|changes] [--search TEXT] [--offset N] [--limit N] [--detail ROW_ID --field path|before|after] [--locale en|zh-CN] [--setting KEY=JSON]".into()),
+        _ => return Err("Usage: cobble-plugin-sdk interfaces PACKAGE_DIR [--registry REGISTRY_DIR] [--json] | interfaces --installed ID --registry REGISTRY_DIR [--json] | new ID DIR | new-report ID DIR | new-tool-form ID DIR | new-provider ID DIR HTTPS_ORIGIN | build PROJECT NEW_PACKAGE_DIR | check PACKAGE_DIR | catalog-check INDEX_JSON [--json] | pack COMPONENT MANIFEST NEW_DIR | test PACKAGE_DIR HOST_EXE INPUT [--json] | test-tool-form PACKAGE HOST REQUEST_JSON [--json] | test-image-layout PACKAGE HOST REQUEST_JSON [--json] | test-composer PACKAGE HOST REQUEST_JSON [--json] | test-provider PACKAGE HOST REQUEST_JSON RESPONSE_JSON [RESPONSE_JSON] [--json] | test-report PACKAGE_DIR HOST_EXE INPUT [--json] [--baseline PACK.mrpack] [--section overview|current|baseline|changes] [--search TEXT] [--offset N] [--limit N] [--detail ROW_ID --field path|before|after] [--locale en|zh-CN] [--setting KEY=JSON]".into()),
     }
     Ok(())
 }

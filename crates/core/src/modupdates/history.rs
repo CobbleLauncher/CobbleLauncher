@@ -241,7 +241,7 @@ pub fn list_mod_operation_history(directory: &Path) -> Result<Vec<ModOperationHi
             records.push(record);
         }
     }
-    records.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    records.sort_by_key(|record| std::cmp::Reverse(record.created_at));
     Ok(records)
 }
 

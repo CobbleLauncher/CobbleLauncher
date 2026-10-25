@@ -4,6 +4,12 @@
   "empty": "No recent access.",
   "failed": "Could not load access records.",
   "actions": {
+    "ai_status": "Read AI connection status",
+    "ai_configure": "Configure AI connection",
+    "ai_clear": "Remove AI connection",
+    "ai_chat": "Send AI chat request",
+    "ai_chat_attachDiagnostic": "Attach reviewed game diagnostic",
+    "ai_cancel": "Cancel AI chat request",
     "https_get": "Network request",
     "configs_list": "List game configurations",
     "configs_read": "Read game configuration",
@@ -17,7 +23,10 @@
     "diagnostics_check": "Check diagnostic file",
     "diagnostics_pick": "Read selected diagnostic file",
     "inspection_snapshot": "Read game inspection data",
-    "inspection_check": "Analyze game inspection data"
+    "inspection_check": "Analyze game inspection data",
+    "worldSnapshots_list": "Read world snapshot history",
+    "worldSnapshots_compare": "Compare world snapshots",
+    "worldSnapshots_openRestore": "Request restore confirmation"
   },
   "outcomes": {
     "allowed": "Allowed",

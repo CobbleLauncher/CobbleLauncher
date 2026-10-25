@@ -28,6 +28,19 @@ it('holds an early notification until game and profile loading is complete', asy
   expect(options.acknowledge).toHaveBeenCalledWith('queued-1');
 });
 
+it('retains a cold play intent until its own session recovery event arrives', async () => {
+  let verifying = true;
+  const { options, consumer } = setup({ isVerifying: () => verifying });
+  consumer.markReady();
+  await vi.waitFor(() => expect(options.peek).toHaveBeenCalled());
+  expect(options.startGame).not.toHaveBeenCalled();
+  expect(options.acknowledge).not.toHaveBeenCalled();
+  verifying = false;
+  consumer.notify();
+  await vi.waitFor(() => expect(options.startGame).toHaveBeenCalledOnce());
+  expect(options.acknowledge).toHaveBeenCalledWith('queued-1');
+});
+
 it('keeps the queued request when the user declines workspace navigation', async () => {
   const { options, consumer } = setup({ confirmWorkspaceLeave: vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true) });
   consumer.markReady();

@@ -1,0 +1,87 @@
+{
+  "id": "coordinate-book",
+  "name": "Coordinate Book",
+  "version": "0.3.0",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "report"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:report",
+        "version": "0.2.0"
+      },
+      {
+        "id": "launcher:web-frontend",
+        "version": "0.1.0"
+      },
+      {
+        "id": "launcher:waypoint-import",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "file_extensions": [],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Save locations, world notes and next-session plans",
+    "zh-CN": "保存地点、世界笔记与下次游玩计划"
+  },
+  "tags": [
+    "worlds",
+    "coordinates",
+    "utilities"
+  ],
+  "permissions": [
+    {
+      "permission": "launcher:ui/webview"
+    },
+    {
+      "permission": "launcher:game-inspection/read",
+      "scopes": [
+        "worlds",
+        "servers"
+      ]
+    },
+    {
+      "permission": "launcher:storage/private"
+    },
+    {
+      "permission": "launcher:clipboard/write"
+    }
+  ],
+  "frontend": {
+    "entry": "ui/index.html",
+    "api_version": "0.1.0",
+    "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "contributions": {
+    "schema_version": 1,
+    "commands": [
+      {
+        "id": "coordinate-book.open",
+        "label": {
+          "en": "Open Coordinate Book",
+          "zh-CN": "打开坐标簿"
+        },
+        "menus": [
+          {
+            "position": "tools",
+            "when": "always"
+          },
+          {
+            "position": "instance",
+            "when": "instance_selected"
+          }
+        ],
+        "workflow": "report"
+      }
+    ]
+  },
+  "icon": {
+    "file": "icon.png",
+    "sha256": "af1701e3778204df983e0c4807e60be700db65b780848ee0aa1f51598ab12ced"
+  }
+}

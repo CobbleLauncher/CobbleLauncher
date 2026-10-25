@@ -16,6 +16,34 @@ pub struct LaunchReadiness {
     classpath_entries: usize,
 }
 
+pub(crate) fn recovery_overrides(
+    app: &AppHandle,
+    id: &str,
+) -> Result<cobble_minecraft::LaunchOverrides, String> {
+    app.state::<GameLibrary>()
+        .0
+        .lock()
+        .map_err(|_| "RECOVERY_LIBRARY_UNAVAILABLE".to_owned())?
+        .games
+        .iter()
+        .find(|game| game.id == id)
+        .map(|game| game.runtime_overrides.clone())
+        .ok_or_else(|| "RECOVERY_GAME_NOT_FOUND".into())
+}
+pub(crate) fn recovery_has_failure(app: &AppHandle, id: &str) -> Result<bool, String> {
+    Ok(app
+        .state::<GameLibrary>()
+        .0
+        .lock()
+        .map_err(|_| "RECOVERY_LIBRARY_UNAVAILABLE")?
+        .games
+        .iter()
+        .find(|game| game.id == id)
+        .ok_or("RECOVERY_GAME_NOT_FOUND")?
+        .launch_error
+        .is_some())
+}
+
 #[tauri::command]
 pub async fn prepare_game_launch(
     id: String,
@@ -60,9 +88,74 @@ pub fn start_game(
     start_game_target(app, library, id, None)
 }
 pub(in crate::games) fn start_game_target(
-    app: AppHandle, library: State<'_, GameLibrary>, id: String, server_id: Option<String>,
+    app: AppHandle,
+    library: State<'_, GameLibrary>,
+    id: String,
+    server_id: Option<String>,
+) -> Result<Game, String> {
+    start_game_inner(app, library, id, server_id, None)
+}
+pub(super) fn start_game_captured(
+    app: AppHandle,
+    library: State<'_, GameLibrary>,
+    id: String,
+    server_id: Option<String>,
+    profile_id: String,
+    executable: std::path::PathBuf,
+    generation: u64,
+) -> Result<Game, String> {
+    start_game_inner(
+        app,
+        library,
+        id,
+        server_id,
+        Some((profile_id, executable, generation)),
+    )
+}
+fn record_immediate_failure(
+    game: &mut Game,
+    kind: super::launch_recovery::FailureKind,
+    message: &str,
+) {
+    game.log_path = None;
+    game.launch_error = Some(message.into());
+    super::launch_recovery::record(&game.id, kind);
+    let failed_id = game.id.clone();
+    let loader = crate::plugins::plugin_recovery_workspace::loader_summary(
+        game.version.clone(),
+        game.loader_kind.clone(),
+        game.loader_version.clone(),
+    );
+    let overrides = game.runtime_overrides.clone();
+    let at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|value| value.as_millis().try_into().ok())
+        .unwrap_or(0);
+    tauri::async_runtime::spawn(async move {
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            let runtime =
+                crate::plugins::plugin_recovery_workspace::capture_runtime(&overrides, None).ok();
+            crate::plugins::plugin_recovery_workspace::record_failed_attempt(
+                &failed_id, at, runtime, loader,
+            )
+        })
+        .await;
+    });
+}
+fn start_game_inner(
+    app: AppHandle,
+    library: State<'_, GameLibrary>,
+    id: String,
+    server_id: Option<String>,
+    captured: Option<(String, std::path::PathBuf, u64)>,
 ) -> Result<Game, String> {
     let mut library = library.0.lock().map_err(|e| e.to_string())?;
+    if captured.as_ref().is_some_and(|(_, _, generation)| {
+        !super::launch_recovery::same_generation(&id, *generation)
+    }) {
+        return Err("启动请求已过期".into());
+    }
     let game = library
         .games
         .iter_mut()
@@ -77,16 +170,43 @@ pub(in crate::games) fn start_game_target(
     if game.content_installing {
         return Err("Mod 正在安装，请稍候".into());
     }
-    let server_address = server_id.map(|server_id| super::game_servers::resolve(game, &server_id)).transpose()?;
+    let java_choice = match &captured {
+        Some((_, executable, _)) => cobble_minecraft::JavaOverride::Custom {
+            executable: executable.clone(),
+        },
+        None => match cobble_core::capture_java_choice(&game.runtime_overrides.java) {
+            Ok(choice) => choice,
+            Err(error) => {
+                let message = error.to_string();
+                record_immediate_failure(game, super::launch_recovery::FailureKind::Java, &message);
+                return Err(message);
+            }
+        },
+    };
+    let server_address = match server_id
+        .clone()
+        .map(|server_id| super::game_servers::resolve(game, &server_id))
+        .transpose()
+    {
+        Ok(address) => address,
+        Err(error) => {
+            record_immediate_failure(game, super::launch_recovery::FailureKind::Unknown, &error);
+            return Err(error);
+        }
+    };
     // Capture the effective identity before spawning; later selection changes
     // only affect future launches.
-    let profile = match cobble_auth::get_player_profile(game.profile_id.as_deref()) {
+    let profile = match cobble_auth::get_player_profile(
+        captured
+            .as_ref()
+            .map(|(profile, _, _)| profile.as_str())
+            .or(game.profile_id.as_deref()),
+    ) {
         Ok(profile) => profile,
         Err(error) => {
-            game.log_path = None;
-            game.launch_error = Some(error.to_string());
-            super::launch_recovery::record(&id, super::launch_recovery::FailureKind::Login);
-            return Err(error.to_string());
+            let message = error.to_string();
+            record_immediate_failure(game, super::launch_recovery::FailureKind::Login, &message);
+            return Err(message);
         }
     };
     game.launch_state = "preparing".into();
@@ -96,8 +216,21 @@ pub(in crate::games) fn start_game_target(
     super::launch_recovery::record(&id, super::launch_recovery::FailureKind::Unknown);
     let snapshot = game.clone();
     drop(library);
-    let launch = snapshot.clone();
+    let mut launch = snapshot.clone();
+    let recovery_overrides = snapshot.runtime_overrides.clone();
+    let recovery_loader = crate::plugins::plugin_recovery_workspace::loader_summary(
+        snapshot.version.clone(),
+        snapshot.loader_kind.clone(),
+        snapshot.loader_version.clone(),
+    );
+    let attempt_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|value| value.as_millis().try_into().ok())
+        .unwrap_or(0);
+    launch.runtime_overrides.java = java_choice;
     tauri::async_runtime::spawn(async move {
+        let mut recovery_runtime = None;
         let result = async {
             let directory = launch.directory.clone();
             tauri::async_runtime::spawn_blocking(move || {
@@ -106,14 +239,81 @@ pub(in crate::games) fn start_game_target(
             })
             .await
             .map_err(|e| e.to_string())??;
+            let required = cobble_core::launch_java_requirement(&launch.version, &launch.directory)
+                .map_err(|e| e.to_string())?;
+            let compatibility = cobble_content::query_compatibility(
+                &launch.version,
+                launch.loader_kind.as_deref(),
+                launch.loader_version.as_deref(),
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+            );
+            if compatibility
+                .java_major
+                .is_some_and(|loader_required| loader_required != required)
+            {
+                return Err("JAVA_REQUIREMENT_CONFLICT".into());
+            }
+            let java = match cobble_minecraft::resolve_java_override(
+                required,
+                &launch.runtime_overrides.java,
+            )
+            .await
+            {
+                Ok(runtime) => runtime,
+                Err(error)
+                    if matches!(
+                        launch.runtime_overrides.java,
+                        cobble_minecraft::JavaOverride::Automatic
+                    ) && matches!(
+                        error.downcast_ref::<cobble_minecraft::JavaError>(),
+                        Some(cobble_minecraft::JavaError::NotFound { .. })
+                    ) =>
+                {
+                    super::launch_recovery::record(
+                        &launch.id,
+                        super::launch_recovery::FailureKind::Unknown,
+                    );
+                    match super::tasks::run(
+                        app.clone(),
+                        super::tasks::TaskRequest::GameJava {
+                            game_id: launch.id.clone(),
+                            required,
+                            generation,
+                            profile_id: profile.id.clone(),
+                            server_id: server_id.clone(),
+                        },
+                        "Java",
+                    )
+                    .await?
+                    {
+                        super::tasks::TaskResult::Java(runtime) => runtime,
+                        _ => return Err("JAVA_TASK_RESULT_INVALID".into()),
+                    }
+                }
+                Err(error) => {
+                    super::launch_recovery::record(
+                        &launch.id,
+                        super::launch_recovery::FailureKind::Java,
+                    );
+                    return Err(error.to_string().into());
+                }
+            };
+            recovery_runtime = crate::plugins::plugin_recovery_workspace::capture_runtime(
+                &recovery_overrides,
+                Some(java.major),
+            )
+            .ok();
+            launch.runtime_overrides.java = cobble_minecraft::JavaOverride::Custom {
+                executable: java.executable,
+            };
             let identity = cobble_auth::launch_identity(Some(&profile.id))
                 .await
-                .map_err(|error| {
+                .inspect_err(|_| {
                     super::launch_recovery::record(
                         &launch.id,
                         super::launch_recovery::FailureKind::Login,
                     );
-                    error
                 })?;
             let result = cobble_core::start_game_with_identity_and_server(
                 &launch.version,
@@ -187,6 +387,53 @@ pub(in crate::games) fn start_game_target(
                 }
                 let result = running.child.wait().await;
                 tracing::info!(event="game_exited", game_id=%launch.id, success=result.as_ref().is_ok_and(|status|status.success()));
+                if result.as_ref().is_ok_and(|status| status.success())
+                    && super::launch_recovery::same_generation(&launch.id, generation)
+                    && let (Some(summary), Some(started_at_ms), Some(ended_at_ms)) = (
+                        recovery_runtime.clone(),
+                        session.started.checked_mul(1000),
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .ok()
+                            .and_then(|value| value.as_millis().try_into().ok()),
+                    )
+                {
+                    let game_id = launch.id.clone();
+                    let loader = recovery_loader.clone();
+                    let recorded = tauri::async_runtime::spawn_blocking(move || {
+                        crate::plugins::plugin_recovery_workspace::record_clean_exit(
+                            &game_id,
+                            started_at_ms,
+                            ended_at_ms,
+                            summary,
+                            loader,
+                        )
+                    })
+                    .await;
+                    if !matches!(recorded, Ok(Ok(()))) {
+                        tracing::warn!(event="game_recovery_baseline_unavailable", game_id=%launch.id);
+                    }
+                }
+                if !result.as_ref().is_ok_and(|status| status.success()) {
+                    let game_id = launch.id.clone();
+                    let loader = recovery_loader.clone();
+                    let runtime = recovery_runtime.clone().or_else(|| {
+                        crate::plugins::plugin_recovery_workspace::capture_runtime(
+                            &recovery_overrides,
+                            None,
+                        )
+                        .ok()
+                    });
+                    let recorded = tauri::async_runtime::spawn_blocking(move || {
+                        crate::plugins::plugin_recovery_workspace::record_failed_attempt(
+                            &game_id, attempt_at, runtime, loader,
+                        )
+                    })
+                    .await;
+                    if !matches!(recorded, Ok(Ok(()))) {
+                        tracing::warn!(event="game_recovery_attempt_unavailable", game_id=%launch.id);
+                    }
+                }
                 let exit_error = match &result {
                     Ok(status) if status.success() => None,
                     Ok(status) => Some(format!("游戏异常退出（{status}），请查看游戏日志")),
@@ -217,15 +464,35 @@ pub(in crate::games) fn start_game_target(
                     true,
                 );
             }
-            Err(error) => update_game(
-                &app,
-                &launch.id,
-                |g| {
-                    g.launch_state = idle();
-                    g.launch_error = Some(error.to_string());
-                },
-                true,
-            ),
+            Err(error) => {
+                let game_id = launch.id.clone();
+                let loader = recovery_loader;
+                let runtime = recovery_runtime.or_else(|| {
+                    crate::plugins::plugin_recovery_workspace::capture_runtime(
+                        &recovery_overrides,
+                        None,
+                    )
+                    .ok()
+                });
+                let recorded = tauri::async_runtime::spawn_blocking(move || {
+                    crate::plugins::plugin_recovery_workspace::record_failed_attempt(
+                        &game_id, attempt_at, runtime, loader,
+                    )
+                })
+                .await;
+                if !matches!(recorded, Ok(Ok(()))) {
+                    tracing::warn!(event="game_recovery_attempt_unavailable", game_id=%launch.id);
+                }
+                update_game(
+                    &app,
+                    &launch.id,
+                    |g| {
+                        g.launch_state = idle();
+                        g.launch_error = Some(error.to_string());
+                    },
+                    true,
+                )
+            }
         }
     });
     Ok(snapshot)
@@ -349,7 +616,7 @@ pub async fn pick_game_java_executable(
     .map(Some)
 }
 
-fn game_java_requirement(library: &GameLibrary, id: &str) -> Result<u32, String> {
+pub(crate) fn game_java_requirement(library: &GameLibrary, id: &str) -> Result<u32, String> {
     let (version, directory) = {
         let library = library.0.lock().map_err(|e| e.to_string())?;
         let game = library

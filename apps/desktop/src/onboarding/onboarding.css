@@ -1,0 +1,43 @@
+/* SPDX-License-Identifier: MIT */
+.first-run{width:min(100%,880px);margin:0 auto;height:max(440px,calc(100dvh / var(--appearance-scale,1) - 136px));position:relative}
+.onboarding-page{height:100%;display:flex;flex-direction:column;min-height:0;gap:24px;padding:16px 24px;box-sizing:border-box}
+.onboarding-page h1{font-size:var(--ui-text-title,24px);line-height:1.35;font-weight:600;margin:0;outline:none}
+.onboarding-page button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px}
+.onboarding-page button>svg{width:18px;height:18px;flex-shrink:0}
+.onboarding-heading{display:flex;align-items:center;gap:16px}
+.onboarding-mark{display:grid;place-items:center;flex-shrink:0;width:48px;height:48px;border-radius:14px;color:var(--ui-focus);background:color-mix(in srgb,var(--accent) 16%,var(--panel))}
+.onboarding-mark svg{width:24px;height:24px}
+.onboarding-footer{margin-top:auto;border-top:1px solid var(--line);padding-top:20px;display:grid;gap:16px;flex-shrink:0}
+.onboarding-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.onboarding-actions .primary-button{min-width:160px}
+.consent-tabs{display:flex;gap:8px}
+.consent-tabs button[aria-pressed=true]{background:var(--hover);color:var(--ink);border-color:var(--ui-focus)}
+.consent-document{flex:1;min-height:100px;overflow:auto;padding:24px;background:var(--panel);border:1px solid var(--line);border-radius:12px;scrollbar-gutter:stable}
+.consent-document h2{font-size:var(--ui-text-section,18px);margin:0 0 16px;font-weight:600}
+.consent-document p{font-size:var(--ui-text-body,14px);line-height:1.7;margin:0 0 16px;max-width:70ch}
+.consent-document p:last-child{margin-bottom:0}
+.consent-check{display:flex;align-items:flex-start;gap:10px;line-height:1.55;cursor:pointer}
+.consent-check input{margin:4px 0 0;accent-color:var(--ui-focus);width:18px;height:18px;flex-shrink:0}
+.consent-version,.guide-count{font-size:var(--ui-text-caption,12px);font-variant-numeric:tabular-nums;color:var(--muted)}
+.guide-progress{display:flex;align-items:center;gap:12px}
+.guide-progress-step{display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:var(--hover);color:var(--muted);transition:background .18s,color .18s}
+.guide-progress-step svg{width:18px;height:18px}
+.guide-progress-step.current,.guide-progress-step.done{background:color-mix(in srgb,var(--accent) 20%,var(--panel));color:var(--ui-focus)}
+.guide-progress-step.current{box-shadow:0 0 0 2px var(--ui-focus);animation:guide-arrive .5s ease-out}
+.guide-count{margin-left:auto}
+.guide-stage{flex:1;min-height:0;overflow:auto;display:grid;align-items:center;scrollbar-gutter:stable}
+.guide-content{padding:24px 0;width:min(100%,640px);margin:auto}
+.guide-mark{width:64px;height:64px;border-radius:18px;margin-bottom:24px}
+.guide-mark svg{width:32px;height:32px}
+.guide-description{color:var(--muted);line-height:1.65;margin:12px 0 28px;max-width:55ch}
+.guide-features{display:grid;gap:0;list-style:none;padding:0;margin:0}
+.guide-features li{display:flex;align-items:center;gap:16px;padding:14px 0;border-bottom:1px solid var(--line);line-height:1.55}
+.guide-features li:last-child{border-bottom:0}
+.guide-features svg{color:var(--ui-focus);width:20px;height:20px;flex-shrink:0}
+.guide-forward{margin-left:auto;display:flex;gap:12px}
+.setup-page-enter-active,.setup-step-enter-active{transition:opacity .22s ease-out,transform .22s ease-out}
+.setup-page-leave-active,.setup-step-leave-active{transition:opacity .12s ease-in,transform .12s ease-in}
+.setup-page-enter-from,.setup-step-enter-from{opacity:0;transform:translateY(12px)}
+.setup-page-leave-to,.setup-step-leave-to{opacity:0;transform:translateY(-8px)}
+@keyframes guide-arrive{from{box-shadow:0 0 0 6px transparent}to{box-shadow:0 0 0 2px var(--ui-focus)}}
+@media(max-width:600px){.onboarding-page{padding:8px 0;gap:16px}.consent-document{padding:16px}.onboarding-actions{gap:8px}.guide-forward{gap:8px}.onboarding-actions .primary-button{min-width:120px}.guide-back{gap:0!important;width:40px;height:40px;padding:0!important}.guide-back-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.guide-back svg{width:20px!important}.guide-content{padding:16px 0}.guide-description{margin-bottom:20px}}

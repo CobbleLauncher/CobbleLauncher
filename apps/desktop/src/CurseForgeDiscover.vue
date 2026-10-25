@@ -1,9 +1,10 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
+import SearchField from './ui/SearchField.vue';
 import MarketImage from "./MarketImage.vue";
 import { marketReturn } from './market-return';
 import MarketGallery from "./MarketGallery.vue";
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { t } from './i18n';
 import CurseForgePackPreparation from './CurseForgePackPreparation.vue';
@@ -12,13 +13,15 @@ import VersionSelector from './VersionSelector.vue';
 import type { Game } from './games';
 import { mergeFiles, mergeProjects, type CurseForgePackPreview, type CurseForgeHit, type CurseForgeFile, type CurseForgeSearchPage, type CurseForgeFilePage } from './curseforge';
 import LoadingIndicator from './ui/LoadingIndicator.vue';
-const props = defineProps<{kind: 'mod' | 'modpack'; game?: Game; locked?: boolean; initialQuery?: string}>();
-const emit = defineEmits<{busy: [value: boolean]; selectedCfPack: [preview: CurseForgePackPreview]; installed: []}>();
+import { isMarketSaved, toggleMarketSaved, type SavedMarketItem } from './market-saved';
+import { marketWorkstate, rememberMarketWorkstate, restoreMarketScroll } from './market-workstate';
+const props = defineProps<{kind: 'mod' | 'modpack'; game?: Game; locked?: boolean; initialQuery?: string; sharedMode?: boolean; sharedRequest?: { serial: number; query: string; minecraftVersion?: string; loader?: string }; savedRequest?: { serial: number; item: SavedMarketItem }}>();
+const emit = defineEmits<{busy: [value: boolean]; selectedCfPack: [preview: CurseForgePackPreview]; installed: []; availability: [value: boolean]}>();
 const root = ref<HTMLElement>();
 const detailReturn = marketReturn(root);
 const query = ref('');
-const minecraftVersion = ref('');
-const loader = ref('');
+const minecraftVersion = ref(props.sharedMode ? props.sharedRequest?.minecraftVersion ?? '' : '');
+const loader = ref(props.sharedMode ? props.sharedRequest?.loader ?? '' : '');
 const available = ref<boolean | null>(null);
 const busy = ref(false);
 const error = ref('');
@@ -42,7 +45,7 @@ let submitted = {query: '', minecraftVersion: null as string | null, loader: nul
 async function availability() {
   const current = ++revision;
   busy.value = true; error.value = '';
-  try { const value = await invoke<{available: boolean}>('get_curseforge_availability'); if (current === revision) available.value = value.available; }
+  try { const value = await invoke<{available: boolean}>('get_curseforge_availability'); if (current === revision) { available.value = value.available; emit('availability', value.available); } }
   catch { if (current === revision) error.value = t('curseforge.serviceFailed'); }
   finally {
     if (current === revision) {
@@ -51,9 +54,9 @@ async function availability() {
     }
   }
 }
-async function search(offset = 0) {
+async function search(offset = 0, force = false) {
   failedOffset = offset;
-  if (busy.value || !available.value) return;
+  if ((busy.value && !force) || !available.value) return;
   if (!offset) {
     const version = props.game?.version ?? minecraftVersion.value.trim();
     const selectedLoader = props.game?.loader_kind ?? loader.value;
@@ -94,8 +97,32 @@ async function preparePack() {
   finally { installBusy(false); }
 }
 function reset() { packPreview.value = null; ++revision; busy.value = false; selected.value = null; hits.value = []; searched.value = false; error.value = ''; void availability(); }
-watch([() => props.kind, () => props.game?.id, () => props.initialQuery], () => { query.value = props.initialQuery ?? ''; reset(); }, {immediate: true});
-onUnmounted(() => { ++revision; });
+watch([() => props.kind, () => props.game?.id, () => props.initialQuery], () => { query.value = props.sharedMode ? props.sharedRequest?.query ?? props.initialQuery ?? '' : props.initialQuery ?? ''; reset(); }, {immediate: true});
+watch(() => props.savedRequest?.serial, () => {
+  const item = props.savedRequest?.item;
+  if (item?.provider === 'curseforge' && item.kind === props.kind && item.hit.project_id === item.project_id) {
+    ++revision; busy.value = false; select(item.hit as CurseForgeHit);
+  }
+}, { immediate: true });
+watch(() => props.sharedRequest?.serial, () => {
+  if (!props.sharedMode || !props.sharedRequest) return;
+  query.value = props.sharedRequest.query;
+  minecraftVersion.value = props.sharedRequest.minecraftVersion ?? ''; loader.value = props.sharedRequest.loader ?? '';
+  selected.value = null; packPreview.value = null;
+  if (available.value) void search(0, true);
+});
+function workKey() { return `curseforge:${props.kind}:${props.game?.id ?? 'global'}`; }
+function remember() {
+  rememberMarketWorkstate(workKey(), { query: query.value, minecraftVersion: minecraftVersion.value, loader: loader.value, submitted, hits: hits.value, total: total.value, next: next.value, searched: searched.value, available: available.value }, root.value);
+}
+onMounted(() => {
+  if (props.savedRequest) return;
+  const state = marketWorkstate<{ query: string; minecraftVersion: string; loader: string; submitted: typeof submitted; hits: CurseForgeHit[]; total: number; next: number; searched: boolean; available: boolean | null }>(workKey());
+  if (state && (!props.sharedMode || (state.query === (props.sharedRequest?.query ?? props.initialQuery ?? '') && (!props.sharedRequest || (state.minecraftVersion === (props.sharedRequest.minecraftVersion ?? '') && state.loader === (props.sharedRequest.loader ?? '')))))) { query.value = state.query; minecraftVersion.value = state.minecraftVersion; loader.value = state.loader; submitted = state.submitted; hits.value = state.hits; total.value = state.total; next.value = state.next; searched.value = state.searched; restoreMarketScroll(workKey(), root.value); }
+});
+onActivated(() => restoreMarketScroll(workKey(), root.value));
+onDeactivated(remember);
+onUnmounted(() => { remember(); ++revision; });
 </script>
 <template>
   <div
@@ -141,6 +168,18 @@ onUnmounted(() => { ++revision; });
         <p class="preview-description">
           {{ selected.description }}
         </p>
+        <button
+          class="text-button market-save-button"
+          @click="toggleMarketSaved('curseforge', kind, selected)"
+        >
+          {{ t(isMarketSaved('curseforge', kind, selected.project_id) ? 'market.removeSaved' : 'market.saveLater') }}
+        </button>
+        <button
+          class="text-button"
+          @click="toggleMarketSaved('curseforge', kind, selected, 'favorite')"
+        >
+          {{ t(isMarketSaved('curseforge', kind, selected.project_id, 'favorite') ? 'market.removeFavorite' : 'market.favorite') }}
+        </button>
         <MarketGallery
           v-if="selected.gallery?.length"
           provider="curseforge"
@@ -211,14 +250,17 @@ onUnmounted(() => { ++revision; });
       </template>
       <template v-else>
         <form @submit.prevent="search()">
-          <div class="content-toolbar discover-search">
-            <input
+          <div
+            v-if="!sharedMode"
+            class="content-toolbar discover-search"
+          >
+            <SearchField
               v-model="query"
-              type="search"
               maxlength="120"
-              :aria-label="t('curseforge.searchLabel')"
+              :label="t('curseforge.searchLabel')"
               :placeholder="t('curseforge.searchLabel')"
-            ><button
+              @submit="search()"
+            /><button
               type="submit"
               class="secondary-button"
               :disabled="busy"
@@ -227,7 +269,7 @@ onUnmounted(() => { ++revision; });
             </button>
           </div>
           <details
-            v-if="kind === 'modpack'"
+            v-if="kind === 'modpack' && !sharedMode"
             class="cf-filter-details"
           >
             <summary>{{ filterSummary }}</summary>
@@ -340,7 +382,7 @@ onUnmounted(() => { ++revision; });
 <style scoped>
 .curseforge-discover { padding-top: 20px; overflow-wrap: anywhere; }
 .cf-filter-details { margin-top: 10px; }
-.cf-filter-details summary { width: fit-content; color: var(--muted); font-size: 11px; cursor: pointer; }
+.cf-filter-details summary { width: fit-content; color: var(--muted); font-size: var(--ui-text-caption); cursor: pointer; }
 .cf-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
 .cf-results { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 16px; }
 .curseforge-discover .pack-result-card{cursor:pointer;border:1px solid var(--line);border-radius:12px;padding:12px;transition:background-color .14s ease,border-color .14s ease}
@@ -355,3 +397,5 @@ onUnmounted(() => { ++revision; });
 
 
 
+
+<style scoped>.discover-search .search-field{flex:1;min-width:0}.discover-search{gap:var(--ui-space-3)}</style>

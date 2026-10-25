@@ -1,5 +1,6 @@
 {
   "title": "Worlds",
+  "moreActions": "More actions for {name}",
   "importBackup": "Import backup",
   "loading": "Loading…",
   "refresh": "Refresh",

@@ -4,18 +4,20 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { LocalWorld } from './games';
 import type { WorldRestoreResult } from './world-backups';
-import type { WorldSnapshot, SnapshotCleanupPreview, SnapshotCleanupResult } from './world-snapshots';
+import type { WorldSnapshot, SnapshotCleanupPreview, SnapshotCleanupResult, SnapshotRestoreTarget } from './world-snapshots';
+import { snapshotTimestamp } from './world-snapshots';
 import { locale, t } from './i18n';
 import AppIcon from './ui/AppIcon.vue';
 import LoadingIndicator from './ui/LoadingIndicator.vue';
+import ConfirmationDialog from './ui/ConfirmationDialog.vue';
 import { isActiveTask, isWorldSnapshotTask, taskHasKnownTotal, taskPhaseLabel, taskProgressUsesBytes, type TaskSnapshot } from './tasks';
 type SnapshotStorage = { repository_stored_bytes: number; total_snapshot_logical_bytes: number; snapshot_count: number };
 type SnapshotChange = { path: string; kind: 'added' | 'modified' | 'deleted'; before_bytes: number | null; after_bytes: number | null };
 type SnapshotComparePage = { added: number; modified: number; deleted: number; unchanged: number; total: number; offset: number; rows: SnapshotChange[] };
-const props = defineProps<{ tasks?: TaskSnapshot[]; gameId: string; world: LocalWorld; locked: boolean }>();
+const props = defineProps<{ tasks?: TaskSnapshot[]; gameId: string; world: LocalWorld; locked: boolean; restoreTarget?: SnapshotRestoreTarget }>();
 const emit = defineEmits<{ busy: [value: boolean]; close: []; restored: [value: WorldRestoreResult, folder: string] }>();
 const snapshots = ref<WorldSnapshot[]>([]);
-const orderedSnapshots = computed(() => [...snapshots.value].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)));
+const orderedSnapshots = computed(() => [...snapshots.value].sort((a, b) => snapshotTimestamp(b.created_at) - snapshotTimestamp(a.created_at)));
 const storage = ref<SnapshotStorage | null>(null);
 const compareSelection = ref<string[]>([]);
 const compareResult = ref<SnapshotComparePage | null>(null);
@@ -51,7 +53,7 @@ let storageRequest = 0;
 let compareRequest = 0;
 let disposed = false;
 function dateLabel(value: string) {
-  const date = new Date(value);
+  const date = new Date(snapshotTimestamp(value));
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
 }
 function sizeLabel(bytes: number) {
@@ -116,7 +118,7 @@ async function loadComparePage(offset: number) {
 }
 async function compareSelected() {
   if (compareSelection.value.length !== 2 || busy.value || reading.value || comparing.value) return;
-  const pair = compareSelection.value.map(id => snapshots.value.find(snapshot => snapshot.id === id)).filter((snapshot): snapshot is WorldSnapshot => !!snapshot).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  const pair = compareSelection.value.map(id => snapshots.value.find(snapshot => snapshot.id === id)).filter((snapshot): snapshot is WorldSnapshot => !!snapshot).sort((a, b) => snapshotTimestamp(a.created_at) - snapshotTimestamp(b.created_at));
   if (pair.length !== 2) return;
   compareBefore.value = pair[0]!;
   compareAfter.value = pair[1]!;
@@ -207,6 +209,18 @@ async function applyCleanup() {
 }
 watch([keepLast, keepNamed], () => { cleanupPreview.value = null; cleanupResult.value = null; });
 watch(() => [props.gameId, props.world.folder_name], () => { snapshots.value = []; selected.value = null; compareSelection.value = []; compareResult.value = null; compareBefore.value = null; compareAfter.value = null; status.value = null; name.value = ''; cleanupPreview.value = null; cleanupResult.value = null; void load(); }, { immediate: true });
+let handledRestore: SnapshotRestoreTarget | undefined;
+watch([() => props.restoreTarget, snapshots, reading], async ([target]) => {
+  if (!target || target === handledRestore || reading.value || error.value || busy.value) return;
+  handledRestore = target;
+  const snapshot = snapshots.value.find(item => item.id === target.snapshotId && target.worldId === props.world.folder_name);
+  if (!snapshot) { error.value = t('worldSnapshots.targetMissing'); return; }
+  selected.value = snapshot;
+  cleanupPreview.value = null;
+  cleanupResult.value = null;
+  await nextTick();
+  if (disposed) return;
+}, { immediate: true });
 onUnmounted(() => { disposed = true; ++request; ++storageRequest; ++compareRequest; });
 </script>
 <template>
@@ -360,21 +374,21 @@ onUnmounted(() => { disposed = true; ++request; ++storageRequest; ++compareReque
           {{ previewingCleanup ? t('worldSnapshots.previewingCleanup') : t('worldSnapshots.previewCleanup') }}
         </button>
       </form>
-      <div
-        v-if="cleanupPreview"
-        class="snapshot-confirm cleanup-preview"
+      <ConfirmationDialog
+        :key="cleanupPreview?.previewId"
+        :open="!!cleanupPreview"
+        class="cleanup-preview"
+        :title="t('worldSnapshots.cleanup')"
+        :description="cleanupPreview?.remove.length ? t('worldSnapshots.cleanupWarning') : t('worldSnapshots.cleanupRepack')"
+        :confirm-label="t('worldSnapshots.confirmCleanup')"
+        :danger="!!cleanupPreview?.remove.length"
+        :require-delay="!!cleanupPreview?.remove.length"
+        :disabled="locked || busy || !cleanupPreview || !(cleanupPreview.remove.length || cleanupPreview.estimated_reclaim_bytes)"
+        @update:open="value=>{if(!value)cleanupPreview=null;}"
+        @confirm="applyCleanup"
       >
-        <p>{{ t('worldSnapshots.cleanupCounts', { remove: cleanupPreview.remove.length, keep: cleanupPreview.keep_count }) }}</p>
-        <p>{{ t('worldSnapshots.cleanupEstimate', { size: sizeLabel(cleanupPreview.estimated_reclaim_bytes) }) }}</p>
-        <p
-          v-if="cleanupPreview.repack_bytes > 0"
-          class="setting-hint"
-        >
-          {{ t('worldSnapshots.cleanupRepack') }}
-        </p>
-        <details v-if="cleanupPreview.remove.length">
-          <summary>{{ t('worldSnapshots.versionsToRemove') }}</summary>
-          <ul>
+        <template v-if="cleanupPreview">
+          <p>{{ t('worldSnapshots.cleanupCounts', { remove: cleanupPreview.remove.length, keep: cleanupPreview.keep_count }) }}</p><p>{{ t('worldSnapshots.cleanupEstimate', { size: sizeLabel(cleanupPreview.estimated_reclaim_bytes) }) }}</p><ul v-if="cleanupPreview.remove.length">
             <li
               v-for="version in cleanupPreview.remove"
               :key="version.id"
@@ -382,31 +396,8 @@ onUnmounted(() => { disposed = true; ++request; ++storageRequest; ++compareReque
               {{ version.name || dateLabel(version.created_at) }} · {{ dateLabel(version.created_at) }}
             </li>
           </ul>
-        </details>
-        <p v-if="cleanupPreview.remove.length">
-          {{ t('worldSnapshots.cleanupWarning') }}
-        </p>
-        <p v-else-if="!cleanupPreview.estimated_reclaim_bytes">
-          {{ t('worldSnapshots.nothingToClean') }}
-        </p>
-        <div class="snapshot-actions">
-          <button
-            v-if="cleanupPreview.remove.length || cleanupPreview.estimated_reclaim_bytes"
-            class="secondary-button danger-text"
-            :disabled="locked || busy"
-            @click="applyCleanup"
-          >
-            {{ cleaning ? t('worldSnapshots.cleaning') : t('worldSnapshots.confirmCleanup') }}
-          </button>
-          <button
-            class="text-button"
-            :disabled="busy"
-            @click="cleanupPreview = null"
-          >
-            {{ t('worldSnapshots.cancel') }}
-          </button>
-        </div>
-      </div>
+        </template>
+      </ConfirmationDialog>
       <p
         v-if="cleanupResult"
         role="status"
@@ -433,35 +424,27 @@ onUnmounted(() => { disposed = true; ++request; ++storageRequest; ++compareReque
         {{ t('worldSnapshots.retry') }}
       </button>
     </div>
-    <div
-      v-if="selected"
+    <ConfirmationDialog
+      :key="selected?.id"
+      :open="!!selected"
       class="snapshot-confirm"
+      :title="selected ? t('worldSnapshots.confirm', { name: selected.name || dateLabel(selected.created_at) }) : ''"
+      :description="t('worldSnapshots.warning')"
+      :confirm-label="t('worldSnapshots.confirmRestore')"
+      danger
+      require-delay
+      :disabled="locked || busy"
+      @update:open="value=>{if(!value)selected=null;}"
+      @confirm="restore"
     >
-      <h3>{{ t('worldSnapshots.confirm', { name: selected.name || dateLabel(selected.created_at) }) }}</h3>
-      <p class="snapshot-restore-target">
-        {{ t('worldSnapshots.restoreTarget', { world: world.name }) }}
-      </p>
-      <p class="snapshot-restore-stats">
-        {{ t('worldSnapshots.logicalSize', { size: sizeLabel(selected.processed_bytes) }) }} · {{ t('worldSnapshots.storedSize', { size: sizeLabel(selected.added_bytes) }) }}
-      </p>
-      <p>{{ t('worldSnapshots.warning') }}</p>
-      <div class="snapshot-actions">
-        <button
-          class="secondary-button danger-text"
-          :disabled="locked || busy"
-          @click="restore"
-        >
-          {{ restoring ? t('worldSnapshots.restoring') : t('worldSnapshots.confirmRestore') }}
-        </button>
-        <button
-          class="text-button"
-          :disabled="busy"
-          @click="selected = null"
-        >
-          {{ t('worldSnapshots.cancel') }}
-        </button>
-      </div>
-    </div>
+      <template v-if="selected">
+        <p class="snapshot-restore-target">
+          {{ t('worldSnapshots.restoreTarget', { world: world.name }) }}
+        </p><p class="snapshot-restore-stats">
+          {{ t('worldSnapshots.logicalSize', { size: sizeLabel(selected.processed_bytes) }) }} · {{ t('worldSnapshots.storedSize', { size: sizeLabel(selected.added_bytes) }) }}
+        </p>
+      </template>
+    </ConfirmationDialog>
     <div
       v-if="snapshots.length"
       class="snapshot-compare-toolbar"
@@ -597,7 +580,7 @@ onUnmounted(() => { disposed = true; ++request; ++storageRequest; ++compareReque
 <style scoped>
 .snapshot-create .snapshot-name-field{flex:1;min-width:180px;margin:0}.snapshot-create>.secondary-button{align-self:flex-end}
 .snapshot-cleanup{margin:18px 0;font-size:13px}.snapshot-cleanup summary{cursor:pointer}.snapshot-cleanup-policy{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:14px 0}.snapshot-cleanup-policy>label{display:flex;align-items:center;gap:10px}.retention-count{width:84px;min-height:42px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);font:inherit;padding:10px 12px}.retention-count:focus-visible{outline:2px solid #779f42;outline-offset:2px}.retention-named{display:flex;gap:8px;align-items:center;margin-top:12px}.cleanup-preview ul{padding-left:20px;line-height:1.8;max-height:220px;overflow:auto}.cleanup-preview>p:first-child{margin-top:0}
-.world-snapshots{min-width:0}.snapshot-task{margin:16px 0;font-size:13px}.snapshot-task progress{width:100%;margin-top:10px}.snapshot-recovery{margin:18px 0;font-size:13px}.snapshot-recovery summary{cursor:pointer}.snapshot-recovery p{line-height:1.6;margin:10px 0}.snapshot-create{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:20px 0}.snapshot-create input{min-width:180px;flex:1}.snapshot-create label{font-size:13px}.snapshot-list{list-style:none;padding:0}.snapshot-list>li{display:flex;gap:16px;align-items:center;padding:16px 0;border-bottom:1px solid var(--line)}.snapshot-list h3,.snapshot-confirm h3{font-size:14px;margin:0;overflow-wrap:anywhere}.snapshot-list p{margin:6px 0 0}.snapshot-list button{flex-shrink:0}.snapshot-confirm{padding:18px;border:1px solid var(--line);border-radius:12px;margin:18px 0}.snapshot-confirm p{font-size:13px;line-height:1.6}.snapshot-actions{display:flex;gap:12px;flex-wrap:wrap}
+.world-snapshots{min-width:0}.snapshot-task{margin:16px 0;font-size:13px}.snapshot-task progress{width:100%;margin-top:10px}.snapshot-recovery{margin:18px 0;font-size:13px}.snapshot-recovery summary{cursor:pointer}.snapshot-recovery p{line-height:1.6;margin:10px 0}.snapshot-create{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:20px 0}.snapshot-create input{min-width:180px;flex:1}.snapshot-create label{font-size:13px}.snapshot-list{list-style:none;padding:0}.snapshot-list>li{display:flex;gap:16px;align-items:center;padding:16px 0;border-bottom:1px solid var(--line)}.snapshot-list h3{font-size:14px;margin:0;overflow-wrap:anywhere}.snapshot-list p{margin:6px 0 0}.snapshot-list button{flex-shrink:0}.snapshot-actions{display:flex;gap:12px;flex-wrap:wrap}
 .snapshot-restore-target{margin-top:10px}.snapshot-restore-stats{color:var(--muted);margin:7px 0 12px}.snapshot-actions{align-items:center}.snapshot-task progress{transition:width 240ms ease-out}
 .snapshot-storage-summary{margin:12px 0;color:var(--muted);font-size:12px;line-height:1.6;font-variant-numeric:tabular-nums}.snapshot-storage-summary span{display:block}.snapshot-compare-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0;color:var(--muted);font-size:12px}.snapshot-row-actions{display:flex;align-items:center;gap:10px;flex-shrink:0}.snapshot-compare-check{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:11px;white-space:nowrap}.snapshot-compare h3{margin:0 0 7px;font-size:14px}.snapshot-compare .mod-meta{margin-bottom:10px}.snapshot-change-list{list-style:none;margin:0 0 10px;padding:0;max-height:360px;overflow:auto}.snapshot-change-list li{display:grid;grid-template-columns:82px minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:11px}.snapshot-change-kind{color:var(--muted)}.snapshot-change-path{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.snapshot-change-size{font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--muted)}
 @media(max-width:560px){.snapshot-list>li{align-items:flex-start;gap:10px}.snapshot-list>li .mod-info{min-width:0}.snapshot-row-actions{flex-direction:column;align-items:flex-end;gap:8px}.snapshot-row-actions .text-button{white-space:normal;max-width:126px}.snapshot-restore-stats{overflow-wrap:anywhere}.snapshot-change-list li{grid-template-columns:62px minmax(0,1fr);gap:6px}.snapshot-change-size{grid-column:2;justify-self:start}}

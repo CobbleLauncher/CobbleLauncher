@@ -39,7 +39,5 @@ function toggle(node: PermissionNode, checked: boolean) {
   </section>
 </template>
 <style scoped>
-.sensitive-permissions{display:grid;gap:8px;margin:var(--ui-space-4) 0}
-.sensitive-permissions h3{font-size:var(--ui-text-body);margin:0 0 var(--ui-space-3)}
-.sensitive-permission :deep(.plugin-permissions){margin:0}
+.sensitive-permissions{display:grid;gap:var(--ui-space-2);margin:var(--ui-space-5) 0}.sensitive-permissions h3{font-size:var(--ui-text-body);line-height:var(--ui-leading-body);font-weight:600;margin:0 0 var(--ui-space-1)}.sensitive-permission :deep(.plugin-permissions){margin:0}
 </style>

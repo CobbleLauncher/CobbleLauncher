@@ -4,12 +4,12 @@ use super::*;
 #[path = "world_snapshot_insights.rs"]
 pub mod insights;
 use cobble_core::{WorldSnapshot, WorldSnapshotRepository};
+#[path = "automatic_world_backup.rs"]
+pub mod automatic;
 #[path = "world_snapshot_recovery.rs"]
 pub mod recovery;
 #[path = "world_snapshot_retention.rs"]
 pub mod retention;
-#[path = "automatic_world_backup.rs"]
-pub mod automatic;
 
 struct SnapshotActivity {
     operation: &'static str,

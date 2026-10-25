@@ -233,9 +233,42 @@ fn validate_ui<'a>(
         return Err(invalid());
     }
     let node = object(value)?;
+    if let Some(rule) = node.get("rule") {
+        let rule = object(rule)?;
+        keys(rule, &["effect", "condition"])?;
+        if !matches!(
+            rule.get("effect").and_then(Value::as_str),
+            Some("SHOW" | "HIDE")
+        ) {
+            return Err(invalid());
+        }
+        let condition = object(rule.get("condition").ok_or_else(invalid)?)?;
+        keys(condition, &["scope", "schema"])?;
+        let field = condition
+            .get("scope")
+            .and_then(Value::as_str)
+            .and_then(|scope| scope.strip_prefix("#/properties/"))
+            .ok_or_else(invalid)?;
+        if !properties.contains(field) {
+            return Err(invalid());
+        }
+        let schema = object(condition.get("schema").ok_or_else(invalid)?)?;
+        keys(schema, &["const"])?;
+        let scalar = schema.get("const").ok_or_else(invalid)?;
+        if !match scalar {
+            Value::Bool(_) => true,
+            Value::String(text) => text.len() <= 1024 && !text.chars().any(char::is_control),
+            Value::Number(number) => number
+                .as_f64()
+                .is_some_and(|value| value.is_finite() && value.abs() <= 1_000_000_000_000.0),
+            _ => false,
+        } {
+            return Err(invalid());
+        }
+    }
     match node.get("type").and_then(Value::as_str) {
         Some("Control") => {
-            keys(node, &["type", "scope", "label"])?;
+            keys(node, &["type", "scope", "label", "rule"])?;
             let id = node
                 .get("scope")
                 .and_then(Value::as_str)
@@ -255,9 +288,9 @@ fn validate_ui<'a>(
             keys(
                 node,
                 if kind == "Group" {
-                    &["type", "elements", "label"]
+                    &["type", "elements", "label", "rule"]
                 } else {
-                    &["type", "elements"]
+                    &["type", "elements", "rule"]
                 },
             )?;
             if let Some(label) = node.get("label") {
@@ -349,5 +382,25 @@ mod tests {
             .unwrap()
             .insert("unknown.expression".into(), "不允许".into());
         assert!(f.validate().is_err());
+    }
+    #[test]
+    fn jsonforms_rules_allow_only_declared_field_scalar_const_show_hide() {
+        use serde_json::json;
+        for effect in ["SHOW", "HIDE"] {
+            let mut f = form();
+            f.ui_schema.as_mut().unwrap()["elements"][1]["rule"] = json!({"effect":effect,"condition":{"scope":"#/properties/format","schema":{"const":"json"}}});
+            f.validate().unwrap();
+        }
+        for rule in [
+            json!({"effect":"ENABLE","condition":{"scope":"#/properties/format","schema":{"const":"json"}}}),
+            json!({"effect":"SHOW","condition":{"scope":"#/properties/secret","schema":{"const":"json"}}}),
+            json!({"effect":"SHOW","condition":{"scope":"#/properties/format","schema":{"const":{},"eval":"x"}}}),
+            json!({"effect":"SHOW","condition":{"type":"AND","conditions":[]}}),
+            json!({"effect":"SHOW","condition":{"scope":"#/properties/format","schema":{"const":"json"},"failWhenUndefined":true}}),
+        ] {
+            let mut f = form();
+            f.ui_schema.as_mut().unwrap()["elements"][1]["rule"] = rule;
+            assert!(f.validate().is_err());
+        }
     }
 }

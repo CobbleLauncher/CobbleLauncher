@@ -1,4 +1,24 @@
 /* SPDX-License-Identifier: MIT */
+.settings-workspace {
+  display: grid;
+  grid-template-columns: 184px minmax(0, 1fr);
+  gap: 0 var(--ui-space-6);
+  align-items: start;
+}
+.settings-category-content {
+  max-width: 1000px;
+}
+.settings-navigation { grid-column: 1; grid-row: 1; }
+.settings-main { grid-column: 2; min-width: 0; max-width: 1000px; }
+.settings-category-heading { margin-bottom: var(--ui-space-5); }
+.settings-category-heading h2 { margin: 0; font-size: var(--ui-text-page); line-height: var(--ui-leading-page); font-weight: var(--ui-weight-semibold); }
+.settings-language { max-width: 680px; }
+@media (max-width: 760px) {
+  .settings-workspace { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .settings-navigation { grid-column: 1; grid-row: 1; }
+  .settings-main { grid-column: 1; }
+  .settings-category-heading { margin-block: var(--ui-space-5); }
+}
 .settings-category-content > .settings-section:first-child {
   border-top: 0;
   margin-top: 0;
@@ -40,3 +60,7 @@
   font-size: var(--ui-text-body);
   min-height: var(--ui-control-height);
 }
+
+.settings-panels { min-width: 0; }
+.settings-main:has(.settings-save-bar) { padding-bottom: var(--ui-space-4); }
+.settings-category-content :deep(input), .settings-category-content :deep(button), .settings-category-content :deep([role=slider]) { scroll-margin-block-end: 120px; }

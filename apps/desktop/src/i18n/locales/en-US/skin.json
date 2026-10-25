@@ -1,4 +1,6 @@
 {
+  "working": "Working…",
+  "empty": "No skin selected",
   "previewError": "Could not display the 3D preview",
   "loadError": "Could not read skin. Try again.",
   "preview": "Skin 3D preview",

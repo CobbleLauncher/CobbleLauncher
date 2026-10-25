@@ -10,7 +10,11 @@ import BlueprintThumbnail from './BlueprintThumbnail.vue';
 import { DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenuContent, DropdownMenuItem } from 'reka-ui';
 import ExtensionMenuItems from './ExtensionMenuItems.vue';
 import AppIcon from './ui/AppIcon.vue';
+import AppIconButton from './ui/AppIconButton.vue';
+import SearchField from './ui/SearchField.vue';
 import type { ResolvedCommand } from './extensions/contributions';
+import { usePageWorkspace } from './use-page-workspace';
+import { isContextMenuKey, navigateListWithArrows } from './list-keyboard';
 
 const props = defineProps<{ items: SavedBlueprint[]; busy: boolean; initialGameId?: string; selectedId?: string | null }>();
 const emit = defineEmits<{ market: [value: { gameId: string; query: string }]; open: [id: string]; changed: [items: SavedBlueprint[]]; command: [value: ResolvedCommand] }>();
@@ -21,17 +25,37 @@ const removing = ref<string | null>(null);
 const saving = ref(false);
 const error = ref('');
 const importId = ref<string | null>(null);
-const search = ref('');
-const favoritesOnly = ref(false);
+const workspace = usePageWorkspace('blueprint-library', props.initialGameId, () => ({ search: '', favoritesOnly: false }));
+const search = ref(workspace.search);
+const favoritesOnly = ref(workspace.favoritesOnly);
 const list = ref<HTMLElement | null>(null);
-watch(() => props.selectedId, async id => {
+watch(search, value => { workspace.search = value; });
+watch(favoritesOnly, value => { workspace.favoritesOnly = value; });
+watch([() => props.selectedId, () => props.items], async ([id]) => {
   if (!id) return;
   search.value = ''; favoritesOnly.value = false;
   await nextTick();
   const card = Array.from(list.value?.querySelectorAll<HTMLElement>('[data-blueprint-id]') ?? []).find(card => card.dataset.blueprintId === id);
   card?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
   card?.querySelector<HTMLButtonElement>('.blueprint-open')?.focus();
-}, { flush: 'post' });
+}, { flush: 'post', immediate: true });
+function handleListKeydown(event: KeyboardEvent) {
+  if (isContextMenuKey(event)) {
+    if (props.busy || saving.value || (event.target instanceof HTMLElement && event.target.closest('input,textarea,select'))) return;
+    const target = event.target;
+    const row = target instanceof HTMLElement ? target.closest('li[data-blueprint-id]') : null;
+    const trigger = row?.querySelector<HTMLButtonElement>('.blueprint-more');
+    if (!trigger) return;
+    event.preventDefault();
+    menuOpen.value = row?.getAttribute('data-blueprint-id') ?? null;
+    return;
+  }
+  navigateListWithArrows(event, '.blueprint-open');
+}
+function openContextMenu(event: MouseEvent, id: string) {
+  if (props.busy || saving.value || (event.target instanceof HTMLElement && event.target.closest('input,textarea,select'))) return;
+  event.preventDefault(); menuOpen.value = id;
+}
 async function favorite(item: SavedBlueprint) {
   if (saving.value) return;
   saving.value = true; error.value = '';
@@ -83,32 +107,25 @@ async function remove(item: SavedBlueprint) {
     v-if="items.length"
     class="blueprint-library-search"
   >
-    <label
-      class="sr-only"
-      for="blueprint-library-search"
-    >{{ t('blueprints.searchSaved') }}</label>
-    <input
+    <SearchField
       id="blueprint-library-search"
       v-model="search"
-      type="search"
-      :aria-label="t('blueprints.searchSaved')"
+      class="blueprint-search-field"
+      :label="t('blueprints.searchSaved')"
       :placeholder="t('blueprints.searchSaved')"
-    >
-    <button
-      v-if="search"
-      class="text-button"
-      type="button"
-      @click="search = ''"
-    >
-      {{ t('blueprints.clearSearch') }}
-    </button>
+      :clear-label="t('blueprints.clearSearch')"
+    />
     <button
       class="text-button"
       type="button"
       :aria-pressed="favoritesOnly"
       @click="favoritesOnly = !favoritesOnly"
     >
-      {{ t('blueprints.favorites') }}
+      <Star
+        :size="16"
+        :stroke-width="1.75"
+        aria-hidden="true"
+      />{{ t('blueprints.favorites') }}
     </button>
   </div>
   <p
@@ -127,12 +144,14 @@ async function remove(item: SavedBlueprint) {
   <ul
     ref="list"
     class="blueprint-library"
+    @keydown="handleListKeydown"
   >
     <li
       v-for="item in filteredItems"
       :key="item.id"
       :data-blueprint-id="item.id"
       :class="{ 'blueprint-located': item.id === selectedId }"
+      @contextmenu="openContextMenu($event, item.id)"
     >
       <div class="blueprint-library-main">
         <button
@@ -175,14 +194,12 @@ async function remove(item: SavedBlueprint) {
             :open="menuOpen === item.id"
             @update:open="menuOpen = $event ? item.id : null"
           >
-            <DropdownMenuTrigger
-              class="text-button"
-              :disabled="busy || saving"
-              :aria-label="t('blueprints.moreLabel', { name: item.name })"
-            >
-              <AppIcon
-                name="more-horizontal"
-                :size="18"
+            <DropdownMenuTrigger as-child>
+              <AppIconButton
+                class="blueprint-more"
+                icon="more-horizontal"
+                :disabled="busy || saving"
+                :label="t('blueprints.moreLabel', { name: item.name })"
               />
             </DropdownMenuTrigger>
             <DropdownMenuPortal>
@@ -217,7 +234,7 @@ async function remove(item: SavedBlueprint) {
         </div>
       </div>
       <div
-        v-if="item.source"
+        v-if="item.source && !item.source.provider.startsWith('generated:')"
         class="blueprint-source"
       >
         <span>{{ item.source.author }} · {{ item.source.provider }}</span>
@@ -294,26 +311,5 @@ async function remove(item: SavedBlueprint) {
   </ul>
 </template>
 <style scoped>
-.blueprint-library{list-style:none;padding:0;margin:16px 0 0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:12px;font-size:14px}
-.blueprint-library-search{display:flex;align-items:center;gap:8px;width:100%;margin-top:12px}
-.blueprint-library-search input{flex:1;min-width:0;min-height:38px;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit;font-size:13px}
-.blueprint-library-empty{margin:16px 0 0;color:var(--muted)}
-.blueprint-library li{position:relative;padding:12px;border:1px solid var(--line);border-radius:12px;min-width:0;background:var(--panel)}
-.blueprint-library li.blueprint-located{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
-.blueprint-open{display:flex;flex-wrap:wrap;gap:8px;width:100%;font-size:14px;position:static}
-.blueprint-open:after{content:'';position:absolute;inset:0;border-radius:12px}
-.blueprint-open:focus-visible:after{outline:2px solid var(--accent);outline-offset:2px}
-.blueprint-file-art{height:112px;width:100%;display:grid;place-items:center;color:var(--muted);background:var(--bg);border-radius:8px}
-.blueprint-card-name{flex:1;overflow-wrap:anywhere}.blueprint-card-format{font-size:12px;color:var(--muted)}
-.blueprint-library-actions,.blueprint-library-edit,.blueprint-library-confirm,.blueprint-source,.blueprint-import{position:relative;z-index:1}
-.blueprint-source{display:flex;gap:4px 8px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
-.blueprint-library-actions{width:100%;justify-content:flex-end}
-.blueprint-library-main,.blueprint-library-actions,.blueprint-library-edit,.blueprint-library-confirm{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
-.blueprint-library-main{justify-content:space-between}
-.blueprint-library-main>button{min-width:0;overflow-wrap:anywhere;text-align:left}
-.blueprint-library-actions{margin-left:auto}
-.blueprint-library-edit,.blueprint-library-confirm{margin-top:10px}
-.blueprint-library-edit input{flex:1 1 180px;min-width:0;max-width:100%}
-.blueprint-library-confirm p{flex-basis:100%;margin:0 0 4px;overflow-wrap:anywhere}
-@media(max-width:560px){.blueprint-library-actions{margin-left:0}}
+.blueprint-library{list-style:none;padding:0;margin:var(--ui-space-4) 0 0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:var(--ui-space-4);font-size:var(--ui-text-body);line-height:var(--ui-leading-body)}.blueprint-library-search{display:flex;align-items:center;gap:var(--ui-space-2);width:100%;margin-top:var(--ui-space-3)}.blueprint-search-field{flex:1;min-width:0}.blueprint-library-search>.text-button{min-height:var(--ui-control-height);padding:0 var(--ui-space-3)}.blueprint-library-search>.text-button[aria-pressed=true]{background:var(--ui-surface-2);color:var(--ui-text)}.blueprint-library-empty{margin:var(--ui-space-4) 0;color:var(--ui-text-muted);font-size:var(--ui-text-body)}.blueprint-library li{position:relative;padding:var(--ui-space-3);border:1px solid var(--ui-border);border-radius:var(--ui-radius-lg);min-width:0;background:var(--ui-surface-1)}.blueprint-library li.blueprint-located{border-color:var(--ui-focus);box-shadow:0 0 0 1px var(--ui-focus)}.blueprint-open{display:flex;flex-wrap:wrap;gap:var(--ui-space-2);width:100%;padding:0;font-size:var(--ui-text-body);line-height:var(--ui-leading-body);position:static}.blueprint-open:after{content:'';position:absolute;inset:0;border-radius:var(--ui-radius-lg)}.blueprint-open:focus-visible:after{outline:var(--ui-focus-ring);outline-offset:var(--ui-focus-offset)}.blueprint-open :deep(.blueprint-thumbnail){border-radius:var(--ui-radius-md);background:var(--ui-surface-2)}.blueprint-card-name{flex:1;overflow-wrap:anywhere;font-weight:600}.blueprint-card-format{font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption);color:var(--ui-text-muted)}.blueprint-library-actions,.blueprint-library-edit,.blueprint-library-confirm,.blueprint-source,.blueprint-import{position:relative;z-index:1}.blueprint-source{display:flex;gap:var(--ui-space-1) var(--ui-space-2);flex-wrap:wrap;margin-top:var(--ui-space-2);font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption);color:var(--ui-text-muted);overflow-wrap:anywhere}.blueprint-library-main,.blueprint-library-actions,.blueprint-library-edit,.blueprint-library-confirm{display:flex;align-items:center;gap:var(--ui-space-2);flex-wrap:wrap;min-width:0}.blueprint-library-main{justify-content:space-between}.blueprint-library-main>button{min-width:0;overflow-wrap:anywhere;text-align:left}.blueprint-library-actions{width:100%;justify-content:flex-end;margin-left:auto}.blueprint-library-actions>.text-button{min-height:var(--ui-control-height);padding:0 var(--ui-space-3);font-size:var(--ui-text-label)}.blueprint-library-actions>.text-button:first-child{width:var(--ui-control-height);padding:0}.blueprint-library-edit,.blueprint-library-confirm{margin-top:var(--ui-space-3)}.blueprint-library-edit input{flex:1 1 180px;min-width:0;max-width:100%;min-height:var(--ui-control-height);padding:var(--ui-space-2) var(--ui-space-3);border:1px solid var(--ui-border-strong);border-radius:var(--ui-radius-md);background:var(--ui-surface-1);color:var(--ui-text);font:inherit}.blueprint-library-confirm p{flex-basis:100%;margin:0 0 var(--ui-space-1);overflow-wrap:anywhere}.blueprint-library-edit button,.blueprint-library-confirm button{min-height:var(--ui-control-height);font-size:var(--ui-text-label)}
 </style>

@@ -59,10 +59,13 @@ async function setup(page: Page, source: 'automatic' | 'official' = 'automatic')
         if (command === 'plugin:event|listen') return 1;
         if (command === 'plugin:window|is_maximized') return false;
         if (command === 'list_games') return [];
+        if (command === 'list_extension_contributions') return [];
+        if (command === 'query_launch_compatibility') return {status:'experimental',java_major:21};
         if (command === 'list_player_profiles') return { profiles: [], active_id: null };
         if (command === 'get_download_settings') return { source, mirror: '' };
         if (command === 'get_launcher_preferences') return { memory_mb: 2048, game_directory: 'C:\\Cobble\\games', custom_game_directory: false };
         if (command === 'default_game_directory') return 'C:\\Cobble\\games';
+        if (command === 'discover_launcher_import') return structuredClone(target.__preview);
         if (command === 'preview_launcher_import') {
           if (cancelNextPreview) { cancelNextPreview = false; return null; }
           return structuredClone(target.__preview);
@@ -147,9 +150,25 @@ test('native picker cancellation preserves preview and edits; create errors keep
   await page.getByRole('button', { name: '导入为独立游戏', exact: true }).click();
   await expect(page.getByRole('article', { name: '迁移后的林间实例' })).toBeVisible();
   expect((await calls(page, 'create_launcher_import')).map((call) => call.args)).toEqual([
-    { previewId: preview.preview_id, candidateId: candidate.candidate_id, contentId: 'root-with-saves', name: '迁移后的林间实例', includeSaves: false, source: { source: 'automatic', mirror: '' }, useDefaultDirectory: false },
-    { previewId: preview.preview_id, candidateId: candidate.candidate_id, contentId: 'root-with-saves', name: '迁移后的林间实例', includeSaves: false, source: { source: 'automatic', mirror: '' }, useDefaultDirectory: false },
+    { previewId: preview.preview_id, candidateId: candidate.candidate_id, contentId: 'root-with-saves', name: '迁移后的林间实例', includeSaves: false, moveSource:false, source: { source: 'automatic', mirror: '' }, useDefaultDirectory: false },
+    { previewId: preview.preview_id, candidateId: candidate.candidate_id, contentId: 'root-with-saves', name: '迁移后的林间实例', includeSaves: false, moveSource:false, source: { source: 'automatic', mirror: '' }, useDefaultDirectory: false },
   ]);
+});
+
+test('discovers PCL and explicitly reviews isolated move consequences',async({page},testInfo)=>{
+  await setup(page);await openImport(page);
+  await page.evaluate(()=>{const target=window as unknown as Mock;target.__preview={preview_id:'pcl-found',source_display:'G:/PCL/.minecraft',candidates:[{candidate_id:'pcl-neoforge',name:'Mechanomania',minecraft_version:'1.21.1',loader_kind:'neoforge',loader_version:'21.1.192',supported:true,unsupported_reason:null,content_roots:[{content_id:'isolated',label:'版本独立目录',has_saves:true}],warnings:[]}]};});
+  await page.getByRole('button',{name:'查找已有游戏',exact:true}).click();
+  await expect(page.getByLabel('来源游戏')).toHaveValue('pcl-neoforge');
+  await page.getByRole('switch',{name:'迁移独立游戏内容'}).click();
+  await expect(page.getByText(/所选内容将移到回收站/)).toBeVisible();
+  await page.setViewportSize({width:680,height:760});
+  await page.evaluate(()=>window.scrollTo(0,0));
+  await page.screenshot({path:testInfo.outputPath('pcl-move-review-viewport-680.png'),fullPage:false,animations:'disabled'});
+  await page.getByRole('button',{name:'迁移并导入',exact:true}).scrollIntoViewIfNeeded();
+  await page.screenshot({path:testInfo.outputPath('pcl-move-options-viewport-680.png'),fullPage:false,animations:'disabled'});
+  await page.getByRole('button',{name:'迁移并导入',exact:true}).click();
+  expect((await calls(page,'create_launcher_import'))[0].args).toMatchObject({candidateId:'pcl-neoforge',contentId:'isolated',moveSource:true,includeSaves:false});
 });
 
 test('preview errors retry through the native directory picker without fabricating a preview', async ({ page }) => {
@@ -188,6 +207,7 @@ test('an existing Official download-source choice is retained in the import requ
   await loadPreview(page);
   await chooseSupportedRoot(page);
   await page.getByLabel('游戏名称').fill('保留官方源');
+  await page.getByRole('button',{name:'高级选项',exact:true}).click();
   await expect(page.getByRole('radio', { name: '官方', exact: true })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: '导入为独立游戏', exact: true }).click();
   const args = (await calls(page, 'create_launcher_import'))[0].args;

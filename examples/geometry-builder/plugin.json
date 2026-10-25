@@ -1,0 +1,73 @@
+{
+  "id": "geometry-builder",
+  "name": "Geometry Builder",
+  "version": "0.1.0",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "report"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:report",
+        "version": "0.2.0"
+      },
+      {
+        "id": "launcher:web-frontend",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "file_extensions": [],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Build layered circles, ellipses, spheres and domes offline",
+    "zh-CN": "离线生成分层圆、椭圆、球和半球顶"
+  },
+  "tags": [
+    "building",
+    "blueprints",
+    "utilities"
+  ],
+  "permissions": [
+    {
+      "permission": "launcher:ui/webview"
+    },
+    {
+      "permission": "launcher:blueprints/generated-save"
+    }
+  ],
+  "frontend": {
+    "entry": "ui/index.html",
+    "api_version": "0.1.0",
+    "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "contributions": {
+    "schema_version": 1,
+    "commands": [
+      {
+        "id": "geometry-builder.open",
+        "label": {
+          "en": "Open Geometry Builder",
+          "zh-CN": "打开几何建筑"
+        },
+        "menus": [
+          {
+            "position": "tools",
+            "when": "always"
+          },
+          {
+            "position": "instance",
+            "when": "instance_selected"
+          }
+        ],
+        "workflow": "report"
+      }
+    ]
+  },
+  "icon": {
+    "file": "icon.png",
+    "sha256": "489dc27d6f878cd7e13f0316017d118594fe947824a43e22b6fb502178994a38"
+  }
+}

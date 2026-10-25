@@ -1,7 +1,7 @@
 {
   "id": "crash-doctor",
   "name": "Crash Doctor",
-  "version": "0.2.0",
+  "version": "0.7.0",
   "api_version": "0.1.0",
   "publisher": "CobbleLauncher",
   "capabilities": [
@@ -25,18 +25,31 @@
   ],
   "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "description": {
-    "en": "Analyze launch failures locally",
-    "zh-CN": "在本地分析启动失败原因"
+    "en": "Review logs, recent changes and recovery actions locally",
+    "zh-CN": "在本地检查日志、近期变更与恢复操作"
   },
   "tags": [
     "diagnostics",
-    "logs"
+    "logs",
+    "recovery"
   ],
   "icon": {
     "file": "icon.png",
     "sha256": "7a9b37d89d2f32a686c792d718bf7dc7f40a8c2ef12dc44c2097695ac8f5a00a"
   },
   "permissions": [
+    {
+      "permission": "launcher:game-recovery/read"
+    },
+    {
+      "permission": "launcher:game-recovery/open-request"
+    },
+    {
+      "permission": "launcher:clipboard/write"
+    },
+    {
+      "permission": "launcher:exports/text"
+    },
     {
       "permission": "launcher:resource/selected/read",
       "extensions": [
@@ -49,6 +62,19 @@
     },
     {
       "permission": "launcher:game-diagnostics/read"
+    },
+    {
+      "permission": "launcher:game-inspection/read",
+      "scopes": [
+        "mods",
+        "storage"
+      ]
+    },
+    {
+      "permission": "launcher:instances/copy-request"
+    },
+    {
+      "permission": "launcher:storage/private"
     }
   ],
   "frontend": {

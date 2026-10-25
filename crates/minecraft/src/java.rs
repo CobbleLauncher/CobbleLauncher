@@ -216,6 +216,9 @@ fn add_install_root(candidates: &mut Vec<PathBuf>, root: &Path) {
 fn candidate_paths() -> Vec<PathBuf> {
     let executable = if cfg!(windows) { "java.exe" } else { "java" };
     let mut candidates = Vec::new();
+    if let Ok(root) = crate::managed_java_root() {
+        add_install_root(&mut candidates, &root);
+    }
     if let Some(home) = std::env::var_os("JAVA_HOME") {
         candidates.push(PathBuf::from(home).join("bin").join(executable));
     }

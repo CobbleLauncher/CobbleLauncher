@@ -36,11 +36,15 @@ fn modern(mc: &str) -> bool {
 }
 
 pub fn supported_pack_target(mc: &str, loader: &str) -> bool {
-    match loader {
-        "fabric" | "minecraft" => modern(mc),
-        "forge" | "neoforge" => mc == "1.21.1",
-        _ => false,
-    }
+    modern(mc)
+        && crate::query_compatibility(
+            mc,
+            Some(loader),
+            None,
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+        )
+        .allowed()
 }
 
 fn filters(mc: Option<&str>, loader: Option<&str>) -> Result<(), BoxError> {
@@ -236,7 +240,8 @@ mod tests {
         let all: serde_json::Value = serde_json::from_str(&facets(None, None).unwrap()).unwrap();
         assert_eq!(all[0], json!(["project_type:modpack"]));
         assert!(facets(Some("1.21.1"), Some("forge")).is_ok());
-        assert!(facets(Some("1.20.1"), Some("forge")).is_err());
+        assert!(facets(Some("1.20.1"), Some("forge")).is_ok());
+        assert!(facets(Some("1.20.4"), Some("forge")).is_err());
         assert!(facets(None, Some("quilt")).is_err());
         let selected = pack_version(&version(), "Project", None, None).unwrap();
         assert_eq!(selected.minecraft_versions, vec!["1.21.1", "26.1"]);

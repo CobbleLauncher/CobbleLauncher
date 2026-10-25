@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pack JSON fixture</title></head>
+<body><main id="fixture" style="max-width:1050px;margin:auto;padding:16px"></main><script type="module">
+import {createApp,h,ref} from 'vue';
+import Panel from '../src/GamePackUpdatePanel.vue';
+import {i18n} from '../src/i18n';
+import '../src/style.css';
+import '../src/ui.css';
+createApp({setup(){const panel=ref();window.packJsonPanel=panel;return()=>h(Panel,{ref:panel,gameId:'synthetic-json'});}}).use(i18n).mount('#fixture');
+</script></body></html>

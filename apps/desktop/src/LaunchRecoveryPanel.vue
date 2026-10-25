@@ -152,7 +152,10 @@ onUnmounted(() => { if (analyzing.value) void invoke('cancel_plugin_report').cat
       class="repair-progress"
       role="status"
     >
-      <div v-if="repairTask.progress" class="repair-meter">
+      <div
+        v-if="repairTask.progress"
+        class="repair-meter"
+      >
         <span>{{ taskPhaseLabel(repairTask.progress) }}</span>
         <progress
           :value="repairTask.progress.completed"

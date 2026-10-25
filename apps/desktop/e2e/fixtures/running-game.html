@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Running workspace fixture</title></head><body><main id="app" style="padding:28px"></main><script type="module">
+import {createApp,h} from 'vue';import GameRunningPage from '../../src/GameRunningPage.vue';import {i18n,setLocale} from '../../src/i18n';import '../../src/style.css';import '../../src/ui.css';
+const q=new URLSearchParams(location.search);setLocale(q.get('locale')||'en-US');document.documentElement.dataset.theme=q.get('theme')||'light';
+const state=q.get('state')||'running';const game={id:'fixture-game',name:'Create Together',version:'1.21.1',loader_kind:'fabric',loader_version:'0.16.10',directory:'synthetic',status:'installed',progress:null,error:null,launch_state:state,log_path:'synthetic/log'};
+createApp({render:()=>h(GameRunningPage,{game,profile:{id:'player',name:'Alex',kind:'offline',uuid:'fixture',note:null},commands:[{pluginId:'seed',commandId:'lookup',label:q.get('locale')==='zh-CN'?'种子地图':'Seed map',workflow:'tool_form'},{pluginId:'inspector',commandId:'inspect',label:q.get('locale')==='zh-CN'?'整合包检查':'Modpack inspector',workflow:'viewer'}]})}).use(i18n).mount('#app');
+</script></body></html>

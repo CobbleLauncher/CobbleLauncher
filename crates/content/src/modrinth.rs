@@ -1,12 +1,23 @@
 // SPDX-License-Identifier: MIT
 //! Independently implemented against Modrinth's public v2 API documentation.
-//! A bounded release selection slice, not a general mod compatibility solver.
+//! Bounded public metadata and provider adaptation for shared dependency solving.
+
+pub(crate) mod reverse;
+pub(crate) mod solver;
+pub use reverse::{
+    ReverseConfiguration, ReverseConfigurationChoice, ReverseConfigurationConflict,
+    ReverseConfigurationStats, reverse_configure_modrinth,
+};
 
 use crate::BoxError;
 use cobble_net::{Broker, BrokerConfig};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 use std::io;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use url::Url;
 
 const API: &str = "https://api.modrinth.com/v2/";
@@ -115,7 +126,7 @@ pub(super) fn identifier(value: &str) -> Result<(), BoxError> {
     }
     Ok(())
 }
-fn target(mc: &str, loader: &str) -> Result<(), BoxError> {
+pub(crate) fn target(mc: &str, loader: &str) -> Result<(), BoxError> {
     if !matches!(loader, "fabric" | "forge" | "neoforge")
         || mc.is_empty()
         || mc.len() > 64
@@ -151,6 +162,32 @@ pub async fn search_modrinth(
         .append_pair("index", "relevance");
     let mut api = LiveApi::new()?;
     api.get(url).await
+}
+
+/// Discover desired client Mods before choosing a game version or loader.
+pub async fn search_modrinth_unfiltered(
+    query: &str,
+    offset: u32,
+) -> Result<SearchResults, BoxError> {
+    if query.len() > 200 || offset > 100_000 {
+        return Err(error("Search query or offset is too large"));
+    }
+    let facets = serde_json::to_string(&vec![
+        vec!["project_type:mod"],
+        vec![
+            "client_side:required",
+            "client_side:optional",
+            "client_side:unknown",
+        ],
+    ])?;
+    let mut url = Url::parse(&format!("{API}search"))?;
+    url.query_pairs_mut()
+        .append_pair("query", query)
+        .append_pair("facets", &facets)
+        .append_pair("offset", &offset.to_string())
+        .append_pair("limit", "20")
+        .append_pair("index", "relevance");
+    LiveApi::new()?.get(url).await
 }
 
 fn search_facets(mc: &str, loader: &str) -> Result<String, BoxError> {
@@ -197,14 +234,23 @@ struct ApiFile {
     hashes: HashMap<String, String>,
     primary: bool,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub(super) struct Project {
     pub id: String,
     pub project_type: String,
     pub client_side: String,
     title: String,
 }
-trait Api {
+pub(crate) trait Api {
+    async fn prefetch_roots(
+        &mut self,
+        _projects: &[String],
+    ) -> Result<Vec<(String, Project, Vec<Version>)>, BoxError> {
+        Ok(Vec::new())
+    }
+    async fn all_versions(&mut self, project: &str) -> Result<Vec<Version>, BoxError> {
+        self.versions(project, "", "").await
+    }
     async fn versions(
         &mut self,
         project: &str,
@@ -221,13 +267,13 @@ trait Api {
 }
 pub(super) struct LiveApi {
     broker: Broker,
-    requests: usize,
+    requests: Arc<AtomicUsize>,
 }
 impl LiveApi {
     pub fn new() -> Result<Self, BoxError> {
         Ok(Self {
             broker: Broker::new(BrokerConfig::default())?,
-            requests: 0,
+            requests: Arc::new(AtomicUsize::new(0)),
         })
     }
     pub async fn get<T: DeserializeOwned>(&mut self, url: Url) -> Result<T, BoxError> {
@@ -237,8 +283,7 @@ impl LiveApi {
     }
 
     async fn get_optional<T: DeserializeOwned>(&mut self, url: Url) -> Result<Option<T>, BoxError> {
-        self.requests += 1;
-        if self.requests > MAX_REQUESTS {
+        if self.requests.fetch_add(1, Ordering::Relaxed) >= MAX_REQUESTS {
             return Err(error(
                 "Modrinth resolution request limit reached; reduce the selected dependency graph",
             ));
@@ -276,6 +321,45 @@ impl LiveApi {
     }
 }
 impl Api for LiveApi {
+    async fn prefetch_roots(
+        &mut self,
+        projects: &[String],
+    ) -> Result<Vec<(String, Project, Vec<Version>)>, BoxError> {
+        let mut pending = projects.iter();
+        let mut tasks = tokio::task::JoinSet::new();
+        let mut prefetched = Vec::new();
+        loop {
+            while tasks.len() < 4 {
+                let Some(requested) = pending.next() else {
+                    break;
+                };
+                let requested = requested.clone();
+                let mut api = LiveApi {
+                    broker: self.broker.clone(),
+                    requests: self.requests.clone(),
+                };
+                tasks.spawn(async move {
+                    let project = api.project(&requested).await?;
+                    supported_client_project(&project)?;
+                    let versions = api.all_versions(&project.id).await?;
+                    Ok::<_, BoxError>((requested, project, versions))
+                });
+            }
+            let Some(result) = tasks.join_next().await else {
+                break;
+            };
+            prefetched
+                .push(result.map_err(|e| error(format!("Modrinth metadata task failed: {e}")))??);
+        }
+        Ok(prefetched)
+    }
+    async fn all_versions(&mut self, project: &str) -> Result<Vec<Version>, BoxError> {
+        identifier(project)?;
+        let mut url = Url::parse(&format!("{API}project/{project}/version"))?;
+        url.query_pairs_mut()
+            .append_pair("include_changelog", "false");
+        self.get(url).await
+    }
     async fn versions(
         &mut self,
         project: &str,
@@ -345,7 +429,7 @@ pub async fn identify_modrinth_file_with_broker(
     identify_file(
         &mut LiveApi {
             broker: broker.clone(),
-            requests: 0,
+            requests: Arc::new(AtomicUsize::new(0)),
         },
         hash,
         mc,
@@ -402,9 +486,8 @@ async fn identify_file(
     }))
 }
 
-/// Select latest compatible releases, then required dependencies. Explicit pins
-/// override unconstrained choices; conflicting pins or incompatible edges fail.
-/// No alternate-release search or claims of runtime mod compatibility are made.
+/// Pin the root to its latest compatible release, then solve required dependency
+/// candidates with backtracking. Metadata does not establish runtime compatibility.
 pub async fn resolve_modrinth(
     project_id: &str,
     mc: &str,
@@ -466,7 +549,7 @@ pub async fn modrinth_version_details(
     version_details(&mut api, project_id, version_id, mc, loader).await
 }
 
-fn supported_client_project(project: &Project) -> Result<(), BoxError> {
+pub(crate) fn supported_client_project(project: &Project) -> Result<(), BoxError> {
     identifier(&project.id)?;
     if project.project_type != "mod"
         || !matches!(
@@ -762,198 +845,48 @@ async fn resolve_roots(
     if roots.is_empty() || roots.len() > MAX_PROJECTS {
         return Err(error("Select between 1 and 128 Modrinth projects"));
     }
-    let root = &roots[0];
-    let mut versions = HashMap::<String, Vec<Version>>::new();
-    let mut exact = HashMap::<String, Version>::new();
-    let mut projects = HashMap::<String, Project>::new();
-    let mut root_pins = BTreeMap::<String, String>::new();
+    let mut pins = BTreeMap::new();
     for root in roots {
         identifier(root)?;
-        if root_pins.contains_key(root) {
+        if pins.contains_key(root) {
             return Err(error("Duplicate selected Modrinth project"));
         }
-        let chosen = if let Some(pins) = selected_pins {
-            let pin = pins
+        let version_id = if let Some(selected) = selected_pins {
+            selected
                 .get(root)
-                .ok_or_else(|| error("Missing selected root pin"))?;
-            let version = api.version(pin).await?;
-            if version.id != *pin {
-                return Err(error("Modrinth returned a different selected version"));
-            }
-            version_summary(&version, root, mc, loader)?;
-            version
+                .ok_or_else(|| error("Missing selected root pin"))?
+                .clone()
         } else {
             let choices = api.versions(root, mc, loader).await?;
-            let chosen = latest_release(&choices, root, mc, loader)
+            latest_release(&choices, root, mc, loader)
                 .ok_or_else(|| {
                     error(format!(
                         "No compatible release for project {root} on Minecraft {mc} / {loader}"
                     ))
                 })?
-                .clone();
-            versions.insert(root.clone(), choices);
-            chosen
+                .id
+                .clone()
         };
-        root_pins.insert(root.clone(), chosen.id.clone());
-        exact.insert(chosen.id.clone(), chosen);
+        pins.insert(root.clone(), version_id);
     }
-    let mut pins = root_pins.clone();
-    for _ in 0..MAX_PROJECTS {
-        let mut selected = BTreeMap::<String, (Version, Option<String>)>::new();
-        let mut discovered = root_pins.clone();
-        let mut queue: VecDeque<_> = roots.iter().map(|root| (root.clone(), None)).collect();
-        while let Some((id, parent)) = queue.pop_front() {
-            if selected.contains_key(&id) {
-                continue;
-            }
-            identifier(&id)?;
-            if selected.len() >= MAX_PROJECTS {
-                return Err(error("Modrinth dependency graph exceeds 128 projects"));
-            }
-            if !projects.contains_key(&id) {
-                projects.insert(id.clone(), api.project(&id).await?);
-            }
-            let project = &projects[&id];
-            if project.id != id
-                || project.project_type != "mod"
-                || !matches!(
-                    project.client_side.as_str(),
-                    "required" | "optional" | "unknown"
-                )
-            {
-                return Err(error(format!("Project {id} is not a supported client mod")));
-            }
-            let chosen = if let Some(pin) = pins.get(&id) {
-                if !exact.contains_key(pin) {
-                    exact.insert(pin.clone(), api.version(pin).await?);
-                }
-                let version = exact[pin].clone();
-                if version.id != *pin
-                    || version.project_id != id
-                    || !compatible(&version, mc, loader)
-                {
-                    return Err(error(format!(
-                        "Pinned version {pin} is incompatible with {id}, Minecraft {mc}, or {loader}"
-                    )));
-                }
-                version
-            } else {
-                if !versions.contains_key(&id) {
-                    versions.insert(id.clone(), api.versions(&id, mc, loader).await?);
-                }
-                latest_release(&versions[&id], &id, mc, loader)
-                    .cloned()
-                    .ok_or_else(|| {
-                        error(format!(
-                            "No compatible release for project {id} on Minecraft {mc} / {loader}"
-                        ))
-                    })?
-            };
-            identifier(&chosen.id)?;
-            if chosen.dependencies.len() > MAX_PROJECTS {
-                return Err(error("Too many Modrinth dependencies"));
-            }
-            for dependency in &chosen.dependencies {
-                if !matches!(
-                    dependency.dependency_type.as_str(),
-                    "required" | "optional" | "embedded" | "incompatible"
-                ) {
-                    return Err(error("Unknown Modrinth dependency type"));
-                }
-                if dependency.dependency_type != "required" {
-                    continue;
-                }
-                let dependency_id = if let Some(pin) = &dependency.version_id {
-                    identifier(pin)?;
-                    if !exact.contains_key(pin) {
-                        exact.insert(pin.clone(), api.version(pin).await?);
-                    }
-                    let version = &exact[pin];
-                    if version.id != *pin
-                        || !compatible(version, mc, loader)
-                        || dependency
-                            .project_id
-                            .as_ref()
-                            .is_some_and(|p| p != &version.project_id)
-                    {
-                        return Err(error(format!(
-                            "Required pin {pin} of {id} has incompatible target metadata"
-                        )));
-                    }
-                    let dep_id = version.project_id.clone();
-                    if let Some(previous) = discovered.insert(dep_id.clone(), pin.clone())
-                        && previous != *pin
-                    {
-                        return Err(error(format!(
-                            "Conflicting required pins for {dep_id}: {previous} and {pin} (required by {id})"
-                        )));
-                    }
-                    dep_id
-                } else {
-                    dependency.project_id.clone().ok_or_else(|| {
-                        error(format!(
-                            "Required dependency of {id} has no project or version ID"
-                        ))
-                    })?
-                };
-                queue.push_back((dependency_id, Some(id.clone())));
-            }
-            selected.insert(id, (chosen, parent));
-        }
-        if discovered != pins {
-            pins = discovered;
-            continue;
-        }
-        for (id, (version, _)) in &selected {
-            for dep in version
-                .dependencies
-                .iter()
-                .filter(|d| d.dependency_type == "incompatible")
-            {
-                if selected.values().any(|(v, _)| {
-                    dep.version_id.as_ref().map_or_else(
-                        || dep.project_id.as_ref() == Some(&v.project_id),
-                        |pin| pin == &v.id,
-                    )
-                }) {
-                    return Err(error(format!(
-                        "Project {id} declares an incompatibility with a selected dependency"
-                    )));
-                }
-            }
-        }
-        let version_id = selected[root].0.id.clone();
-        let mods = selected
-            .into_iter()
-            .map(|(id, (version, parent))| {
-                Ok(ResolvedMod {
-                    file: file(&version)?,
-                    project_id: id.clone(),
-                    version_id: version.id,
-                    name: projects[&id].title.clone(),
-                    version_number: version.version_number,
-                    required_by: parent,
-                })
-            })
-            .collect::<Result<_, BoxError>>()?;
-        return Ok(ModrinthPlan {
-            project_id: root.to_string(),
-            version_id,
-            mods,
-        });
-    }
-    Err(error(
-        "Modrinth exact dependency pins did not stabilize; reduce the selected graph",
-    ))
+    Ok(solver::resolve_candidates(
+        api,
+        roots,
+        &pins,
+        mc,
+        loader,
+        &mut solver::AttemptStats::default(),
+    )
+    .await?
+    .plan)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
-    struct Fixture {
-        versions: Vec<Version>,
+    pub(super) struct Fixture {
+        pub(super) versions: Vec<Version>,
     }
     impl Api for Fixture {
         async fn versions(
@@ -993,7 +926,7 @@ mod tests {
             Ok(self.versions.clone())
         }
     }
-    fn version(project: &str, id: &str, date: &str, deps: serde_json::Value) -> Version {
+    pub(super) fn version(project: &str, id: &str, date: &str, deps: serde_json::Value) -> Version {
         serde_json::from_value(json!({"project_id":project,"id":id,"version_number":id,"version_type":"release","date_published":date,"game_versions":["1.21.1"],"loaders":["fabric"],"changelog":null,"dependencies":deps,"files":[{"url":"https://cdn.modrinth.com/data/Example/versions/Example/example.jar","filename":format!("{project}.jar"),"size":100,"primary":true,"hashes":{"sha1":"0123456789012345678901234567890123456789"}}]})).unwrap()
     }
 
@@ -1307,6 +1240,38 @@ mod tests {
             .block_on(resolve_many(&mut api, &roots, "1.21.1", "fabric"))
             .unwrap_err();
         assert!(error.to_string().contains("Conflicting required pins"));
+    }
+    #[test]
+    fn fixed_latest_roots_backtrack_dependency_candidates() {
+        let root = version(
+            "Root",
+            "RootLatest",
+            "2026-04-01",
+            json!([
+                {"project_id":"Lib","dependency_type":"required"},
+                {"project_id":"Other","dependency_type":"required"}
+            ]),
+        );
+        let newest = version(
+            "Lib",
+            "LibNewest",
+            "2026-03-01",
+            json!([
+                {"project_id":"Other","dependency_type":"incompatible"}
+            ]),
+        );
+        let old = version("Lib", "LibOlder", "2026-02-01", json!([]));
+        let other = version("Other", "OtherV", "2026-02-01", json!([]));
+        let plan = run(vec![root, newest, old, other]).unwrap();
+        assert_eq!(plan.version_id, "RootLatest");
+        assert_eq!(
+            plan.mods
+                .iter()
+                .find(|m| m.project_id == "Lib")
+                .unwrap()
+                .version_id,
+            "LibOlder"
+        );
     }
     fn run(versions: Vec<Version>) -> Result<ModrinthPlan, BoxError> {
         run_for_loader(versions, "fabric")

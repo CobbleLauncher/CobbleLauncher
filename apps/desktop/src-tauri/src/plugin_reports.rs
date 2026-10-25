@@ -6,12 +6,16 @@ mod activity;
 pub mod config_diagnosis;
 #[path = "folder_report.rs"]
 pub mod folder_report;
+#[path = "plugin_report_inbox.rs"]
+pub mod inbox;
 #[path = "managed_config_report.rs"]
 pub mod managed_config_report;
 #[path = "managed_diagnostic_report.rs"]
 pub mod managed_diagnostic_report;
 #[path = "managed_inspection_report.rs"]
 pub mod managed_inspection_report;
+#[path = "managed_selected_report.rs"]
+pub mod managed_selected_report;
 use cobble_plugin_api::{InstalledPlugin, MAX_FILE_BYTES, PluginManifest, Report};
 use std::{
     io::{Read, Seek, SeekFrom},

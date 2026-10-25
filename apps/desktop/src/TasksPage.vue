@@ -6,11 +6,27 @@ import type { CurseForgePackPreview } from './curseforge';
 import type { PackPreview } from './games';
 import { locale, t } from './i18n';
 import AppIcon from './ui/AppIcon.vue';
-import { isActiveTask, taskProgressUsesBytes, taskTitleLabel, taskHasKnownTotal, taskPhaseLabel, taskStateLabel, type TaskSnapshot } from './tasks';
+import type { AppIconName } from './ui/icons';
+import SettingsDisclosure from './ui/settings/SettingsDisclosure.vue';
+import EnvironmentTaskFiles from './readiness/EnvironmentTaskFiles.vue';
+import { readinessTaskNeedsFiles } from './readiness';
+import { isActiveTask, taskProgressUsesBytes, taskTitleLabel, taskFailureMessage, taskHasKnownTotal, taskPhaseLabel, taskStateLabel, type TaskSnapshot } from './tasks';
 const props = defineProps<{ tasks: TaskSnapshot[]; loading: boolean; error: string; continueDisabled?: boolean }>();
-const emit = defineEmits<{ updated: [task: TaskSnapshot]; reload: []; locate: [gameId: string]; continuing: [value: boolean]; selectedPack: [preview: PackPreview]; selectedCfPack: [preview: CurseForgePackPreview] }>();
+const emit = defineEmits<{ updated: [task: TaskSnapshot]; reload: []; locate: [gameId: string]; continuing: [value: boolean]; selectedPack: [preview: PackPreview]; selectedCfPack: [preview: CurseForgePackPreview]; 'open-migration': [taskId: string] }>();
 const pending = ref<Record<string, 'cancel' | 'retry' | 'continue'>>({});
 const actionErrors = ref<Record<string, string>>({});
+function taskIcon(task: TaskSnapshot): AppIconName {
+  if (task.kind === 'directory_migration') return 'folder';
+  if (task.kind === 'game_java') return 'cpu';
+  if (task.kind.startsWith('world_') || task.kind === 'storage_move') return 'hard-drive';
+  if (task.kind.startsWith('mod_') || task.kind === 'resource_pack' || task.kind === 'shader_pack') return 'puzzle';
+  return ['game_copy', 'trial_copy', 'pack_update_copy'].includes(task.kind) ? 'folder' : 'download';
+}
+function transferValue(task: TaskSnapshot): string {
+  const detail = task.progress?.detail;
+  if (!detail) return '';
+  return isActiveTask(task) ? `${bytes(detail.bytesPerSecond)}/s · ${t('tasks.activeDownloads', { count: detail.activeDownloads })}` : `${bytes(detail.bytesCompleted)} / ${bytes(detail.bytesTotal)}`;
+}
 const sorted = computed(() => [...props.tasks].sort((left, right) => Number(isActiveTask(right)) - Number(isActiveTask(left)) || right.updated_at - left.updated_at));
 const filter = ref<'all' | 'active' | 'failed'>('all');
 const search = ref('');
@@ -61,10 +77,11 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
       <p class="setting-hint">
         {{ t('tasks.history') }}
       </p><button
-        class="text-button"
+        class="secondary-button"
         :disabled="loading"
         @click="emit('reload')"
       >
+        <AppIcon :name="loading ? 'loader-circle' : 'refresh-cw'" />
         {{ loading ? t('tasks.loading') : t('tasks.refresh') }}
       </button>
     </div>
@@ -142,6 +159,10 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
         :class="{ 'task-active': isActiveTask(task) }"
       >
         <div class="task-row-heading">
+          <span class="task-kind-icon"><AppIcon
+            :name="taskIcon(task)"
+            :size="20"
+          /></span>
           <div class="task-info">
             <h2>{{ taskTitleLabel(task) }}</h2><p
               v-if="task.game_name"
@@ -153,9 +174,8 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
             class="task-state"
             :class="`task-state-${task.state}`"
           ><AppIcon
-            v-if="task.state === 'running'"
-            name="loader-circle"
-            class="ui-busy-icon"
+            :name="task.state === 'running' || task.state === 'cancelling' ? 'loader-circle' : task.state === 'succeeded' ? 'check' : task.state === 'failed' ? 'alert-circle' : 'info'"
+            :class="{ 'ui-busy-icon': task.state === 'running' || task.state === 'cancelling' }"
           /><span>{{ taskStateLabel(task) }}</span></span>
         </div>
         <div
@@ -176,15 +196,13 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
           >
             <div :style="{ width: `${percent(task)}%` }" />
           </div>
-          <details
+          <SettingsDisclosure
             v-if="task.progress.detail"
             class="task-transfer-details"
+            icon="network"
+            :title="t('tasks.downloadingFiles')"
+            :value="transferValue(task)"
           >
-            <summary>
-              {{ bytes(task.progress.detail.bytesCompleted) }} / {{ bytes(task.progress.detail.bytesTotal) }}<template v-if="isActiveTask(task)">
-                · {{ bytes(task.progress.detail.bytesPerSecond) }}/s · {{ t('tasks.activeDownloads', { count: task.progress.detail.activeDownloads }) }}
-              </template>
-            </summary>
             <ul
               v-if="task.progress.detail.items.length"
               :aria-label="t('tasks.downloadingFiles')"
@@ -199,14 +217,21 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
             <p v-if="task.progress.reused">
               {{ t('tasks.reusedFiles', { count: count(task.progress.reused) }) }}
             </p>
-          </details>
+          </SettingsDisclosure>
         </div>
-        <p
-          v-if="task.error"
+        <div
+          v-if="task.error && !readinessTaskNeedsFiles(task.error)"
           class="settings-error task-error"
         >
-          {{ task.error }}
-        </p>
+          <p>{{ taskFailureMessage(task) }}</p>
+          <SettingsDisclosure
+            class="task-error-details"
+            icon="info"
+            :title="t('tasks.errorDetails')"
+          >
+            <p>{{ task.error }}</p>
+          </SettingsDisclosure>
+        </div>
         <p
           v-if="actionErrors[task.id]"
           class="settings-error task-error"
@@ -221,31 +246,39 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
           >{{ timestamp(task.updated_at) }}</time>
           <div class="task-actions">
             <button
-              v-if="task.state === 'succeeded' && task.game_id"
-              class="text-button"
+              v-if="task.kind === 'directory_migration'"
+              type="button"
+              class="secondary-button"
+              @click="emit('open-migration', task.id)"
+            >
+              <AppIcon name="folder" />{{ locale === 'zh-CN' ? '查看搬迁' : 'View move' }}
+            </button>
+            <button
+              v-if="task.game_id && (task.state === 'succeeded' || (task.state === 'failed' && ['mod_update', 'game_install'].includes(task.kind)))"
+              class="secondary-button"
               @click="emit('locate', task.game_id)"
             >
               <AppIcon name="folder" />{{ t('tasks.locateGame') }}
             </button>
             <button
-              v-if="task.state === 'running'"
-              class="text-button"
+              v-if="task.state === 'running' || task.state === 'queued'"
+              class="secondary-button"
               :disabled="!!pending[task.id]"
               @click="action(task, 'cancel')"
             >
-              {{ pending[task.id] === 'cancel' ? t('tasks.cancelling') : t('tasks.cancel') }}
+              <AppIcon :name="pending[task.id] === 'cancel' ? 'loader-circle' : 'x'" />{{ pending[task.id] === 'cancel' ? t('tasks.cancelling') : t('tasks.cancel') }}
             </button>
             <span
               v-else-if="task.state === 'cancelling'"
               class="task-action-hint"
             >{{ t('tasks.cancelling') }}</span>
             <button
-              v-if="task.can_retry"
+              v-if="task.can_retry && !readinessTaskNeedsFiles(task.error)"
               class="secondary-button"
               :disabled="!!pending[task.id]"
               @click="action(task, 'retry')"
             >
-              {{ pending[task.id] === 'retry' ? t('tasks.retrying') : t('tasks.retryTask') }}
+              <AppIcon :name="pending[task.id] === 'retry' ? 'loader-circle' : 'refresh-cw'" />{{ pending[task.id] === 'retry' ? t('tasks.retrying') : t('tasks.retryTask') }}
             </button>
             <button
               v-if="task.state === 'succeeded' && ['modpack_download', 'curseforge_pack_download'].includes(task.kind) && task.has_result"
@@ -257,6 +290,11 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
             </button>
           </div>
         </div>
+        <EnvironmentTaskFiles
+          v-if="readinessTaskNeedsFiles(task.error)"
+          :task-id="task.id"
+          @retry="action(task, 'retry')"
+        />
       </li>
     </ul>
     <p
@@ -274,12 +312,21 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
   </div>
 </template>
 <style scoped>
-.task-info h2 { font-size: 14px; }
-.task-row { padding-block: 16px; }
-.task-state, .task-progress-caption, .task-row-footer time, .task-action-hint, .task-actions .secondary-button { font-size: 12px; }
+.task-info h2 { font-size: var(--ui-text-section); line-height: var(--ui-leading-section); font-weight: var(--ui-weight-semibold); }
+.task-info .mod-meta { margin-top: 4px; font-size: var(--ui-text-body); }
+.task-row { padding: var(--ui-space-5) var(--ui-space-4); border-bottom: 1px solid var(--ui-border); }
+.task-row.task-active { background: color-mix(in srgb, var(--ui-accent) 8%, var(--ui-surface-1)); }
+.task-kind-icon { display: grid; place-items: center; flex: 0 0 40px; height: 40px; background: var(--ui-surface-2); border-radius: var(--ui-radius-md); color: var(--ui-text-muted); }
+.task-active .task-kind-icon { background: var(--ui-accent); color: var(--accent-ink); }
+.task-progress, .task-error, .task-row-footer { margin-inline-start: 56px; }
+.task-progress .install-track { height: 6px; }
+.task-state, .task-progress-caption, .task-row-footer time, .task-action-hint { font-size: var(--ui-text-caption); line-height: var(--ui-leading-caption); font-variant-numeric: tabular-nums; }
+.task-actions .secondary-button, .tasks-page-tools .secondary-button { display: inline-flex; align-items: center; gap: 8px; font-size: var(--ui-text-body); }
 .task-state :deep(svg), .task-actions :deep(svg) { width: 14px; height: 14px; }
-.task-actions .text-button { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
-.task-transfer-details { margin-top: 8px; color: var(--muted); font-size: 12px; }
+.task-error p { margin: 0; }
+.task-error-details { margin-top: 8px; color: var(--ui-text-muted); font-size: var(--ui-text-caption); }
+.task-error-details p { margin-top: 8px; overflow-wrap: anywhere; }
+.task-transfer-details { margin-top: 8px; color: var(--muted); font-size: var(--ui-text-caption); }
 .task-state { display: inline-flex; align-items: center; gap: 5px; }
 .task-history-controls { display: flex; align-items: center; gap: var(--ui-space-3); margin: 8px 0 16px; }
 .task-filter-group { display: flex; flex: 0 0 auto; align-items: center; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: var(--ui-radius-md); background: var(--hover); }
@@ -291,7 +338,6 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
 .task-search input:focus-visible { outline: var(--ui-focus-ring); outline-offset: 2px; }
 .task-search .text-button { flex: 0 0 auto; min-width: var(--ui-control-compact); padding: 4px; }
 .task-search .text-button :deep(svg) { width: var(--ui-icon-sm); height: var(--ui-icon-sm); }
-.task-transfer-details summary { cursor: pointer; }
 .task-transfer-details ul { display: grid; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
 .task-progress .install-track>div { transition: width 240ms ease-out; }
 .task-progress-caption>span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -301,5 +347,5 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
 .task-transfer-meta { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: baseline; gap: 10px; min-width: 0; max-width: 55%; font-variant-numeric: tabular-nums; }
 .task-transfer-meta>span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-transfer-meta>span:last-child { white-space: nowrap; text-align: right; }
-@media(max-width:560px){.task-history-controls{align-items:stretch;flex-direction:column;gap:var(--ui-space-2)}.task-filter-group{width:fit-content;max-width:100%}.task-filter{padding-inline:8px}.task-search{flex:0 0 auto;width:100%}.task-transfer-details li{gap:8px}.task-transfer-meta{max-width:62%;gap:6px;font-size:10px}}
+@media(max-width:560px){.task-row{padding-inline:var(--ui-space-3)}.task-progress,.task-error,.task-row-footer{margin-inline-start:0}.task-info h2{font-size:var(--ui-text-body)}.task-row-heading{flex-wrap:wrap}.task-state{margin-left:auto}.task-history-controls{align-items:stretch;flex-direction:column;gap:var(--ui-space-2)}.task-filter-group{width:fit-content;max-width:100%}.task-filter{padding-inline:8px}.task-search{flex:0 0 auto;width:100%}.task-transfer-details li{gap:8px}.task-transfer-meta{max-width:62%;gap:6px;font-size:var(--ui-text-caption)}}
 </style>

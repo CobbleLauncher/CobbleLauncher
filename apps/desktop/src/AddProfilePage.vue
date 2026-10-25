@@ -1,10 +1,10 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue';
-import { invoke, isTauri } from '@tauri-apps/api/core';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { computed, ref } from 'vue';
 import { t } from './i18n';
-import type { MicrosoftLoginFlow, MicrosoftLoginPoll, ProfileLibrary } from './games';
+import AppIcon from './ui/AppIcon.vue';
+import { useMicrosoftLogin } from './use-microsoft-login';
+import type { ProfileLibrary } from './games';
 const props = defineProps<{ library: ProfileLibrary; busy: boolean; error: string; ready: boolean }>();
 const emit = defineEmits<{ add: [name: string, note: string | null]; select: [id: string]; cancel: []; libraryUpdated: [library: ProfileLibrary]; authBusy: [value: boolean] }>();
 const mode = ref<'offline' | 'microsoft'>('offline');
@@ -28,90 +28,17 @@ function submit() {
   if (duplicate.value) emit('select', duplicate.value.id);
   else emit('add', name.value, note.value.trim() || null);
 }
-const flow = ref<MicrosoftLoginFlow | null>(null);
-const loginStarting = ref(false);
-const loginCancelling = ref(false);
-const browserOpening = ref(false);
-const loginError = ref('');
-const copyStatus = ref('');
-let copyTimer: ReturnType<typeof setTimeout> | undefined;
-async function copyCode() {
-  const active = flow.value;
-  if (!active) return;
-  try {
-    await writeText(active.user_code);
-    if (flow.value !== active || disposed) return;
-    copyStatus.value = t('profiles.copied');
-  } catch { if (flow.value === active && !disposed) copyStatus.value = t('profiles.copyFailed'); }
-  clearTimeout(copyTimer);
-  copyTimer = setTimeout(() => { copyStatus.value = ''; }, 2500);
-}
-let generation = 0;
-let disposed = false;
-let pollTimer: ReturnType<typeof setTimeout> | undefined;
-let expiryTimer: ReturnType<typeof setTimeout> | undefined;
-function stopTimers() { clearTimeout(pollTimer); clearTimeout(expiryTimer); pollTimer = undefined; expiryTimer = undefined; }
-async function cancelLogin(): Promise<boolean> {
-  ++generation; stopTimers(); loginStarting.value = false; browserOpening.value = false;
-  const active = flow.value;
-  if (!active) return true;
-  if (loginCancelling.value) return false;
-  loginCancelling.value = true; emit('authBusy', true);
-  try { await invoke('cancel_microsoft_login', { flowId: active.flow_id }); flow.value = null; return true; }
-  catch { loginError.value = t('profiles.loginErrors.cancel'); return false; }
-  finally { loginCancelling.value = false; emit('authBusy', false); }
-}
-async function chooseOffline() { if (await cancelLogin()) { mode.value = 'offline'; loginError.value = ''; } }
-async function openBrowser() {
-  if (!flow.value || browserOpening.value || loginCancelling.value) return;
-  const current = generation;
-  const flowId = flow.value.flow_id;
-  browserOpening.value = true;
-  try { await invoke('open_microsoft_login', { flowId }); if (current === generation && !disposed) loginError.value = ''; }
-  catch { if (current === generation && !disposed) loginError.value = t('profiles.loginErrors.browser'); }
-  finally { if (current === generation) browserOpening.value = false; }
-}
-function schedulePoll(current: number) {
-  if (current !== generation || !flow.value || disposed) return;
-  pollTimer = setTimeout(() => { void poll(current); }, Math.max(1, flow.value.interval) * 1000);
-}
-async function poll(current: number) {
-  const active = flow.value;
-  if (!active || current !== generation || disposed) return;
-  try {
-    const value = await invoke<MicrosoftLoginPoll>('poll_microsoft_login', { flowId: active.flow_id });
-    if (current !== generation || disposed) return;
-    if (value.state === 'complete') {
-      if (!value.library) throw new Error(t('profiles.loginErrors.incomplete'));
-      stopTimers(); flow.value = null; ++generation;
-      emit('libraryUpdated', value.library);
-    } else schedulePoll(current);
-  } catch (cause) {
-    if (current !== generation || disposed) return;
-    if (await cancelLogin()) loginError.value = t('profiles.loginErrors.poll', { error: String(cause) });
-  }
-}
+const { flow, loginStarting, loginCancelling, browserOpening, loginError, copyStatus, beginLogin: startLogin, cancelLogin, copyCode, openBrowser } = useMicrosoftLogin({
+  busy: () => props.busy,
+  onComplete: library => emit('libraryUpdated', library),
+  onAuthBusy: value => emit('authBusy', value),
+});
 async function beginLogin() {
   if (props.busy || loginStarting.value || loginCancelling.value) return;
-  mode.value = 'microsoft'; loginError.value = '';
-  if (!isTauri()) { loginError.value = t('profiles.loginErrors.notDesktop'); return; }
-  if (!await cancelLogin()) return;
-  const current = ++generation;
-  loginStarting.value = true;
-  try {
-    const value = await invoke<MicrosoftLoginFlow>('begin_microsoft_login');
-    if (current !== generation || disposed) { void invoke('cancel_microsoft_login', { flowId: value.flow_id }).catch(() => {}); return; }
-    flow.value = value;
-    expiryTimer = setTimeout(() => { if (current === generation) void cancelLogin().then((cancelled) => { if (cancelled && !disposed) loginError.value = t('profiles.loginErrors.expired'); }); }, Math.max(0, value.expires_in) * 1000);
-    schedulePoll(current);
-    await copyCode();
-    if (current !== generation || disposed) return;
-    await openBrowser();
-  } catch (cause) { if (current === generation && !disposed) loginError.value = t('profiles.loginErrors.start', { error: String(cause) }); }
-  finally { if (current === generation) loginStarting.value = false; }
+  mode.value = 'microsoft'; await startLogin();
 }
+async function chooseOffline() { if (await cancelLogin()) { mode.value = 'offline'; loginError.value = ''; } }
 defineExpose({ cancelLogin });
-onUnmounted(() => { disposed = true; clearTimeout(copyTimer); void cancelLogin(); });
 </script>
 <template>
   <div class="page-content profile-add-page">
@@ -142,7 +69,6 @@ onUnmounted(() => { disposed = true; clearTimeout(copyTimer); void cancelLogin()
       class="microsoft-login"
       :aria-label="t('profiles.microsoftLabel')"
     >
-      <h2>{{ t('profiles.signInTitle') }}</h2>
       <p class="setting-hint">
         {{ t('profiles.signInHint') }}
       </p>
@@ -233,12 +159,6 @@ onUnmounted(() => { disposed = true; clearTimeout(copyTimer); void cancelLogin()
       </p>
     </section>
     <template v-else>
-      <div class="profile-intro">
-        <span
-          class="profile-avatar large"
-          aria-hidden="true"
-        >{{ name.slice(0, 1).toUpperCase() || '+' }}</span><div><h2>{{ t('profiles.offlineTitle') }}</h2></div>
-      </div>
       <form
         class="create-form"
         @submit.prevent="submit"
@@ -286,14 +206,14 @@ onUnmounted(() => { disposed = true; clearTimeout(copyTimer); void cancelLogin()
           >
         </div>
         <details class="profile-explanation">
-          <summary>{{ t('profiles.offlineExplanationTitle') }}</summary><p>{{ t('profiles.offlineExplanationIdentity') }}</p><p>{{ t('profiles.offlineExplanationSwitch') }}</p>
+          <summary><AppIcon name="chevron-right" />{{ t('profiles.offlineExplanationTitle') }}</summary><p>{{ t('profiles.offlineExplanationIdentity') }}</p><p>{{ t('profiles.offlineExplanationSwitch') }}</p>
         </details>
         <p
           v-if="error"
           class="settings-error"
           role="alert"
         >
-        {{ profileError(error) }}
+          {{ profileError(error) }}
         </p>
         <div class="profile-form-actions">
           <button
@@ -315,3 +235,7 @@ onUnmounted(() => { disposed = true; clearTimeout(copyTimer); void cancelLogin()
     </template>
   </div>
 </template>
+<style scoped>
+.profile-add-page{font-size:var(--ui-text-body,14px);line-height:calc(var(--font-size-base,14px)*22/14)}.profile-add-page .profile-kind-option,.profile-add-page .profile-intro h2,.profile-add-page .microsoft-login h2,.profile-add-page .profile-form-actions button,.profile-add-page .form-field label,.profile-add-page .form-field input{font-size:var(--ui-text-body,14px);line-height:calc(var(--font-size-base,14px)*22/14)}.profile-add-page .setting-hint,.profile-add-page .field-note,.profile-add-page .profile-explanation,.profile-add-page .microsoft-code-help{font-size:var(--ui-text-caption,12px);line-height:calc(var(--font-size-base,14px)*18/14)}.profile-add-page .microsoft-user-code{font-size:var(--ui-text-body,14px);line-height:calc(var(--font-size-base,14px)*22/14);letter-spacing:2px}.profile-add-page .profile-intro{gap:14px;margin-bottom:24px}.profile-add-page .profile-kind-option[aria-pressed=true]{border-color:var(--ui-accent,var(--ui-focus))}.profile-add-page .profile-kind-options{margin-bottom:20px}.profile-add-page .microsoft-login{padding:20px}
+.profile-explanation summary{display:flex;align-items:center;gap:var(--ui-space-2);list-style:none;cursor:pointer}.profile-explanation summary::-webkit-details-marker{display:none}.profile-explanation summary::marker{content:''}.profile-explanation summary :deep(svg){width:14px;height:14px;flex:none;transition:transform .15s ease}.profile-explanation[open] summary :deep(svg){transform:rotate(90deg)}
+</style>

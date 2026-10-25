@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+/* eslint-disable vue/one-component-per-file -- test doubles expose native view leave guards */
 import { afterEach, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { defineComponent } from 'vue';
@@ -9,6 +10,44 @@ import ToolsPage from './ToolsPage.vue';
 import { setLocale } from './i18n';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 afterEach(() => { vi.mocked(invoke).mockReset(); setLocale('zh-CN'); });
+
+it('opens a generic form tool with only a visible version default and runs its leave hook', async () => {
+  const form = { schema_version: 1, schema: { type: 'object', additionalProperties: false, properties: { version: { type: 'string', enum: ['1.21.1'] } } } };
+  const manifest = { id: 'community-tool', name: 'Community tool', api_version: '0.1.0', capabilities: ['tool-form'], file_extensions: [], tool_form: form };
+  vi.mocked(invoke).mockImplementation(async command => command === 'list_plugins' ? [{ enabled: true, manifest }] : []);
+  const leave = vi.fn(async () => true);
+  const Form = defineComponent({ name: 'ToolFormPanel', props: { pluginId: { type: String, required: true }, form: { type: Object, required: true }, contextVersion: { type: String, default: undefined } }, setup(_props, { expose }) { expose({ confirmLeave: leave }); }, template: '<div class="test-tool-form" />' });
+  const wrapper = mount(ToolsPage, { props: { location: { pluginId: manifest.id, instanceId: 'game' }, games: [{ id: 'game', name: 'Game', version: '1.21.1', directory: 'private-path', status: 'installed', error: null, progress: null }] }, global: { stubs: { ToolFormPanel: Form } } });
+  await flushPromises();
+  const panel = wrapper.getComponent({ name: 'ToolFormPanel' });
+  expect(panel.props()).toEqual({ pluginId: manifest.id, form, contextVersion: '1.21.1' });
+  expect(invoke).not.toHaveBeenCalledWith('run_plugin_tool_form', expect.anything());
+  expect(await wrapper.vm.confirmLeave()).toBe(true);
+  expect(leave).toHaveBeenCalledOnce();
+  wrapper.unmount();
+});
+
+it('opens a mixed inspector frontend first while retaining its native pack-file workflow', async () => {
+  setLocale('en-US');
+  const manifest = { id: 'modpack-inspector', name: 'Inspector', api_version: '0.2.0', capabilities: ['report'], file_extensions: ['json', 'mrpack'], report_protocols: ['cobble.mrpack-page@1'], frontend: { api_version: '0.1.0', entry: 'ui/index.html', assets_sha256: 'a'.repeat(64) } };
+  vi.mocked(invoke).mockImplementation(async command => command === 'list_plugins' ? [{ enabled: true, manifest }] : []);
+  const Frontend = defineComponent({ name: 'PluginWebView', setup(_props, { expose }) { expose({ confirmLeave: async () => true }); }, template: '<div class="test-plugin-web-view" />' });
+  const wrapper = mount(ToolsPage, { props: { location: { pluginId: manifest.id, instanceId: 'game' } }, global: { stubs: { PluginWebView: Frontend, InspectorPanel: true } } });
+  await flushPromises();
+  expect(wrapper.find('.test-plugin-web-view').exists()).toBe(true);
+  expect(wrapper.find('inspector-panel-stub').exists()).toBe(false);
+  await wrapper.findAll('.inspector-modes button')[1]!.trigger('click');
+  await flushPromises();
+  expect(wrapper.find('.test-plugin-web-view').exists()).toBe(false);
+  expect(wrapper.getComponent({ name: 'InspectorPanel' }).props('instanceId')).toBe('game');
+  await wrapper.findAll('.inspector-modes button')[0]!.trigger('click');
+  await flushPromises();
+  wrapper.getComponent(PluginWebView).vm.$emit('unsupported');
+  await flushPromises();
+  expect(wrapper.find('inspector-panel-stub').exists()).toBe(true);
+  expect(wrapper.find('.inspector-modes').exists()).toBe(false);
+  wrapper.unmount();
+});
 
 it('a late extension resolution cannot replace the newly selected blueprint tool', async () => {
   let finish!: (value: unknown) => void;
@@ -23,6 +62,8 @@ it('a late extension resolution cannot replace the newly selected blueprint tool
   expect(wrapper.text()).toContain('Logbook');
   expect(wrapper.text()).toContain('Summarizes game logs');
   await wrapper.findAll('button').find(button => button.attributes('aria-label') === 'Logbook')!.trigger('click');
+  expect(wrapper.get('button[aria-label="Logbook"]').attributes('disabled')).toBeDefined();
+  expect(wrapper.findAll('button').find(button => button.text().includes('Blueprint library'))!.attributes('disabled')).toBeUndefined();
   await wrapper.findAll('button').find(button => button.text().includes('Blueprint library'))!.trigger('click');
   finish({ pluginId: 'report', commandId: 'analyze', label: 'Analyze', workflow: 'report' });
   await flushPromises();
@@ -96,12 +137,22 @@ it('opens the bundled frontend with its game context and falls back on unsupport
 it('passes a keybinding target from tool navigation to the plugin view', async () => {
   vi.mocked(invoke).mockImplementation(command => Promise.resolve(command === 'list_plugins' ? [{ enabled: true, manifest: { id: 'config-doctor', name: 'Config Doctor', api_version: '0.2.0', capabilities: ['report'], file_extensions: ['toml'], frontend: { api_version: '0.1.0', entry: 'ui/index.html', assets_sha256: 'a'.repeat(64) } } }] : []));
   const wrapper = mount(ToolsPage, {
-    props: { initialGameId: 'previous-game', location: { pluginId: 'config-doctor', keybindingTargetId: 'new-game' } },
+    props: { initialGameId: 'previous-game', location: { pluginId: 'config-doctor', keybindingTargetId: 'new-game', handoffId: 'handoff-1' } },
     global: { stubs: { PluginWebView: true, PluginReportPanel: true, InspectorPanel: true } },
   });
   await flushPromises();
   expect(wrapper.findComponent(PluginWebView).props('keybindingTargetId')).toBe('new-game');
+  expect(wrapper.findComponent(PluginWebView).props('handoffId')).toBe('handoff-1');
   expect(wrapper.findComponent(PluginWebView).props('instanceId')).toBeUndefined();
+  wrapper.unmount();
+});
+it('honors a cancelled custom-plugin draft leave request', async () => {
+  vi.mocked(invoke).mockImplementation(command => Promise.resolve(command === 'list_plugins' ? [{ enabled: true, manifest: { id: 'custom-page', name: 'Custom page', api_version: '0.2.0', capabilities: ['report'], file_extensions: [], frontend: { api_version: '0.1.0', entry: 'ui/index.html', assets_sha256: 'a'.repeat(64) } } }] : []));
+  const Frontend = defineComponent({ name: 'PluginWebView', setup(_props, { expose }) { expose({ confirmLeave: async () => false }); }, template: '<div class="test-plugin-web-view" />' });
+  const wrapper = mount(ToolsPage, { props: { location: { pluginId: 'custom-page' } }, global: { stubs: { PluginWebView: Frontend } } });
+  await flushPromises();
+  expect(await wrapper.vm.confirmLeave()).toBe(false);
+  expect(wrapper.find('.test-plugin-web-view').exists()).toBe(true);
   wrapper.unmount();
 });
 

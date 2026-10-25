@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 //! Original report adapter; input logs must already be redacted by the host.
 wit_bindgen::generate!({path:"../../contracts/report",world:"report-plugin"});
-use exports::launcher::resource_report::reports::{Evidence, Finding, Report, Severity};
+use exports::launcher::resource_report::reports::{Evidence, Finding, Report, Severity, Table};
 use launcher::resource_report::resources::{self, Failure, Input};
+mod timeline;
 
 fn analyze_bytes(bytes: &[u8]) -> Result<Report, Failure> {
     let text = std::str::from_utf8(bytes).map_err(|_| Failure::Unsupported)?;
@@ -19,7 +20,7 @@ fn analyze_bytes(bytes: &[u8]) -> Result<Report, Failure> {
     Ok(Report {
         schema_version: 1,
         findings,
-        tables: vec![],
+        tables: timeline::tables(text),
     })
 }
 

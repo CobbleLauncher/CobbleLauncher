@@ -1,0 +1,10 @@
+[12:00:00] [main/INFO]: Minecraft version 1.21.1
+[12:00:01] [Render thread/INFO]: Setting user: SyntheticPlayer
+[12:00:01] [main/INFO]: UUID of player SyntheticPlayer is 12345678-abcd-1234-abcd-123456789abc
+[12:00:02] [main/INFO]: profileId=0123456789abcdef0123456789abcdef
+[12:00:03] [main/DEBUG]: Authorization: Bearer SYNTHETIC-NOT-A-REAL-TOKEN
+[12:00:04] [main/INFO]: Loaded "C:\Users\Synthetic Person\.minecraft\mods\example-mod-1.2.3.jar"
+[12:00:05] [main/INFO]: Connected to 203.0.113.10:25565
+[12:00:06] [main/ERROR]: Caused by: java.lang.NoClassDefFoundError: com/example/RequiredClass
+    at com.example.Demo.load(Demo.java:42)
+[12:00:07] [main/INFO]: Error report: /home/synthetic/.minecraft/crash-reports/crash.txt

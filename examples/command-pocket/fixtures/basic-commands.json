@@ -1,0 +1,20 @@
+[
+  {
+    "version": "1.20.1",
+    "template": "teleport",
+    "input": { "version": "1.20.1", "template": "teleport", "target": "@s", "x": "~", "y": "64", "z": "~-2.5", "item_id": "minecraft:torch", "quantity": 1, "effect_id": "minecraft:speed", "seconds": 30, "amplifier": 0, "hide_particles": false },
+    "output": "/tp @s ~ 64 ~-2.5"
+  },
+  {
+    "version": "1.21.1",
+    "template": "give",
+    "input": { "version": "1.21.1", "template": "give", "target": "Alex", "x": "~", "y": "~", "z": "~", "item_id": "minecraft:torch", "quantity": 16, "effect_id": "minecraft:speed", "seconds": 30, "amplifier": 0, "hide_particles": false },
+    "output": "/give Alex minecraft:torch 16"
+  },
+  {
+    "version": "1.21.4",
+    "template": "effect",
+    "input": { "version": "1.21.4", "template": "effect", "target": "@p", "x": "~", "y": "~", "z": "~", "item_id": "minecraft:torch", "quantity": 1, "effect_id": "minecraft:speed", "seconds": 30, "amplifier": 0, "hide_particles": false },
+    "output": "/effect give @p minecraft:speed 30 0 false"
+  }
+]

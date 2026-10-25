@@ -23,7 +23,7 @@ fn note(report: &mut Report, code: &str, severity: Severity, message: String, zh
         report.findings.push(Finding {
             code: code.into(),
             severity,
-            title: tr(zh, "World inventory", "世界清单").into(),
+            title: tr(zh, "World check", "世界检查").into(),
             message,
             evidence: vec![],
             suggestions: vec![],
@@ -78,7 +78,13 @@ fn analyze_bytes(bytes: &[u8], locale: &str) -> Result<Report, Failure> {
     let mut errors = 0;
     let mut hardcore = 0;
     let mut different = 0;
+    let mut future_times = 0;
     for item in items.iter().take(MAX_ROWS) {
+        if let (Some(inspected), Some(last_played)) = (now, item["lastPlayed"].as_u64()) {
+            if last_played / 1000 > inspected {
+                future_times += 1;
+            }
+        }
         let metadata_error = item["metadataError"].as_bool().unwrap_or(true);
         if metadata_error {
             errors += 1;
@@ -184,6 +190,22 @@ fn analyze_bytes(bytes: &[u8], locale: &str) -> Result<Report, Failure> {
                     zh,
                     "worlds record a different version from this game. This is metadata, not a compatibility test.",
                     "个世界记录的版本与游戏不同；尚未验证兼容性。"
+                )
+            ),
+            zh,
+        );
+    }
+    if future_times > 0 {
+        note(
+            &mut report,
+            "world_last_played_after_inspection",
+            Severity::Info,
+            format!(
+                "{future_times} {}",
+                tr(
+                    zh,
+                    "worlds have a last-played time after this check. Recent-play order is unknown.",
+                    "个世界的上次游玩时间晚于本次检查，无法确定最近游玩顺序。"
                 )
             ),
             zh,
@@ -299,5 +321,19 @@ mod tests {
         let report = analyze_bytes(&serde_json::to_vec(&root).unwrap(), "en").unwrap();
         assert_eq!(report.findings[0].code, "worlds_unavailable");
         assert!(!report.findings.iter().any(|f| f.code == "worlds_empty"));
+    }
+    #[test]
+    fn future_world_metadata_never_claims_a_recent_play_order() {
+        let root = snapshot(
+            json!([{"id":"world","name":"World","lastPlayed":172801000,"metadataError":false}]),
+        );
+        let report = analyze_bytes(&serde_json::to_vec(&root).unwrap(), "en").unwrap();
+        assert_eq!(report.tables[0].rows[0][3], "Unknown");
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding.code == "world_last_played_after_inspection")
+        );
     }
 }

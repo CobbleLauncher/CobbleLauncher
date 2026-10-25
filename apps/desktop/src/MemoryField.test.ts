@@ -18,6 +18,6 @@ it('supports slider keyboard allocation changes and both allowed endpoints',asyn
  await wrapper.get('input').setValue('6145');expect(wrapper.get('[role="slider"]').attributes('aria-valuetext')).toBe('6145 MiB');wrapper.unmount();
 });
 it('keeps disabled inputs and slider gestures from editing the draft',async()=>{
- const wrapper=mount(MemoryField,{props:{...props,disabled:true}});expect(wrapper.get('input').attributes('disabled')).toBeDefined();expect(wrapper.get('.memory-slider').attributes('aria-disabled')).toBe('true');
+ const wrapper=mount(MemoryField,{props:{...props,disabled:true}});expect(wrapper.get('input').attributes('disabled')).toBeDefined();expect(wrapper.get('.numeric-slider').attributes('aria-disabled')).toBe('true');
  await wrapper.get('[role="slider"]').trigger('keydown',{key:'ArrowRight'});await wrapper.get('input').setValue('8192');expect(wrapper.emitted('update:modelValue')).toBeUndefined();wrapper.unmount();
 });

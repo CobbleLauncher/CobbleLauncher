@@ -1,0 +1,19 @@
+<!doctype html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Settings hierarchy fixture</title></head>
+<body><main id="app" style="max-width:1360px;margin:auto"></main><script type="module">
+import {createApp,h} from 'vue';import SettingsPage from '../../src/SettingsPage.vue';
+import {setLocale} from '../../src/i18n';import {applyAppearance,defaultAppearance} from '../../src/theme';
+import '../../src/style.css';import '../../src/ui.css';
+const query=new URLSearchParams(location.search);setLocale(query.get('locale')==='zh-CN'?'zh-CN':'en-US');applyAppearance({...defaultAppearance,theme:query.get('theme')==='dark'?'dark':'light'});
+window.isTauri=true;window.__TAURI_INTERNALS__={invoke:async(command,args)=>{
+ if(command==='get_download_settings')return {source:'automatic',mirror:''};
+ if(command==='get_launcher_preferences')return {memory_mb:4096,game_directory:'C:\\Games',custom_game_directory:true};
+ if(command==='get_download_tuning')return {adaptive:false,max_concurrent:12,per_origin:4};
+ if(command==='get_public_cache_stats')return {disk_bytes:134217728};
+ if(command==='get_java_settings')return {mode:'automatic',executable:null,runtime:null};
+ if(command==='list_java_runtimes')return {runtimes:[{id:'java21',version:'21.0.1',major:21,arch:'x86_64',vendor:'Temurin',executable:'C:\\Java21\\bin\\javaw.exe',recommended:true}],requiredMajor:null,recommendedId:'java21'};
+ if(command==='launcher_update_status')return {version:'0.1.0',background_check:false,channel:'stable',configured:false,can_install:false,available_version:null};
+ if(command.startsWith('set_'))return args;throw new Error('Unsupported fixture command: '+command);
+}};
+createApp({render:()=>h(SettingsPage,{initialCategory:query.get('category')||'general'})}).mount('#app');
+</script></body></html>

@@ -244,6 +244,43 @@ fn storage_insights_and_content_comparison_are_read_only_and_paged() {
     );
     assert_eq!(page.rows.len(), 1);
     assert_eq!(page.rows[0].path, "changed");
+    let filtered = repo
+        .compare_snapshots_filtered(
+            "world-1",
+            &a.id,
+            &b.id,
+            cobble_backup::SnapshotComparePage {
+                offset: 0,
+                limit: 1,
+                query: "CHANG",
+            },
+            &control,
+        )
+        .unwrap();
+    assert_eq!(
+        (
+            filtered.added,
+            filtered.modified,
+            filtered.deleted,
+            filtered.total
+        ),
+        (1, 1, 1, 1)
+    );
+    assert_eq!(filtered.rows[0].path, "changed");
+    assert!(
+        repo.compare_snapshots_filtered(
+            "world-1",
+            &a.id,
+            &b.id,
+            cobble_backup::SnapshotComparePage {
+                offset: 0,
+                limit: 1,
+                query: &"x".repeat(121)
+            },
+            &control
+        )
+        .is_err()
+    );
     assert!(
         repo.compare_snapshots("other-world", &a.id, &b.id, 0, 50, &control)
             .is_err()

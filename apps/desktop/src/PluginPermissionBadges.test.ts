@@ -36,3 +36,18 @@ it('groups game diagnostics read access with local files and omits badges for UI
   expect(wrapper.find('.plugin-permission-badge').exists()).toBe(false);
   wrapper.unmount();
 });
+
+it('shows a warning badge with the exact saved-world seed scope in English and Chinese', async () => {
+  const wrapper = mount(PluginPermissionBadges, { props: { manifest: manifest([
+    { permission: 'launcher:worlds/seed/read' },
+  ]) } });
+  expect(wrapper.findAll('.plugin-permission-badge').map(item => item.text())).toEqual(['World seed']);
+  expect(wrapper.find('.plugin-permission-badge').attributes('title')).toContain('Read the selected world’s seed and generation details');
+  expect(wrapper.find('.plugin-permission-badge').attributes('title')).not.toContain('all files');
+  setLocale('zh-CN');
+  await nextTick();
+  expect(wrapper.text()).toContain('世界种子');
+  expect(wrapper.find('.plugin-permission-badge').attributes('title')).toContain('读取所选存档的种子和生成信息');
+  wrapper.unmount();
+  setLocale('en-US');
+});

@@ -1,5 +1,6 @@
 {
   "history": "版本历史",
+  "targetMissing": "此存档或备份版本已不可用。",
   "historyFor": "{world} · 版本历史",
   "back": "返回世界列表",
   "name": "版本名称",

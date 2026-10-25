@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: MIT
 import {
-  ArrowLeft, Check, ChevronDown, CircleAlert, Copy, Download, Ellipsis,
+  ArrowLeft, Check, ChevronDown, CircleAlert, Compass, Copy, Download, Ellipsis,
   ExternalLink, Folder, Info, LoaderCircle, Network, Pencil, Pin, Play, Plus, Puzzle, RefreshCw,
   Search, Settings, Trash2, User, X, Palette, Cpu, HardDrive, ShieldCheck, Sun, Moon, Monitor, Languages,
+  ChevronRight, FileSearch, Keyboard, SlidersHorizontal,
 } from '@lucide/vue';
 
 // Explicit imports keep the shipped set finite and tree-shakable.
 export const appIcons = {
+  'chevron-right': ChevronRight,
+  'file-search': FileSearch,
+  keyboard: Keyboard,
+  'sliders-horizontal': SlidersHorizontal,
   palette: Palette,
   cpu: Cpu,
   'hard-drive': HardDrive,
@@ -20,6 +25,7 @@ export const appIcons = {
   'chevron-down': ChevronDown,
   'alert-circle': CircleAlert,
   copy: Copy,
+  compass: Compass,
   download: Download,
   'more-horizontal': Ellipsis,
   'external-link': ExternalLink,

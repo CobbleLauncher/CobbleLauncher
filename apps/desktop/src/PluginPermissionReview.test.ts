@@ -7,6 +7,7 @@ import PluginCatalogsPanel from './PluginCatalogsPanel.vue';
 import PluginPermissions from './PluginPermissions.vue';
 import {addedPermissionNodes,effectivePermissionNodes} from './plugin-permissions';
 import type {CatalogManifest} from './plugin-catalogs';
+import {permissionCategory,permissionTone,requiresSensitiveConsent} from './extensions/permission-review';
 import {setLocale} from './i18n';
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn()}));
 const old:CatalogManifest={id:'composer',name:'Fixture composer',version:'1',api_version:'0.1.0',publisher:'Fixture',component_sha256:'a'.repeat(64),capabilities:['message-composer'],file_extensions:[],composer_permissions:['draft']};
@@ -24,6 +25,15 @@ it('requires acknowledgement only for concrete additional access and submits the
 it('does not add an acknowledgement to an unchanged permission update',async()=>{
  const next={...old,version:'2'};const wrapper=await review(next,old);expect(wrapper.find('.plugin-permission-expansion').exists()).toBe(false);expect(wrapper.get('.plugin-approval .primary-button').attributes('disabled')).toBeUndefined();
  await wrapper.get('.plugin-approval .primary-button').trigger('click');await flushPromises();expect(invoke).toHaveBeenCalledWith('update_plugin',{id:next.id,reviewedManifest:next});wrapper.unmount();
+});
+it('describes snapshot history and host restore confirmation in both locales',async()=>{
+ const manifest:CatalogManifest={...old,permissions:[{permission:'launcher:world-snapshots/read'},{permission:'launcher:world-snapshots/restore-request'}]};
+ const wrapper=mount(PluginPermissions,{props:{manifest}});
+ expect(wrapper.text()).toContain('Read world snapshot history and file changes');
+ expect(wrapper.text()).toContain("Open the launcher's restore confirmation");
+ setLocale('zh-CN');await flushPromises();expect(wrapper.text()).toContain('读取世界快照历史和文件变更');
+ expect(wrapper.text()).toContain('打开启动器的世界快照恢复确认界面');
+ wrapper.unmount();
 });
 it('resets the acknowledgement when a different package is prepared',async()=>{
  const wrapper=await review(expanded,old);await wrapper.get('input[type="checkbox"]').setValue(true);
@@ -86,4 +96,48 @@ it('recognizes additional settings keys as scoped access rather than a capabilit
 it('treats selected-folder access as additional to selected-file access and renders its concrete file scope',()=>{
  const before:CatalogManifest={...old,api_version:'0.2.0',capabilities:['report'],composer_permissions:[],file_extensions:['json'],permissions:[{permission:'launcher:resource/selected/read',extensions:['json']}]};
  const folder={permission:'launcher:resource/selected-folder/read' as const,extensions:['json']};const next:CatalogManifest={...before,report_protocols:['cobble.config-folder@1'],permissions:[...before.permissions!,folder]};expect(addedPermissionNodes(next,before)).toEqual([folder]);const wrapper=mount(PluginPermissions,{props:{manifest:next,nodes:[folder]}});expect(wrapper.text()).toContain('.json configuration files in the folder you select');wrapper.unmount();
+});
+
+it('reviews saved-world seed access as a sensitive, narrowly scoped game permission',async()=>{
+ const seed={permission:'launcher:worlds/seed/read' as const};
+ const previous:CatalogManifest={...old,id:'seed-compass',permissions:[{permission:'launcher:game-inspection/read',scopes:['worlds']}]};
+ const next:CatalogManifest={...previous,version:'2',permissions:[...previous.permissions!,seed]};
+ expect(addedPermissionNodes(next,previous)).toEqual([seed]);
+ expect(requiresSensitiveConsent(seed)).toBe(true);
+ expect(permissionTone(seed)).toBe('files');
+ expect(permissionCategory(seed)).toBe('game');
+ const wrapper=await review(next,previous);
+ const consent=wrapper.get('.sensitive-permission');
+ expect(consent.text()).toContain('Read the selected world’s seed and generation details');
+ expect(wrapper.get('.plugin-approval .primary-button').attributes('disabled')).toBeDefined();
+ await consent.get('input').setValue(true);
+ expect(wrapper.get('.plugin-approval .primary-button').attributes('disabled')).toBeUndefined();
+ setLocale('zh-CN');await flushPromises();
+ expect(consent.text()).toContain('读取所选存档的种子和生成信息');
+ wrapper.unmount();setLocale('en-US');
+});
+
+it('requires first-install consent for world inventory and seed access',async()=>{
+ const manifest:CatalogManifest={...old,id:'seed-compass',permissions:[
+  {permission:'launcher:game-inspection/read',scopes:['worlds']},
+  {permission:'launcher:worlds/seed/read'},
+ ]};
+ const wrapper=await review(manifest);
+ const consents=wrapper.findAll('.sensitive-permission');
+ expect(consents).toHaveLength(2);
+ const seedConsent=consents.find(item=>item.text().includes('Read the selected world’s seed and generation details'))!;
+ expect(seedConsent.exists()).toBe(true);
+ expect(wrapper.get('.plugin-approval .primary-button').attributes('disabled')).toBeDefined();
+ for(const consent of consents) await consent.get('input').setValue(true);
+ expect(wrapper.get('.plugin-approval .primary-button').attributes('disabled')).toBeUndefined();
+ wrapper.unmount();
+});
+
+it('reviews AI network access separately and shows useful labels', () => {
+ const nodes = [{permission:'launcher:ai/chat' as const},{permission:'launcher:ai/configure' as const}];
+ for(const node of nodes){expect(requiresSensitiveConsent(node)).toBe(true);expect(permissionCategory(node)).toBe('network');expect(permissionTone(node)).toBe('network');}
+ const wrapper=mount(PluginPermissions,{props:{manifest:{...old,permissions:nodes}}});
+ expect(wrapper.text()).toContain('Send chat messages to the AI service you configure');
+ expect(wrapper.text()).toContain('Set the AI service address, model and credential');
+ expect(wrapper.text()).not.toContain('launcher:ai');wrapper.unmount();
 });

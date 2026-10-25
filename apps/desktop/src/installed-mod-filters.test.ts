@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: MIT
 import { afterEach, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
+import { defineComponent } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import GameModsPanel from './GameModsPanel.vue';
 import type { Game, LocalMod } from './games';
 import { setLocale } from './i18n';
+import { clearPageWorkspacesForTests } from './use-page-workspace';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-afterEach(() => { vi.mocked(invoke).mockReset(); setLocale('zh-CN'); });
+afterEach(() => { vi.mocked(invoke).mockReset(); setLocale('zh-CN'); clearPageWorkspacesForTests(); });
 const game: Game = { id: 'filter-game', name: 'Fixture', version: '1.21.1', loader_kind: 'fabric', loader_version: '0.16', directory: 'synthetic', status: 'installed', error: null, progress: null };
 const mods: LocalMod[] = [
   { file_name: 'alpha.jar', name: 'Alpha', version: '1', authors: ['Author'], loader: 'fabric', enabled: true, description: '' },
   { file_name: 'beta.jar.disabled', name: 'Beta', version: '2', authors: ['Author'], loader: 'fabric', enabled: false, description: '' },
   { file_name: 'local.jar', name: 'Local', version: '3', authors: [], loader: null, enabled: true, description: '' },
 ];
-function mountPanel() { setLocale('en-US'); return mount(GameModsPanel, { props: { game, locked: false }, global: { stubs: { ModUpdates: true } } }); }
+const Select = defineComponent({ props: {id: {type: String, default: ''}, modelValue: {type: String, default: ''}, options: {type: Array, default: () => []}, label: {type: String, default: ''}, disabled: Boolean}, emits: ['update:modelValue'], template: '<select :id="id" :value="modelValue" :aria-label="label" :disabled="disabled" @change="$emit(\'update:modelValue\', $event.target.value)"><option v-for="option in options" :key="option.value" :value="option.value">{{option.label}}</option></select>' });
+function mountPanel() { setLocale('en-US'); return mount(GameModsPanel, { props: { game, locked: false }, global: { stubs: { ModUpdates: true, SelectField: Select, PopoverPortal: {template: '<slot />'}, PopoverContent: {template: '<div><slot /></div>'} } } }); }
 function mockSources() {
   vi.mocked(invoke).mockImplementation(async command => {
     if (command === 'list_game_mods') return structuredClone(mods);
@@ -42,12 +45,12 @@ it('combines state, lazy provenance and search filters with honest visible count
 
 it('clears old selections when changing filters and local files exclude recorded providers', async () => {
   mockSources(); const wrapper = mountPanel(); await flushPromises();
-  await wrapper.get('input[aria-label="Select all visible Mods"]').setValue(true);
+  await wrapper.get('input[aria-label="Select all matching Mods"]').setValue(true);
   expect(wrapper.text()).toContain('3 selected');
   await wrapper.get('select[aria-label="Filter Mod source"]').setValue('local'); await flushPromises();
   expect(wrapper.get('.mod-list').text()).toContain('Local');
   expect(wrapper.get('.mod-list').text()).not.toContain('Alpha');
-  expect(wrapper.get('.mod-selection-label').text()).toBe('Select Mods');
+  expect(wrapper.find('.mod-selection-toolbar').exists()).toBe(false);
   wrapper.unmount();
 });
 
@@ -94,7 +97,7 @@ it('stops the sequential bulk operation before dispatching another file when the
     return new Promise(resolve => { finish = () => resolve(null); });
   });
   const wrapper = mountPanel(); await flushPromises();
-  await wrapper.get('input[aria-label="Select all visible Mods"]').setValue(true);
+  await wrapper.get('input[aria-label="Select all matching Mods"]').setValue(true);
   await button(wrapper, 'Disable selected').trigger('click');
   await wrapper.setProps({ locked: true }); finish(); await flushPromises();
   expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === 'set_game_mod_enabled')).toHaveLength(1);
@@ -107,7 +110,7 @@ it('never dispatches the old batch into another game after an in-flight mutation
   mockSources(); let finish!: () => void;
   vi.mocked(invoke).mockImplementation(command => command === 'list_game_mods' ? Promise.resolve(structuredClone(mods)) : new Promise(resolve => { finish = () => resolve(null); }));
   const wrapper = mountPanel(); await flushPromises();
-  await wrapper.get('input[aria-label="Select all visible Mods"]').setValue(true);
+  await wrapper.get('input[aria-label="Select all matching Mods"]').setValue(true);
   await button(wrapper, 'Disable selected').trigger('click');
   await wrapper.setProps({ game: { ...game, id: 'other-game' } }); await flushPromises();
   finish(); await flushPromises();
@@ -122,7 +125,7 @@ it('releases its busy state when a refresh invalidates an in-flight batch', asyn
   let finish!: () => void;
   vi.mocked(invoke).mockImplementation(command => command === 'list_game_mods' ? Promise.resolve(structuredClone(mods)) : new Promise(resolve => { finish = () => resolve(null); }));
   const wrapper = mountPanel(); await flushPromises();
-  await wrapper.get('input[aria-label="Select all visible Mods"]').setValue(true);
+  await wrapper.get('input[aria-label="Select all matching Mods"]').setValue(true);
   await button(wrapper, 'Disable selected').trigger('click');
   await wrapper.vm.refreshContent(); finish(); await flushPromises();
   expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === 'set_game_mod_enabled')).toHaveLength(1);

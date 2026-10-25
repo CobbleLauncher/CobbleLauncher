@@ -6,6 +6,7 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { Game, ManagedGameMod, ModRecognitionResult, ModUpdateCandidate, ModUpdateCheck, ModUpdatePreview, ModUpdateResult, ModVersion } from './games';
 import ModVersionPicker from './ModVersionPicker.vue';
+import ModVersionPolicy from './ModVersionPolicy.vue';
 const props = defineProps<{ game: Game; locked: boolean; revision?: number }>();
 const emit = defineEmits<{ busy: [value: boolean]; recognizing: [value: boolean]; updated: [] }>();
 const updates = ref<ModUpdateCandidate[]>([]);
@@ -32,6 +33,7 @@ const versionMode = ref(false);
 const managed = ref<ManagedGameMod[]>([]);
 const loadingManaged = ref(false);
 const managedError = ref('');
+const pinning = ref(false);
 const selectedManaged = ref<ManagedGameMod | null>(null);
 const managedVersion = ref<ModVersion | null>(null);
 const preferredVersionId = ref<string | undefined>();
@@ -39,10 +41,26 @@ const planKind = ref<'update' | 'version'>('update');
 const versionChanged = ref(false);
 const requestedFilename = ref<string | null>(null);
 const selectedCurseForge = ref(false);
+const policyBusy = ref(false);
 let managedRequest = 0;
 let request = 0;
 const allSelected = computed(() => updates.value.length > 0 && updates.value.every((update) => selected.value.includes(update.project_id)));
-const working = computed(() => checking.value || preparing.value || applying.value || recognizing.value || cfBusy.value);
+const working = computed(() => checking.value || preparing.value || applying.value || recognizing.value || cfBusy.value || policyBusy.value);
+function policyChanged() { ++request; preview.value = null; updates.value = []; selected.value = []; checked.value = false; checkError.value = ''; curseForgeUpdates.value?.reset(); }
+function policyWorking(value: boolean) { policyBusy.value = value; emit('busy', value); }
+async function setPinned(mod: ManagedGameMod) {
+  if (working.value || pinning.value || props.locked) return;
+  pinning.value = true; managedError.value = '';
+  try {
+    await invoke('set_game_mod_pinned', { id: props.game.id, projectId: mod.project_id, pinned: !mod.pinned });
+    await loadManaged();
+    if (selectedManaged.value?.project_id === mod.project_id) selectedManaged.value = managed.value.find(item => item.project_id === mod.project_id) ?? null;
+    preview.value = null;
+    updates.value = updates.value.filter(update => update.project_id !== mod.project_id);
+    selected.value = selected.value.filter(id => id !== mod.project_id);
+  } catch { managedError.value = t('modUpdates.pinFailed'); }
+  finally { pinning.value = false; }
+}
 function toggleAll(checked: boolean) { selected.value = checked ? updates.value.map((update) => update.project_id) : []; }
 function toggle(id: string, checked: boolean) { selected.value = checked ? [...new Set([...selected.value, id])] : selected.value.filter((value) => value !== id); }
 async function loadManaged() {
@@ -114,7 +132,7 @@ function leaveVersionManager() {
   else { ++managedRequest; loadingManaged.value = false; versionMode.value = false; }
 }
 async function prepareVersion() {
-  if (!selectedManaged.value || !managedVersion.value || working.value || props.locked || selectedManaged.value.version_id === managedVersion.value.version_id) return;
+  if (!selectedManaged.value || !managedVersion.value || working.value || props.locked || selectedManaged.value.pinned || selectedManaged.value.version_id === managedVersion.value.version_id) return;
   const current = ++request;
   planKind.value = 'version'; preparing.value = true; planError.value = ''; versionChanged.value = false;
   try {
@@ -190,6 +208,15 @@ onUnmounted(() => { ++request; ++managedRequest; });
 </script>
 <template>
   <div class="mod-updates">
+    <ModVersionPolicy
+      v-if="!preview"
+      :game-id="game.id"
+      :project-id="versionMode ? selectedManaged?.project_id : undefined"
+      :selected-version="managedVersion && managedVersion.version_id !== selectedManaged?.version_id ? managedVersion : undefined"
+      :disabled="locked || working"
+      @changed="policyChanged"
+      @busy="policyWorking"
+    />
     <template v-if="preview">
       <button
         class="text-button"
@@ -398,6 +425,7 @@ onUnmounted(() => { ++request; ++managedRequest; });
       @failed="cfFailed = $event"
       @busy="curseForgeBusy"
       @updated="emit('updated')"
+      @policy-changed="policyChanged"
     />
     <section
       v-show="versionMode && !preview"
@@ -424,6 +452,13 @@ onUnmounted(() => { ++request; ++managedRequest; });
             {{ t('modUpdates.disabledHelp') }}
           </p>
         </div>
+        <button
+          class="text-button"
+          :disabled="working || pinning || locked"
+          @click="setPinned(selectedManaged)"
+        >
+          {{ t(selectedManaged.pinned ? 'modUpdates.unpin' : 'modUpdates.pin') }}
+        </button>
         <ModVersionPicker
           :key="selectedManaged.project_id"
           :game-id="game.id"
@@ -441,7 +476,7 @@ onUnmounted(() => { ++request; ++managedRequest; });
         </p>
         <button
           class="secondary-button mod-version-preview-button"
-          :disabled="working || locked || !managedVersion || managedVersion.version_id === selectedManaged.version_id"
+          :disabled="working || locked || selectedManaged.pinned || !managedVersion || managedVersion.version_id === selectedManaged.version_id"
           @click="prepareVersion"
         >
           {{ t(preparing ? 'modUpdates.preparing' : 'modUpdates.preview') }}
@@ -527,7 +562,19 @@ onUnmounted(() => { ++request; ++managedRequest; });
               >
                 {{ t('modUpdates.disabled') }}
               </p>
+              <p
+                v-if="mod.pinned"
+                class="mod-meta"
+              >
+                {{ t('modUpdates.pinned') }}
+              </p>
             </div><button
+              class="text-button"
+              :disabled="loadingManaged || working || pinning || locked"
+              @click="setPinned(mod)"
+            >
+              {{ t(mod.pinned ? 'modUpdates.unpin' : 'modUpdates.pin') }}
+            </button><button
               class="secondary-button"
               :aria-label="t('modUpdates.manageNamed', {name: mod.name ?? mod.filename})"
               :disabled="loadingManaged || working"

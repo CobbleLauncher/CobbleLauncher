@@ -1,0 +1,40 @@
+<!doctype html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Window interaction fixture</title></head>
+<body><div id="app"></div><script type="module">
+import { createApp, h } from 'vue';
+import WindowResizeEdges from '../../src/WindowResizeEdges.vue';
+import '../../src/ui.css';
+const query = new URLSearchParams(location.search);
+const scale = Number(query.get('scale') || 1);
+document.documentElement.style.setProperty('--appearance-scale', String(scale));
+if(query.get('native') !== '1') {
+window.isTauri = true;
+window.fixtureCalls = [];
+window.__TAURI_INTERNALS__ = {
+ metadata: { currentWindow: { label:'main' } }, transformCallback: () => 1,
+ invoke: async (command,args) => {
+  window.fixtureCalls.push({command,args});
+  if(command.endsWith('|is_resizable')) return true;
+  if(command.endsWith('|is_maximized') || command.endsWith('|is_fullscreen')) return false;
+  return 1;
+ },
+};
+}
+createApp({render:()=>h('div',[
+ h(WindowResizeEdges),
+ h('header',{style:'display:flex;height:44px;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid var(--ui-border)'},[
+  h('span',{'data-tauri-drag-region':'',id:'drag-region'},'Cobble Launcher'),
+  h('button',{id:'window-button'},'×'),
+ ]),
+ h('main',{style:'padding:24px;display:grid;gap:16px'},[
+  h('h1',{id:'ordinary'},'Settings'),
+  h('label',['Name',h('input',{id:'editable',value:'Survival world'})]),
+  h('p',{class:'settings-path-text',id:'path'},'C:\\Games\\Survival world'),
+  h('p',{class:'settings-error',id:'error'},'Java runtime could not be found.'),
+  h('pre',{id:'log'},'[12:00] Launcher ready'),
+  h('p',{class:'selectable',id:'selectable'},'Copyable diagnostic text'),
+  h('div',{contenteditable:'true',id:'contenteditable'},'Editable text'),
+  h('button',{id:'normal-button'},'Apply'),
+ ]),
+])}).mount('#app');
+</script><style>body{margin:0;background:var(--ui-bg);color:var(--ui-text)}button,input{font:inherit}main button{width:100px;height:40px}input{display:block;padding:8px}pre{margin:0}.settings-error{color:var(--ui-danger)}</style></body></html>

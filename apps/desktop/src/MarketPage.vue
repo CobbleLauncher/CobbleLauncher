@@ -1,24 +1,62 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
 import { t } from './i18n';
-import { computed, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import type { CurseForgePackPreview } from './curseforge';
 import CurseForgeDiscover from './CurseForgeDiscover.vue';
 import DiscoverPacksPage from './DiscoverPacksPage.vue';
 import DiscoverMods from './DiscoverMods.vue';
 import DiscoverPacks from './DiscoverPacks.vue';
-import { gameLoaderLabel, type Game, type PackPreview } from './games';
+import { type Game, type PackPreview } from './games';
 import { marketGames, marketGameLocked, type MarketKind } from './market';
-import AppIcon from './ui/AppIcon.vue';
+import MarketToolbar from './market/MarketToolbar.vue';
+import SettingsDisclosure from './ui/settings/SettingsDisclosure.vue';
 import { marketTarget, rememberMarketTarget } from './market-preferences';
+import { savedMarketItems, type SavedMarketItem } from './market-saved';
+import { marketWorkstate, rememberMarketWorkstate } from './market-workstate';
 
 const props = defineProps<{ games: Game[]; initialKind: MarketKind; initialGameId?: string; initialQuery?: string }>();
 const emit = defineEmits<{ busy: [value: boolean]; selectedPack: [preview: PackPreview]; selectedCfPack: [preview: CurseForgePackPreview]; installed: [gameId: string]; locate: [gameId: string, kind: MarketKind] }>();
 const categories: Exclude<MarketKind, 'blueprint'>[] = ['modpack', 'mod', 'resource_pack', 'shader_pack'];
-const kind = ref<MarketKind>(props.initialKind);
-const gameId = ref(marketTarget(props.games, props.initialKind, props.initialGameId));
+const previousSelection = marketWorkstate<{ kind: MarketKind; provider: string; gameId: string; minecraftVersion?: string; loader?: string }>('market:selection');
+const kind = ref<MarketKind>(props.initialQuery || props.initialGameId ? props.initialKind : previousSelection?.kind ?? props.initialKind);
+const gameId = ref(marketTarget(props.games, kind.value, props.initialGameId ?? previousSelection?.gameId));
 const busy = ref(false);
-const provider = ref('modrinth');
+const cfAvailable = ref<boolean | null>(null);
+function sharedQueryKey(category: MarketKind, target: string) { return `market:shared-query:${category}:${target || 'global'}`; }
+const sharedQuery = ref(props.initialQuery ?? marketWorkstate<string>(sharedQueryKey(kind.value, gameId.value)) ?? '');
+const sharedInitialQuery = ref(sharedQuery.value);
+let sharedSerial = 0;
+const minecraftVersion = ref(props.initialQuery ? '' : previousSelection?.minecraftVersion ?? '');
+const filterLoader = ref(props.initialQuery ? '' : previousSelection?.loader ?? '');
+const sharedRequest = ref({ serial: 0, query: sharedQuery.value, minecraftVersion: minecraftVersion.value, loader: filterLoader.value });
+const queryError = ref('');
+function submitSharedSearch() {
+  const query = sharedQuery.value.trim();
+  queryError.value = '';
+  if (kind.value === 'modpack') {
+    const version = minecraftVersion.value.trim();
+    if (filterLoader.value && !version) { queryError.value = t('curseforge.versionRequired'); return; }
+    if (version && !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/.test(version)) { queryError.value = t('market.invalidVersion'); return; }
+  }
+  rememberMarketWorkstate(sharedQueryKey(kind.value, gameId.value), query);
+  sharedRequest.value = { serial: ++sharedSerial, query, minecraftVersion: minecraftVersion.value.trim(), loader: filterLoader.value };
+}
+type MarketProvider = 'all' | 'modrinth' | 'curseforge';
+const provider = ref<MarketProvider>('all');
+const savedRequest = ref<{ serial: number; item: SavedMarketItem }>();
+const savedCollections = computed(() => ([
+  { id: 'favorite', label: t('market.favorites'), items: savedMarketItems.value.filter(item => item.collection === 'favorite') },
+  { id: 'later', label: t('market.saved'), items: savedMarketItems.value.filter(item => item.collection === 'later') },
+]).filter(collection => collection.items.length));
+let savedSerial = 0;
+function openSaved(item: SavedMarketItem) {
+  if (busy.value) return;
+  kind.value = item.kind;
+  provider.value = item.provider;
+  if (item.kind !== 'modpack') gameId.value = marketTarget(props.games, item.kind, gameId.value);
+  if (item.kind === 'modpack' || gameId.value) savedRequest.value = { serial: ++savedSerial, item };
+}
 const installedName = ref('');
 const status = computed(() => installedName.value ? t('market.installed', { name: installedName.value }) : '');
 function categoryLabel(category: MarketKind) {
@@ -27,16 +65,26 @@ function categoryLabel(category: MarketKind) {
 }
 const targets = computed(() => marketGames(props.games, kind.value));
 const game = computed(() => targets.value.find(game => game.id === gameId.value));
-const browseComponent = computed(() => kind.value === 'modpack'
-  ? provider.value === 'curseforge' ? CurseForgeDiscover : DiscoverPacksPage
-  : kind.value === 'mod' ? provider.value === 'curseforge' ? CurseForgeDiscover : DiscoverMods : DiscoverPacks);
-const browseKey = computed(() => `${kind.value}-${provider.value}-${gameId.value}`);
-const browseProps = computed(() => {
-  if (kind.value === 'modpack') return provider.value === 'curseforge' ? { kind: 'modpack' } : {};
+const activeSources = computed<Exclude<MarketProvider, 'all'>[]>(() => kind.value === 'mod' || kind.value === 'modpack'
+  ? provider.value === 'all' ? ['modrinth', 'curseforge'] : [provider.value]
+  : ['modrinth']);
+function browseComponent(source: Exclude<MarketProvider, 'all'>) {
+  return kind.value === 'modpack'
+    ? source === 'curseforge' ? CurseForgeDiscover : DiscoverPacksPage
+    : kind.value === 'mod' ? source === 'curseforge' ? CurseForgeDiscover : DiscoverMods : DiscoverPacks;
+}
+function browseProps(source: Exclude<MarketProvider, 'all'>) {
+  const sharedMode = true;
+  const initialQuery = sharedMode ? sharedInitialQuery.value : props.initialQuery;
+  if (kind.value === 'modpack') return source === 'curseforge'
+    ? { kind: 'modpack', initialQuery, sharedMode, sharedRequest: sharedRequest.value }
+    : { initialQuery, sharedMode, sharedRequest: sharedRequest.value };
   const locked = game.value ? marketGameLocked(game.value) : false;
-  if (kind.value === 'mod') return provider.value === 'curseforge' ? { kind: 'mod', game: game.value, locked, initialQuery: props.initialQuery } : { game: game.value, locked, initialQuery: props.initialQuery };
-  return { gameId: gameId.value, kind: kind.value, locked, browseOnMount: true };
-});
+  if (kind.value === 'mod') return source === 'curseforge'
+    ? { kind: 'mod', game: game.value, locked, initialQuery, sharedMode, sharedRequest: sharedRequest.value }
+    : { game: game.value, locked, initialQuery, sharedMode, sharedRequest: sharedRequest.value };
+  return { gameId: gameId.value, kind: kind.value, locked, browseOnMount: true, initialQuery, sharedMode, sharedRequest: sharedRequest.value };
+}
 function setBusy(value: boolean) { busy.value = value; emit('busy', value); }
 function installed() {
   if (!game.value) return;
@@ -45,190 +93,141 @@ function installed() {
 }
 function selectKind(value: MarketKind) {
   if (!busy.value && kind.value !== value) {
+    savedRequest.value = undefined;
     kind.value = value;
     gameId.value = marketTarget(props.games, value);
   }
 }
 watch([() => props.initialKind, () => props.initialGameId], () => {
+  savedRequest.value = undefined;
   kind.value = props.initialKind; gameId.value = marketTarget(props.games, props.initialKind, props.initialGameId); installedName.value = '';
 });
-watch([kind, gameId], () => { installedName.value = ''; });
+watch([kind, gameId], ([newKind, newGame], [oldKind, oldGame]) => {
+  rememberMarketWorkstate(sharedQueryKey(oldKind, oldGame), sharedQuery.value);
+  sharedQuery.value = marketWorkstate<string>(sharedQueryKey(newKind, newGame)) ?? '';
+  sharedInitialQuery.value = sharedQuery.value;
+  sharedRequest.value = { serial: ++sharedSerial, query: sharedQuery.value, minecraftVersion: minecraftVersion.value, loader: filterLoader.value };
+  installedName.value = '';
+    queryError.value = '';
+});
 watch(targets, () => { if (gameId.value && !game.value) gameId.value = ''; });
-function rememberTarget() { rememberMarketTarget(kind.value, gameId.value); }
+function rememberTarget() { savedRequest.value = undefined; rememberMarketTarget(kind.value, gameId.value); }
+function selectTarget(value: string) { gameId.value = value; rememberTarget(); }
+onUnmounted(() => {
+  rememberMarketWorkstate('market:selection', { kind: kind.value, provider: provider.value, gameId: gameId.value, minecraftVersion: minecraftVersion.value, loader: filterLoader.value });
+  rememberMarketWorkstate(sharedQueryKey(kind.value, gameId.value), sharedQuery.value);
+});
 </script>
 
 <template>
   <div class="page-content market-page">
-    <div class="market-layout">
-      <aside class="market-sidebar">
-        <nav
-          class="market-category-list"
-          :aria-label="t('market.content')"
-        >
+    <MarketToolbar
+      :kind="kind"
+      :categories="categories.map(value => ({value,label:categoryLabel(value)}))"
+      :targets="targets"
+      :game-id="gameId"
+      :provider="provider"
+      :query="sharedQuery"
+      :minecraft-version="minecraftVersion"
+      :loader="filterLoader"
+      :busy="busy"
+      :cf-available="cfAvailable"
+      @kind="selectKind"
+      @target="selectTarget"
+      @provider="provider = $event as MarketProvider"
+      @query="sharedQuery = $event"
+      @version="minecraftVersion = $event"
+      @loader="filterLoader = $event"
+      @search="submitSharedSearch"
+    >
+      <p
+        v-if="queryError"
+        class="settings-error"
+        role="alert"
+      >
+        {{ queryError }}
+      </p>
+      <p
+        v-if="provider === 'curseforge' && cfAvailable === false"
+        class="setting-hint"
+        role="status"
+      >
+        {{ t('curseforge.unavailable') }}
+      </p>
+      <SettingsDisclosure
+        v-for="collection in savedCollections"
+        :key="collection.id"
+        class="market-saved"
+        :title="`${collection.label} (${collection.items.length})`"
+      >
+        <div class="market-saved-items">
           <button
-            v-for="category in categories"
-            :key="category"
-            :aria-pressed="kind === category"
+            v-for="item in collection.items"
+            :key="`${item.collection}-${item.provider}-${item.kind}-${item.project_id}`"
+            class="text-button"
             :disabled="busy"
-            @click="selectKind(category)"
+            @click="openSaved(item)"
           >
-            {{ categoryLabel(category) }}
+            {{ item.title }}
           </button>
-        </nav>
-        <details
-          v-if="kind === 'mod' || kind === 'modpack'"
-          class="market-source-filter"
+        </div>
+      </SettingsDisclosure>
+      <div class="market-workflow">
+        <p
+          v-if="kind !== 'modpack' && !targets.length"
+          class="content-empty"
         >
-          <summary><AppIcon name="settings" />{{ t('market.sources') }}</summary>
-          <div class="market-source-filter-content form-field">
-            <label for="market-provider-desktop">{{ t('curseforge.provider') }}</label>
-            <select
-              id="market-provider-desktop"
-              v-model="provider"
-              :disabled="busy"
-            >
-              <option value="modrinth">
-                Modrinth
-              </option>
-              <option value="curseforge">
-                CurseForge
-              </option>
-            </select>
-          </div>
-        </details>
-        <div class="market-filter-fields">
+          {{ kind === 'mod' ? t('market.noModGame') : t('market.noGame') }}
+        </p>
+        <section
+          v-for="source in activeSources"
+          v-show="source !== 'curseforge' || cfAvailable !== false"
+          :key="source"
+          class="market-source-results"
+          :class="{ 'market-unified-results': provider === 'all' }"
+          :aria-label="source === 'modrinth' ? 'Modrinth' : 'CurseForge'"
+        >
           <div
-            v-if="kind !== 'modpack' && kind !== 'blueprint'"
-            class="form-field"
+            v-if="activeSources.length > 1 && cfAvailable !== false"
+            class="market-source-title"
           >
-            <label for="market-game-desktop">{{ t('market.target') }}</label>
-            <select
-              id="market-game-desktop"
-              v-model="gameId"
-              :disabled="busy"
-              @change="rememberTarget"
-            >
-              <option value="">
-                {{ t('market.chooseGame') }}
-              </option>
-              <option
-                v-for="target in targets"
-                :key="target.id"
-                :value="target.id"
-              >
-                {{ target.name }} · {{ target.version }} · {{ gameLoaderLabel(target) }}
-              </option>
-            </select>
+            {{ source === 'modrinth' ? 'Modrinth' : 'CurseForge' }}
           </div>
-        </div>
-      </aside>
-
-      <section class="market-results">
-        <div class="market-mobile-controls">
-          <label class="market-mobile-category">
-            <span class="visually-hidden">{{ t('market.content') }}</span>
-            <select
-              :value="kind"
-              :disabled="busy"
-              @change="selectKind(($event.target as HTMLSelectElement).value as MarketKind)"
-            >
-              <option
-                v-for="category in categories"
-                :key="category"
-                :value="category"
-              >{{ categoryLabel(category) }}</option>
-            </select>
-          </label>
-          <details class="market-mobile-filters">
-            <summary><AppIcon name="settings" />{{ t('market.filters') }}</summary>
-            <div class="market-mobile-filter-content">
-              <div
-                v-if="kind === 'mod' || kind === 'modpack'"
-                class="form-field"
-              >
-                <label for="market-provider-mobile">{{ t('curseforge.provider') }}</label>
-                <select
-                  id="market-provider-mobile"
-                  v-model="provider"
-                  :disabled="busy"
-                >
-                  <option value="modrinth">
-                    Modrinth
-                  </option>
-                  <option value="curseforge">
-                    CurseForge
-                  </option>
-                </select>
-              </div>
-              <div
-                v-if="kind !== 'modpack' && kind !== 'blueprint'"
-                class="form-field"
-              >
-                <label for="market-game-mobile">{{ t('market.target') }}</label>
-                <select
-                  id="market-game-mobile"
-                  v-model="gameId"
-                  :disabled="busy"
-                  @change="rememberTarget"
-                >
-                  <option value="">
-                    {{ t('market.chooseGame') }}
-                  </option>
-                  <option
-                    v-for="target in targets"
-                    :key="target.id"
-                    :value="target.id"
-                  >
-                    {{ target.name }} · {{ target.version }} · {{ gameLoaderLabel(target) }}
-                  </option>
-                </select>
-              </div>
-            </div>
-          </details>
-        </div>
-
-        <div class="market-workflow">
-          <p
-            v-if="kind !== 'modpack' && !targets.length"
-            class="content-empty"
-          >
-            {{ kind === 'mod' ? t('market.noModGame') : t('market.noGame') }}
-          </p>
-          <KeepAlive :max="8">
+          <KeepAlive :max="64">
             <component
-              :is="browseComponent"
+              :is="browseComponent(source)"
               v-if="kind === 'modpack' || game"
-              :key="browseKey"
-              v-bind="browseProps"
+              :key="`${kind}-${source}-${gameId}`"
+              v-bind="browseProps(source)"
+              :saved-request="savedRequest"
               @busy="setBusy"
+              @availability="cfAvailable = $event"
               @installing="setBusy"
               @installed="installed"
               @selected-pack="emit('selectedPack', $event)"
               @selected-cf-pack="emit('selectedCfPack', $event)"
             />
           </KeepAlive>
-          <p
-            v-if="status"
-            role="status"
-            class="setting-hint"
+        </section>
+        <p
+          v-if="status"
+          role="status"
+          class="setting-hint"
+        >
+          {{ status }} <button
+            class="text-button"
+            @click="emit('locate', gameId, kind)"
           >
-            {{ status }}
-            <button
-              class="text-button"
-              @click="emit('locate', gameId, kind)"
-            >
-              {{ t('market.viewInstalled') }}
-            </button>
-          </p>
-        </div>
-      </section>
-    </div>
+            {{ t('market.viewInstalled') }}
+          </button>
+        </p>
+      </div>
+    </MarketToolbar>
   </div>
 </template>
-
 <style scoped>
-.market-layout{display:grid;grid-template-columns:158px minmax(0,1fr);gap:24px;align-items:start}.market-sidebar{display:flex;flex-direction:column;gap:21px;min-width:0}.market-category-list{display:grid;gap:3px}.market-category-list button{min-height:40px;padding:9px 10px;border:0;border-radius:8px;background:transparent;color:var(--muted);text-align:left;font:inherit;font-size:13px}.market-category-list button:hover{background:var(--hover);color:var(--ink)}.market-category-list button[aria-pressed=true]{background:var(--hover);color:var(--ink);font-weight:600}.market-category-list button:disabled{opacity:.6}.market-filter-fields{display:grid;gap:14px}.market-filter-fields .form-field{min-width:0}.market-filter-fields label,.market-mobile-filter-content label{display:block;margin-bottom:6px;font-size:12px;color:var(--muted)}.market-filter-fields select,.market-mobile-filter-content select{width:100%;min-width:0;min-height:40px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit;font-size:13px}.market-results{min-width:0}.market-workflow{min-width:0}.market-mobile-controls{display:none}.market-page :deep(.discover-list){display:grid;gap:8px}.market-page :deep(.discover-packs-page){padding:0}.market-page :deep(.curseforge-discover){padding-top:0}@media(max-width:680px){.market-layout{display:block}.market-sidebar{display:none}.market-mobile-controls{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:8px;margin-bottom:12px}.market-mobile-category select{width:100%;min-width:0;min-height:38px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit;font-size:13px}.market-mobile-filters{position:relative}.market-mobile-filters>summary{display:flex;align-items:center;justify-content:center;gap:7px;max-width:220px;min-height:38px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--muted);font-size:12px;cursor:pointer;list-style:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.market-mobile-filters>summary::-webkit-details-marker{display:none}.market-mobile-filters>summary svg{width:15px;height:15px;flex:none}.market-mobile-filter-content{position:absolute;z-index:5;right:0;top:calc(100% + 5px);display:grid;gap:13px;width:min(280px,calc(100vw - 48px));padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:0 10px 28px #0002}.market-mobile-filter-content .form-field{min-width:0}}
-.market-source-filter{position:relative}.market-source-filter>summary{display:flex;align-items:center;gap:7px;width:fit-content;min-height:34px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--muted);font-size:12px;cursor:pointer;list-style:none}.market-source-filter>summary::-webkit-details-marker{display:none}.market-source-filter>summary svg{width:14px;height:14px}.market-source-filter-content{position:absolute;z-index:5;left:0;top:calc(100% + 5px);width:190px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:0 10px 28px #0002}.market-source-filter-content label{display:block;margin-bottom:6px;font-size:12px;color:var(--muted)}.market-source-filter-content select{width:100%;min-height:40px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit;font-size:13px}
-.market-page .visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.market-page,.market-workflow{min-width:0}.market-page{container-type:inline-size}.market-source-results+.market-source-results{margin-top:var(--ui-space-6)}.market-source-title{margin:0 0 var(--ui-space-2);font-size:var(--ui-text-caption);font-weight:var(--ui-weight-medium);color:var(--ui-text-muted)}
+.market-page :deep(.discover-list){display:grid;gap:var(--ui-space-2)}.market-page :deep(.discover-packs-page){padding:0}.market-page :deep(.curseforge-discover){padding-top:0}.market-unified-results :deep(.discover-list){gap:0}.market-unified-results :deep(.pack-result-card){border:0;border-bottom:1px solid var(--ui-border);border-radius:0;padding:var(--ui-space-4) 0;background:transparent}.market-unified-results :deep(.pack-result-card:not([aria-disabled=true]):hover){background:var(--ui-surface-hover)}
+.market-unified-results :deep(.pack-result-card h2),.market-unified-results :deep(.pack-result-card h3){font-size:var(--ui-text-body);line-height:var(--ui-leading-body);font-weight:var(--ui-weight-semibold)}.market-saved{margin-bottom:var(--ui-space-3)}.market-saved-items{display:flex;gap:var(--ui-space-2);flex-wrap:wrap;padding-top:var(--ui-space-3)}
+.market-unified-results :deep(.content-empty){text-align:left;padding:var(--ui-space-4) 0;font-size:var(--ui-text-label)}
 </style>
-

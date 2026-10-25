@@ -3,14 +3,24 @@
 use super::*;
 #[path = "mesh_app.rs"]
 pub mod app;
+#[path = "mesh_app_route.rs"]
+mod app_route;
 #[path = "mesh_client.rs"]
 mod client;
 #[path = "mesh_composer.rs"]
 pub mod composer;
 #[path = "mesh_enabled.rs"]
 mod enabled;
+#[path = "mesh_environment.rs"]
+pub mod environment;
+#[path = "mesh_groups.rs"]
+pub mod groups;
 #[path = "mesh_lan.rs"]
 mod lan;
+#[path = "mesh_network.rs"]
+pub mod network;
+#[path = "mesh_node.rs"]
+pub mod node;
 #[path = "mesh_overview.rs"]
 pub mod overview;
 #[path = "mesh_port.rs"]
@@ -114,6 +124,83 @@ impl Drop for MeshActivity {
 fn broker() -> &'static Mutex<Broker> {
     BROKER.get_or_init(Default::default)
 }
+/// Closed plugin adapter. It only uses the already-running social client.
+pub(crate) fn plugin_event_request(
+    expected_generation: Option<u64>,
+    command: Value,
+) -> Result<(u64, Value), String> {
+    if app_route::changing() {
+        return Err("MESH_EVENT_ROUTE_CHANGING".into());
+    }
+    if !plugin_event_command_allowed(expected_generation, &command) {
+        return Err("MESH_EVENT_COMMAND_DENIED".into());
+    }
+    let (generation, client) = {
+        let mut state = broker().lock().map_err(|_| "MESH_STATE_UNAVAILABLE")?;
+        let enabled = enabled::require(&mut state).is_ok();
+        plugin_event_context(
+            expected_generation,
+            state.social_generation,
+            enabled,
+            state.social_client.is_some(),
+        )?;
+        (
+            state.social_generation,
+            state.social_client.as_ref().unwrap().clone(),
+        )
+    };
+    // A remote ACK may take time. Offline and identity changes must never wait
+    // behind this request's broker lock; old results are checked before return.
+    let result = client.request(command);
+    let mut state = broker().lock().map_err(|_| "MESH_STATE_UNAVAILABLE")?;
+    if app_route::changing() {
+        return Err("MESH_EVENT_ROUTE_CHANGING".into());
+    }
+    let enabled = enabled::require(&mut state).is_ok();
+    plugin_event_context(
+        Some(generation),
+        state.social_generation,
+        enabled,
+        state.social_client.is_some(),
+    )?;
+    Ok((generation, result?))
+}
+fn plugin_event_context(
+    expected: Option<u64>,
+    current: u64,
+    enabled: bool,
+    active: bool,
+) -> Result<(), String> {
+    if !enabled {
+        Err("MESH_DISABLED".into())
+    } else if expected.is_some_and(|generation| generation != current) {
+        Err("MESH_IDENTITY_CHANGED".into())
+    } else if !active {
+        Err("MESH_APP_STOPPED".into())
+    } else {
+        Ok(())
+    }
+}
+fn plugin_event_command_allowed(generation: Option<u64>, command: &Value) -> bool {
+    let Some(fields) = command.as_object() else {
+        return false;
+    };
+    let keys: &[&str] = match command["op"].as_str() {
+        Some("app_status") => &["op"],
+        Some("app_event_subscribe") if generation.is_some() => {
+            &["op", "subscription_id", "namespace"]
+        }
+        Some("app_event_unsubscribe") if generation.is_some() => &["op", "subscription_id"],
+        Some("app_event_read") if generation.is_some() => {
+            &["op", "subscription_id", "after", "limit"]
+        }
+        Some("app_event_send") if generation.is_some() => {
+            &["op", "peer_id", "namespace", "event", "payload"]
+        }
+        _ => return false,
+    };
+    fields.len() == keys.len() && keys.iter().all(|key| fields.contains_key(*key))
+}
 fn helper_path() -> Result<PathBuf, String> {
     Ok(std::env::current_exe()
         .map_err(|_| "无法确定联机组件位置")?
@@ -149,7 +236,10 @@ fn snapshot(value: &Value) -> Result<CompanionSession, String> {
             session.state.as_str(),
             "listening" | "bridge_ready" | "completed" | "failed" | "ended"
         )
-        || session.route != "explicit_relay"
+        || !matches!(
+            session.route.as_str(),
+            "unknown" | "direct" | "relay" | "explicit_relay"
+        )
         || session.scope != "public"
     {
         return Err("联机会话数据无效".into());
@@ -157,6 +247,23 @@ fn snapshot(value: &Value) -> Result<CompanionSession, String> {
     Ok(session)
 }
 impl Broker {
+    fn shared_client(&mut self) -> Result<client::Client, String> {
+        network::prepare_identity(self);
+        enabled::require(self)?;
+        let client = self
+            .client
+            .as_ref()
+            .or(self.social_client.as_ref())
+            .or(self.discovery_client.as_ref())
+            .filter(|client| client.alive())
+            .cloned()
+            .map(Ok)
+            .unwrap_or_else(|| client::Client::spawn(&helper_path()?))?;
+        self.client = Some(client.clone());
+        self.social_client = Some(client.clone());
+        self.discovery_client = Some(client.clone());
+        Ok(client)
+    }
     fn request(&mut self, command: Value) -> Result<Value, String> {
         let result = self
             .client
@@ -164,13 +271,15 @@ impl Broker {
             .ok_or("联机会话尚未开始")?
             .request(command);
         if result.is_err() {
-            self.client.take();
-            self.binding.take();
+            self.abort();
         }
         result
     }
     fn prepare(&mut self) -> Result<(), String> {
         enabled::require(self)?;
+        if groups::occupied() {
+            return Err("MESH_GROUP_ACTIVE".into());
+        }
         if self
             .binding
             .as_ref()
@@ -179,7 +288,7 @@ impl Broker {
             return Err("已有联机会话正在进行".into());
         }
         if self.client.is_none() {
-            self.client = Some(client::Client::spawn(&helper_path()?)?);
+            self.shared_client()?;
         }
         Ok(())
     }
@@ -219,7 +328,13 @@ impl Broker {
         Ok(public)
     }
     fn abort(&mut self) {
-        self.client.take();
+        groups::clear();
+        if let Some(client) = self.client.take() {
+            client.shutdown();
+        }
+        self.social_client.take();
+        self.discovery_client.take();
+        self.social_generation = self.social_generation.wrapping_add(1);
         self.binding.take();
     }
     fn end(&mut self, public_id: u64) -> Result<StatusResult, String> {
@@ -270,6 +385,7 @@ impl Broker {
             return Err("联机会话已变化".into());
         }
         binding.public.state = current.state;
+        binding.public.route = current.route;
         Ok(StatusResult {
             session: Some(binding.public.clone()),
         })
@@ -277,6 +393,7 @@ impl Broker {
 }
 fn watch_game(public_id: u64) {
     std::thread::spawn(move || {
+        let _restore = app_route::RestoreOnExit;
         loop {
             std::thread::sleep(Duration::from_secs(1));
             let Ok(mut broker) = broker().lock() else {
@@ -310,6 +427,7 @@ pub async fn mesh_host(
     local_port: Option<u16>,
     relay: Option<String>,
     approve_local_port: bool,
+    route_policy: Option<overview::RoutingPolicy>,
 ) -> Result<HostResult, String> {
     let activity = MeshActivity::new("create");
     if !approve_local_port {
@@ -317,6 +435,7 @@ pub async fn mesh_host(
     }
     let game = running_game(&app, &game_id)?;
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let route_policy = route_policy.unwrap_or_else(|| overview::saved_relay().route_policy);
         let local_port = local_port
             .or_else(|| lan::discover(&game).port)
             .ok_or("Open this world to LAN in Minecraft first")?;
@@ -331,10 +450,11 @@ pub async fn mesh_host(
         if relay.len() > 1024 || !(relay.starts_with("/ip4/") || relay.starts_with("/dns4/")) {
             return Err("请输入有效的公网中继地址".into());
         }
+        let _pause = app_route::pause_for_game()?;
         let mut broker = broker().lock().map_err(|_| "联机状态不可用")?;
         broker.prepare()?;
         let value = broker.request(
-            json!({"op":"create_via_relay","approved_loopback_port":local_port,"relay":relay}),
+            json!({"op":"create_game","approved_loopback_port":local_port,"relay":relay,"route_policy":route_policy}),
         )?;
         let result = (|| {
             let state = snapshot(&value)?;
@@ -360,7 +480,7 @@ pub async fn mesh_host(
                 return Err("选定的游戏已退出".into());
             }
             watch_game(session.session_id);
-            let _ = overview::save_relay(&relay);
+            let _ = overview::save_relay_policy(&relay, &route_policy);
             Ok(HostResult {
                 session,
                 invitation,
@@ -380,12 +500,14 @@ pub async fn mesh_host_server(
     local_port: Option<u16>,
     relay: Option<String>,
     approve_local_port: bool,
+    route_policy: Option<overview::RoutingPolicy>,
 ) -> Result<HostResult, String> {
     let activity = MeshActivity::new("create_server");
     if !approve_local_port {
         return Err("请确认共享本机服务器端口".into());
     }
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let route_policy = route_policy.unwrap_or_else(|| overview::saved_relay().route_policy);
         let local_port = local_port.unwrap_or(25565);
         port::approved_server_listener(local_port)?;
         let relay = relay
@@ -393,10 +515,11 @@ pub async fn mesh_host_server(
             .or_else(|| overview::saved_relay().address)
             .filter(|value| overview::valid_relay(value))
             .ok_or("No relay is configured")?;
+        let _pause = app_route::pause_for_game()?;
         let mut broker = broker().lock().map_err(|_| "联机状态不可用")?;
         broker.prepare()?;
         let value = broker.request(
-            json!({"op":"create_via_relay","approved_loopback_port":local_port,"relay":relay}),
+            json!({"op":"create_game","approved_loopback_port":local_port,"relay":relay,"route_policy":route_policy}),
         )?;
         let result = (|| {
             let state = snapshot(&value)?;
@@ -411,7 +534,7 @@ pub async fn mesh_host_server(
                 .to_owned();
             let session = broker.bind_target(None, Some(local_port), state)?;
             watch_game(session.session_id);
-            let _ = overview::save_relay(&relay);
+            let _ = overview::save_relay_policy(&relay, &route_policy);
             Ok(HostResult {
                 session,
                 invitation,
@@ -436,21 +559,13 @@ pub struct NetworkStatus {
 }
 #[tauri::command]
 pub async fn mesh_network_status() -> Result<NetworkStatus, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        let mut broker = broker().lock().map_err(|_| "Mesh status unavailable")?;
-        let route = broker
-            .status()
-            .ok()
-            .and_then(|status| status.session)
-            .is_some_and(|session| active(&session.state));
-        let contact = app::snapshot(&mut broker)
-            .ok()
-            .flatten()
-            .is_some_and(|snapshot| snapshot.contacts.iter().any(|contact| contact.connected));
-        Ok(network_readiness(&mut broker, route || contact))
+    let snapshot = network::mesh_network_snapshot()?;
+    Ok(NetworkStatus {
+        enabled: snapshot.enabled,
+        connected: snapshot.phase == "online",
+        relay_available: snapshot.relay_available,
+        discovery_checked: !snapshot.services.is_empty(),
     })
-    .await
-    .map_err(|_| "Mesh status lookup failed")?
 }
 
 #[tauri::command]
@@ -458,6 +573,7 @@ pub async fn mesh_join(
     app: AppHandle,
     game_id: String,
     invitation: String,
+    route_policy: Option<overview::RoutingPolicy>,
 ) -> Result<JoinResult, String> {
     let activity = MeshActivity::new("join");
     let game = running_game(&app, &game_id)?;
@@ -465,9 +581,13 @@ pub async fn mesh_join(
         return Err("邀请无效或过长".into());
     }
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let _pause = app_route::pause_for_game()?;
         let mut broker = broker().lock().map_err(|_| "联机状态不可用")?;
         broker.prepare()?;
-        let value = broker.request(json!({"op":"join_via_relay","invitation":invitation}))?;
+        let route_policy = route_policy.unwrap_or_else(|| overview::saved_relay().route_policy);
+        let value = broker.request(
+            json!({"op":"join_game","invitation":invitation,"route_policy":route_policy}),
+        )?;
         let result = (|| {
             let state = snapshot(&value)?;
             if state.role != "guest" || state.state != "bridge_ready" {
@@ -515,14 +635,18 @@ pub async fn mesh_join(
 }
 #[tauri::command]
 pub async fn mesh_status() -> Result<StatusResult, String> {
-    tauri::async_runtime::spawn_blocking(|| broker().lock().map_err(|_| "联机状态不可用")?.status())
-        .await
-        .map_err(|_| "联机状态读取失败")?
+    tauri::async_runtime::spawn_blocking(|| {
+        let _restore = app_route::RestoreOnExit;
+        broker().lock().map_err(|_| "联机状态不可用")?.status()
+    })
+    .await
+    .map_err(|_| "联机状态读取失败")?
 }
 #[tauri::command]
 pub async fn mesh_end(session_id: u64) -> Result<StatusResult, String> {
     let activity = MeshActivity::new("end");
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let _restore = app_route::RestoreOnExit;
         broker()
             .lock()
             .map_err(|_| "联机状态不可用")?
@@ -534,6 +658,7 @@ pub async fn mesh_end(session_id: u64) -> Result<StatusResult, String> {
 }
 
 pub(crate) fn shutdown() {
+    groups::clear();
     composer::cancel();
     if let Some(state) = BROKER.get()
         && let Ok(mut broker) = state.try_lock()
@@ -616,30 +741,12 @@ mod tests {
 }
 
 #[tauri::command]
-pub async fn mesh_set_enabled(enabled: bool) -> Result<NetworkStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut broker = broker().lock().map_err(|_| "MESH_STATE_UNAVAILABLE")?;
-        enabled::save(enabled)?;
-        broker.enabled = Some(enabled);
-        if !enabled {
-            composer::cancel();
-            enabled::stop_all(&mut broker);
-        }
-        let route = broker
-            .status()
-            .ok()
-            .and_then(|v| v.session)
-            .is_some_and(|v| active(&v.state));
-        let contact = app::snapshot(&mut broker)
-            .ok()
-            .flatten()
-            .is_some_and(|v| v.contacts.iter().any(|c| c.connected));
-        Ok(network_readiness(&mut broker, route || contact))
-    })
-    .await
-    .map_err(|_| "MESH_OPERATION_FAILED")?
+pub async fn mesh_set_enabled(app: AppHandle, enabled: bool) -> Result<NetworkStatus, String> {
+    network::mesh_network_set_enabled(app, enabled)?;
+    mesh_network_status().await
 }
 
+#[cfg(test)]
 fn network_readiness(broker: &mut Broker, connected: bool) -> NetworkStatus {
     let enabled = enabled::is_enabled(broker);
     let fresh = broker
@@ -659,6 +766,42 @@ fn network_readiness(broker: &mut Broker, connected: bool) -> NetworkStatus {
 #[cfg(test)]
 mod readiness_tests {
     use super::*;
+    #[test]
+    fn plugin_event_adapter_never_allows_startup_or_unbound_writes() {
+        assert!(plugin_event_command_allowed(
+            None,
+            &json!({"op":"app_status"})
+        ));
+        assert!(!plugin_event_command_allowed(
+            None,
+            &json!({"op":"app_event_subscribe","subscription_id":"id","namespace":"org.example.ready"})
+        ));
+        assert!(plugin_event_command_allowed(
+            Some(4),
+            &json!({"op":"app_event_read","subscription_id":"id","after":0,"limit":4})
+        ));
+        for command in [
+            json!({"op":"app_initialize"}),
+            json!({"op":"network_start"}),
+            json!({"op":"app_status","extra":true}),
+            json!({"op":"app_event_send","peer_id":"peer","namespace":"org.example.ready","event":"ready","payload":null,"address":"raw"}),
+        ] {
+            assert!(!plugin_event_command_allowed(Some(4), &command));
+        }
+        assert!(plugin_event_context(Some(4), 4, true, true).is_ok());
+        assert_eq!(
+            plugin_event_context(Some(4), 5, true, true).unwrap_err(),
+            "MESH_IDENTITY_CHANGED"
+        );
+        assert_eq!(
+            plugin_event_context(Some(4), 4, false, true).unwrap_err(),
+            "MESH_DISABLED"
+        );
+        assert_eq!(
+            plugin_event_context(Some(4), 4, true, false).unwrap_err(),
+            "MESH_APP_STOPPED"
+        );
+    }
     fn ready() -> Broker {
         let mut broker = Broker {
             enabled: Some(true),

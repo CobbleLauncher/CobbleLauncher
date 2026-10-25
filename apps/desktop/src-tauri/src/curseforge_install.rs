@@ -88,6 +88,9 @@ pub async fn preview_curseforge_mod_install(
         .resolve_install(project, file, &version, &loader)
         .await
         .map_err(|error| error.to_string())?;
+    let directory = game_directory(&app, &id)?;
+    cobble_core::validate_curseforge_mod_pins(&directory, &plan.graph)
+        .map_err(|error| error.to_string())?;
     {
         let state = app.state::<GameLibrary>();
         let mut library = state.0.lock().map_err(|_| "游戏库不可用")?;
@@ -168,6 +171,9 @@ pub async fn install_curseforge_mod_plan(
     id: String,
     plan_id: String,
 ) -> Result<cobble_core::ModrinthInstallOutcome, String> {
+    if plan_id.starts_with("update-") {
+        return Err("Use the reviewed update plan to apply these changes".into());
+    }
     let started = Instant::now();
     let plan = stored(&app, &id, &plan_id)?;
     modrinth_target(&app, &id)?;
@@ -227,43 +233,73 @@ pub async fn check_game_curseforge_updates(
     id: String,
 ) -> Result<Vec<cobble_core::ModUpdateCandidate>, String> {
     let (version, loader) = modrinth_target(&app, &id)?;
-    let managed = list_game_curseforge_mods(app, id).await?;
-    if managed.is_empty() {
-        return Ok(Vec::new());
-    }
-    if managed.len() > 128 {
-        return Err("每次最多检查 128 个 CurseForge Mod".into());
+    let directory = game_directory(&app, &id)?;
+    let client = crate::curseforge::client()?;
+    cobble_core::check_curseforge_updates(&directory, &client, &version, &loader)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[derive(Serialize)]
+pub struct UpdatePreview {
+    plan_id: String,
+    changes: Vec<cobble_core::ModUpdateChange>,
+    missing: Vec<RestrictedFile>,
+    ready: bool,
+}
+#[tauri::command]
+pub async fn preview_game_curseforge_updates(
+    app: AppHandle,
+    id: String,
+    project_ids: Vec<String>,
+) -> Result<UpdatePreview, String> {
+    let (version, loader) = modrinth_target(&app, &id)?;
+    let directory = game_directory(&app, &id)?;
+    let plan_id = format!(
+        "update-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| error.to_string())?
+            .as_nanos()
+    );
+    {
+        let state = app.state::<GameLibrary>();
+        let mut library = state.0.lock().map_err(|error| error.to_string())?;
+        library
+            .curseforge_preview_ids
+            .insert(id.clone(), plan_id.clone());
+        library.curseforge_plans.remove(&id);
+        library.update_plans.remove(&id);
     }
     let client = crate::curseforge::client()?;
-    let mut updates = Vec::new();
-    for current in managed {
-        let project = current
-            .project_id
-            .parse::<u32>()
-            .map_err(|_| "CurseForge 记录无效")?;
-        let file = current
-            .version_id
-            .parse::<u32>()
-            .map_err(|_| "CurseForge 记录无效")?;
-        if let Some(update) = client
-            .find_update(project, file, &version, &loader)
-            .await
-            .map_err(|error| error.to_string())?
+    let (plan, downloads) = cobble_core::prepare_curseforge_updates(
+        &directory,
+        &client,
+        &version,
+        &loader,
+        &project_ids,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    let file_preview = preview(plan_id.clone(), downloads.clone()).await?;
+    let response = UpdatePreview {
+        plan_id: plan_id.clone(),
+        changes: plan.changes.clone(),
+        missing: file_preview.missing,
+        ready: file_preview.ready,
+    };
+    {
+        let state = app.state::<GameLibrary>();
+        let mut library = state.0.lock().map_err(|error| error.to_string())?;
+        if library.curseforge_preview_ids.get(&id) != Some(&plan_id)
+            || !library.games.iter().any(|game| game.id == id)
         {
-            let project = client
-                .project(project)
-                .await
-                .map_err(|error| error.to_string())?;
-            updates.push(cobble_core::ModUpdateCandidate {
-                project_id: current.project_id,
-                name: project.title,
-                current_version: current.version_id,
-                version_number: update.name,
-                version_id: update.file_id,
-                filename: update.file_name,
-                enabled: current.enabled,
-            });
+            return Err("Update plan changed; preview the updates again".into());
         }
+        library
+            .curseforge_plans
+            .insert(id.clone(), (plan_id.clone(), downloads));
+        library.update_plans.insert(id, (plan_id, plan));
     }
-    Ok(updates)
+    Ok(response)
 }

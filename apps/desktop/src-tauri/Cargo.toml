@@ -1,6 +1,6 @@
 [package]
 name = "cobble-desktop"
-version.workspace = true
+version = "0.1.0-beta.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -11,7 +11,11 @@ default-run = "cobble-desktop"
 tauri-build = { version = "=2.7.3", features = [] }
 
 [dependencies]
+fastnbt = "=2.6.3"
+flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
 cap-std.workspace = true
+cap-fs-ext.workspace = true
+dunce = "=1.0.5"
 cobble-store.workspace = true
 sha1.workspace = true
 sha2.workspace = true
@@ -23,6 +27,7 @@ cobble-modpack-inspector = { path = "../../../crates/modpack-inspector" }
 cobble-auth.workspace = true
 cobble-domain.workspace = true
 cobble-minecraft.workspace = true
+cobble-seed-map.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde-saphyr = { version = "=2.0.0", default-features = false, features = ["serialize", "deserialize"] }
@@ -35,6 +40,8 @@ dirs = "=7.0.0"
 rfd = "=0.17.2"
 open = "=5.4.4"
 cobble-net.workspace = true
+curl.workspace = true
+url.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 cobble-plugin-api = { path = "../../../crates/plugin-api" }
 cobble-diagnostics = { path = "../../../crates/diagnostics" }
@@ -46,11 +53,13 @@ cobble-plugin-host = { path = "../../../crates/plugin-host" }
 sysinfo = { version = "=0.39.6", default-features = false, features = ["system"] }
 tauri-plugin-single-instance = "=2.5.4"
 tauri-plugin-clipboard-manager = "=2.5.0"
+tauri-plugin-updater = { version = "=2.14.0", default-features = false, features = ["rustls-tls"] }
 
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
 embedded-curseforge-key = []
+updater-distribution = []
 
 [lints]
 workspace = true

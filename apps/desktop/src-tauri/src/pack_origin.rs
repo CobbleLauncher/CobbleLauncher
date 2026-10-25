@@ -62,7 +62,11 @@ mod tests {
         );
         assert!(
             super::super::tasks::TaskRequest::GameInstall {
-                game_id: "local".into()
+                game_id: "local".into(),
+                initial_mod_plan: None,
+                initial_environment_plan: None,
+                initial_shared_configs: Vec::new(),
+                initial_personal_options: None,
             }
             .pack_origin()
             .is_none()

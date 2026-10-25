@@ -18,6 +18,14 @@ const props = defineProps<{
   placeholder?: string;
 }>();
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
+// Reka reserves the empty string for clearing. Keep the public field contract
+// while assigning an internal value that cannot collide with a caller's options.
+const emptyValue = computed(() => {
+  let value = '__cobble_empty_selection__';
+  while (props.options.some(option => option.value === value)) value += '_';
+  return value;
+});
+const internalValue = computed(() => props.modelValue === '' && props.options.some(option => option.value === '') ? emptyValue.value : props.modelValue);
 const groups = computed(() => {
   const result: { label?: string; options: SelectFieldOption[] }[] = [];
   for (const option of props.options) {
@@ -29,13 +37,13 @@ const groups = computed(() => {
 });
 const selectedLabel = computed(() => props.options.find(option => option.value === props.modelValue)?.label ?? props.placeholder ?? '');
 function update(value: unknown) {
-  if (typeof value === 'string') emit('update:modelValue', value);
+  if (typeof value === 'string') emit('update:modelValue', value === emptyValue.value ? '' : value);
 }
 </script>
 
 <template>
   <SelectRoot
-    :model-value="modelValue"
+    :model-value="internalValue"
     :disabled="disabled"
     @update:model-value="update"
   >
@@ -80,7 +88,7 @@ function update(value: unknown) {
               <SelectItem
                 v-for="option in group.options"
                 :key="option.value"
-                :value="option.value"
+                :value="option.value === '' ? emptyValue : option.value"
                 :disabled="option.disabled"
                 class="select-field-item"
               >
@@ -101,17 +109,17 @@ function update(value: unknown) {
 </template>
 
 <style>
-.select-field-trigger{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-width:0;min-height:40px;padding:8px 12px;border:1px solid var(--ui-border-strong);border-radius:var(--ui-radius-md,8px);background:var(--ui-surface-1);color:var(--ui-text);font:inherit;font-size:14px;line-height:1.4;text-align:left;cursor:pointer}
-.select-field-trigger:focus-visible{outline:var(--ui-focus-ring,2px solid var(--ui-focus));outline-offset:var(--ui-focus-offset,3px)}
+.select-field-trigger{display:flex;align-items:center;justify-content:space-between;gap:var(--ui-space-3);width:100%;min-width:0;min-height:var(--ui-control-height);padding:max(var(--ui-space-1),calc((var(--ui-control-height) - var(--ui-text-label) * var(--ui-leading-control) - 2px) / 2)) var(--ui-space-3);border:1px solid var(--ui-border-strong);border-radius:var(--ui-radius-md);background:var(--ui-surface-1);color:var(--ui-text);font:inherit;font-size:var(--ui-text-label);line-height:var(--ui-leading-control);text-align:left;cursor:pointer;transition:border-color var(--ui-duration-fast),background-color var(--ui-duration-fast)}
+.select-field-trigger:focus-visible{outline:var(--ui-focus-ring);outline-offset:var(--ui-focus-offset)}
 .select-field-trigger:disabled{opacity:.55;cursor:not-allowed}
-.select-field-trigger>svg{width:16px;height:16px;flex:none;color:var(--muted)}
-.select-field-content{z-index:140;min-width:var(--reka-select-trigger-width);max-width:min(480px,var(--reka-select-content-available-width));max-height:min(320px,var(--reka-select-content-available-height));overflow:hidden;border:1px solid var(--ui-border);border-radius:var(--ui-radius-md,8px);background:var(--ui-surface-1);color:var(--ui-text);box-shadow:var(--ui-shadow-menu,0 8px 24px #0002)}
-.select-field-viewport{max-height:min(320px,var(--reka-select-content-available-height));padding:4px;overflow-y:auto}
-.select-field-label{padding:7px 9px 4px;color:var(--muted);font-size:12px;line-height:1.5}
-.select-field-item{position:relative;display:flex;align-items:center;min-height:36px;padding:6px 34px 6px 9px;border-radius:5px;outline:0;font-size:14px;line-height:1.45;overflow-wrap:anywhere;cursor:pointer}
+.select-field-trigger>svg{width:var(--ui-icon-sm);height:var(--ui-icon-sm);flex:none;color:var(--muted)}
+.select-field-content{z-index:140;min-width:var(--reka-select-trigger-width);max-width:min(480px,var(--reka-select-content-available-width));max-height:min(320px,var(--reka-select-content-available-height));overflow:hidden;border:1px solid var(--ui-border);border-radius:var(--ui-radius-md);background:var(--ui-surface-1);color:var(--ui-text);box-shadow:var(--ui-shadow-menu)}
+.select-field-viewport{max-height:min(320px,var(--reka-select-content-available-height));padding:var(--ui-space-1);overflow-y:auto}
+.select-field-label{padding:var(--ui-space-2) var(--ui-space-2) var(--ui-space-1);color:var(--muted);font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption)}
+.select-field-item{position:relative;display:flex;align-items:center;min-height:var(--ui-control-height);padding:var(--ui-space-1) var(--ui-space-6) var(--ui-space-1) var(--ui-space-2);border-radius:var(--ui-radius-sm);outline:0;font-size:var(--ui-text-label);line-height:var(--ui-leading-control);overflow-wrap:anywhere;cursor:pointer}
 .select-field-item[data-highlighted]{background:var(--hover)}
 .select-field-item[data-disabled]{opacity:.5;cursor:not-allowed}
-.select-field-indicator{position:absolute;right:9px;display:flex;align-items:center}.select-field-indicator svg{width:16px;height:16px}
-.select-field-scroll{display:grid;place-items:center;width:100%;height:24px;border:0;background:var(--ui-surface-1);color:var(--muted)}
-.select-field-scroll svg{width:15px;height:15px}.select-field-scroll-up svg{transform:rotate(180deg)}
+.select-field-indicator{position:absolute;right:var(--ui-space-2);display:flex;align-items:center}.select-field-indicator svg{width:var(--ui-icon-sm);height:var(--ui-icon-sm)}
+.select-field-scroll{display:grid;place-items:center;width:100%;height:var(--ui-space-5);border:0;background:var(--ui-surface-1);color:var(--muted)}
+.select-field-scroll svg{width:var(--ui-icon-sm);height:var(--ui-icon-sm)}.select-field-scroll-up svg{transform:rotate(180deg)}
 </style>

@@ -8,6 +8,7 @@ use std::fmt;
 use url::Url;
 #[path = "curseforge_resolve.rs"]
 mod resolve;
+pub(crate) mod solver;
 pub use resolve::{
     InstallPlan, PackArchiveSelection, PackFileDestination, PackInstallPlan, ResolvedPackFile,
     RestrictedFile,
@@ -50,8 +51,13 @@ impl ContentKind {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ApiError {
+    Resolution {
+        code: String,
+        message: String,
+        projects: Vec<String>,
+    },
     FileValidation {
         project_id: u32,
         file_id: u32,
@@ -81,8 +87,12 @@ impl fmt::Display for ApiError {
                 "CurseForge 文件校验失败（项目 {project_id}，文件 {file_id}，{field}）"
             );
         }
+        if let Self::Resolution { message, .. } = self {
+            return formatter.write_str(message);
+        }
         formatter.write_str(match self {
             Self::FileValidation { .. } => "CurseForge 文件校验失败",
+            Self::Resolution { .. } => "CurseForge 依赖条件无法同时满足",
             Self::UnsupportedClass => "此 CurseForge 内容类型暂不支持安装",
             Self::MissingCredential => "CurseForge 服务尚未配置",
             Self::InvalidInput => "CurseForge 搜索条件无效",
@@ -98,7 +108,7 @@ impl fmt::Display for ApiError {
 }
 impl std::error::Error for ApiError {}
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Project {
     pub icon_url: Option<String>,
     pub preview_url: Option<String>,
@@ -209,9 +219,9 @@ struct Author {
 struct Links {
     website_url: Option<String>,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct RawFile {
+pub(crate) struct RawFile {
     id: u32,
     game_id: u32,
     mod_id: u32,
@@ -227,12 +237,12 @@ struct RawFile {
     #[serde(default)]
     hashes: Vec<RawHash>,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct RawHash {
     value: String,
     algo: u32,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RawDependency {
     mod_id: u32,
@@ -330,6 +340,10 @@ impl CurseForgeClient {
             offset,
             total_hits,
         })
+    }
+    /// Read one official file summary, retaining exact project/file identity checks.
+    pub async fn file_metadata(&self, project: u32, id: u32) -> Result<File, ApiError> {
+        file(self.exact_file(project, id).await?, project)
     }
 }
 fn check_status(status: u16) -> Result<(), ApiError> {
@@ -635,6 +649,18 @@ mod tests {
         ));
         assert!(files_url(1, None, None, 9951).is_err());
         assert!(files_url(0, None, None, 0).is_err());
+    }
+    #[test]
+    fn cf_policy_release_types_are_parsed_from_provider_numbers() {
+        for (raw, expected) in [(1, "release"), (2, "beta"), (3, "alpha"), (99, "unknown")] {
+            let value = serde_json::json!({"id":10,"gameId":432,"modId":1,"isAvailable":true,"displayName":"Not SemVer","fileName":"a.jar","releaseType":raw,"fileDate":"2026-01-01T00:00:00Z","fileLength":42,"downloadUrl":null,"gameVersions":["1.21.1","Fabric"],"dependencies":[]});
+            assert_eq!(
+                file(serde_json::from_value(value).unwrap(), 1)
+                    .unwrap()
+                    .release_type,
+                expected
+            );
+        }
     }
     #[test]
     fn blocked_downloads_stay_manual_and_dependencies_remain_typed() {

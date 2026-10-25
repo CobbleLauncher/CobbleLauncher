@@ -6,10 +6,11 @@ import BlueprintLibrary from './BlueprintLibrary.vue';
 import type { SavedBlueprint } from './blueprints';
 import ExtensionMenuItems from './ExtensionMenuItems.vue';
 import { setLocale } from './i18n';
+import { clearPageWorkspacesForTests } from './use-page-workspace';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 beforeEach(() => setLocale('en-US'));
-afterEach(() => { vi.clearAllMocks(); setLocale('zh-CN'); document.body.innerHTML=''; });
+afterEach(() => { vi.clearAllMocks(); setLocale('zh-CN'); document.body.innerHTML=''; clearPageWorkspacesForTests(); });
 
 async function chooseAction(wrapper: ReturnType<typeof mount>, label: string) {
   await wrapper.get('[aria-label="More actions for Workshop"]').trigger('keydown',{key:'Enter'});
@@ -21,6 +22,7 @@ const item: SavedBlueprint = { id: 'blueprint-1', name: 'Workshop', pluginId: 'v
 
 it('reveals a newly downloaded item through active filters and focuses its action', async () => {
   const wrapper = mount(BlueprintLibrary, { attachTo: document.body, props: { items: [item], busy: false, selectedId: null }, global: { stubs: { ExtensionMenuItems: true } } });
+  expect(wrapper.get('input[type="search"]').attributes('data-list-search')).toBe('');
   await wrapper.get('input[type="search"]').setValue('hidden');
   await wrapper.findAll('button').find(button => button.text() === 'Favorites')!.trigger('click');
   await wrapper.setProps({ selectedId: item.id });
@@ -77,6 +79,44 @@ it('filters saved blueprints by name and restores the list when search is cleare
   expect(wrapper.findAll('.blueprint-library li')).toHaveLength(2);
   await wrapper.findAll('.blueprint-library-main > button').at(0)!.trigger('click');
   expect(wrapper.emitted('open')?.[0]).toEqual(['blueprint-1']);
+  wrapper.unmount();
+});
+
+it('restores the saved blueprint search and favorites filter after leaving the page', async () => {
+  setLocale('en-US');
+  const favorite = { ...item, favorite: true };
+  const first = mount(BlueprintLibrary, { props: { items: [favorite, { ...item, id: 'other', name: 'Other' }], busy: false, initialGameId: 'blueprint-game' }, global: { stubs: { ExtensionMenuItems: true } } });
+  await first.get('input[type="search"]').setValue('Workshop');
+  await first.findAll('button').find(button => button.text() === 'Favorites')!.trigger('click');
+  first.unmount();
+  const reopened = mount(BlueprintLibrary, { props: { items: [favorite, { ...item, id: 'other', name: 'Other' }], busy: false, initialGameId: 'blueprint-game' }, global: { stubs: { ExtensionMenuItems: true } } });
+  expect(reopened.get('input[type="search"]').element).toHaveProperty('value', 'Workshop');
+  expect(reopened.findAll('.blueprint-library li')).toHaveLength(1);
+  expect(reopened.get('button[aria-pressed="true"]').attributes('aria-pressed')).toBe('true');
+  reopened.unmount();
+});
+
+it('moves between blueprints with arrows and opens row actions with Shift+F10', async () => {
+  setLocale('en-US');
+  const second = { ...item, id: 'blueprint-2', name: 'Mountain base' };
+  const wrapper = mount(BlueprintLibrary, { props: { items: [item, second], busy: false }, attachTo: document.body, global: { stubs: { ExtensionMenuItems: true } } });
+  const first = wrapper.get('.blueprint-open');
+  const next = wrapper.findAll('.blueprint-open')[1]!;
+  (first.element as HTMLElement).focus();
+  await first.trigger('keydown', { key: 'ArrowDown' });
+  expect(document.activeElement).toBe(next.element);
+  await next.trigger('keydown', { key: 'F10', shiftKey: true });
+  await flushPromises();
+  expect(document.body.querySelector('[role="menu"]')?.textContent).toContain('Rename');
+  wrapper.unmount();
+});
+
+it('opens the existing blueprint menu with right click without opening or changing the resource', async () => {
+  const wrapper = mount(BlueprintLibrary, {props: {items: [item], busy: false}, attachTo: document.body, global: {stubs: {ExtensionMenuItems: true}}});
+  await wrapper.get('[data-blueprint-id="blueprint-1"]').trigger('contextmenu', {button: 2}); await flushPromises();
+  expect(document.body.querySelector('[role=menu]')?.textContent).toContain('Rename');
+  expect(wrapper.emitted('open')).toBeUndefined();
+  expect(invoke).not.toHaveBeenCalled();
   wrapper.unmount();
 });
 

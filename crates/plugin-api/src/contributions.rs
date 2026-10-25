@@ -37,6 +37,7 @@ impl LocalizedText {
 pub enum Workflow {
     Report,
     Viewer,
+    ToolForm,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -68,6 +69,14 @@ pub struct CommandContribution {
     pub label: LocalizedText,
     pub workflow: Workflow,
     pub menus: Vec<MenuContribution>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_keywords: Vec<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub quick_entry: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_shortcut: Option<String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -186,6 +195,9 @@ impl SettingField {
         self.validate_value(&self.default)
     }
 }
+fn is_false(value: &bool) -> bool {
+    !value
+}
 fn safe_number(value: f64) -> bool {
     value.is_finite() && value.abs() <= 1_000_000_000_000.0
 }
@@ -288,6 +300,7 @@ impl Contributions {
             let expected = match command.workflow {
                 Workflow::Report => "report",
                 Workflow::Viewer => "viewer",
+                Workflow::ToolForm => "tool-form",
             };
             if !command.id.strip_prefix(&prefix).is_some_and(local_id)
                 || !commands.insert(&command.id)
@@ -295,6 +308,24 @@ impl Contributions {
                 || manifest.capabilities != [expected]
                 || command.menus.is_empty()
                 || command.menus.len() > 3
+                || command.icon.as_deref().is_some_and(|icon| {
+                    !matches!(
+                        icon,
+                        "puzzle" | "compass" | "settings" | "search" | "play" | "folder" | "info"
+                    )
+                })
+                || command.search_keywords.len() > 8
+                || command.search_keywords.iter().any(|keyword| {
+                    keyword.trim().is_empty()
+                        || keyword.chars().count() > 40
+                        || keyword.chars().any(char::is_control)
+                })
+                || command
+                    .suggested_shortcut
+                    .as_deref()
+                    .is_some_and(|shortcut| {
+                        shortcut.len() > 32 || shortcut.chars().any(char::is_control)
+                    })
             {
                 return Err(invalid("Invalid command, workflow or namespace"));
             }
@@ -364,6 +395,29 @@ mod tests {
         assert_eq!(contributions.default_settings()["page_size"], json!(50));
         assert!(contributions.setting("enabled").unwrap().advanced);
         assert!(contributions.setting("unknown").is_none());
+    }
+    #[test]
+    fn optional_command_discovery_metadata_is_backward_compatible_and_bounded() {
+        let original = serde_json::to_value(manifest()).unwrap();
+        let legacy: PluginManifest = serde_json::from_value(original.clone()).unwrap();
+        assert!(legacy.contributions.unwrap().commands[0].icon.is_none());
+        let mut enhanced = original;
+        let command = enhanced.pointer_mut("/contributions/commands/0").unwrap();
+        command["icon"] = json!("puzzle");
+        command["search_keywords"] = json!(["inspect", "检查"]);
+        command["quick_entry"] = json!(true);
+        command["suggested_shortcut"] = json!("Ctrl+Shift+I");
+        let parsed: PluginManifest = serde_json::from_value(enhanced.clone()).unwrap();
+        parsed.validate().unwrap();
+        assert!(parsed.contributions.unwrap().commands[0].quick_entry);
+        enhanced.pointer_mut("/contributions/commands/0").unwrap()["icon"] =
+            json!("arbitrary-native-icon");
+        assert!(
+            serde_json::from_value::<PluginManifest>(enhanced)
+                .unwrap()
+                .validate()
+                .is_err()
+        );
     }
     #[test]
     fn settings_values_are_typed_and_ranges_are_enforced() {

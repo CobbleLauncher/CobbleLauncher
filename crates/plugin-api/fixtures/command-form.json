@@ -1,0 +1,309 @@
+{
+  "id": "command-pocket",
+  "name": "Command Pocket",
+  "version": "0.1.0",
+  "api_version": "0.1.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "tool-form"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:tool-form",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "file_extensions": [],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Build simple Minecraft Java commands as text",
+    "zh-CN": "生成简单的 Minecraft Java 指令文本"
+  },
+  "tags": [
+    "commands",
+    "creative"
+  ],
+  "permissions": [],
+  "contributions": {
+    "schema_version": 1,
+    "commands": [
+      {
+        "id": "command-pocket.run",
+        "label": {
+          "en": "Build a command",
+          "zh-CN": "生成指令"
+        },
+        "workflow": "tool_form",
+        "icon": "puzzle",
+        "search_keywords": [
+          "Minecraft command",
+          "指令"
+        ],
+        "quick_entry": true,
+        "suggested_shortcut": "Ctrl+Shift+C",
+        "menus": [
+          {
+            "position": "tools"
+          }
+        ]
+      }
+    ]
+  },
+  "tool_form": {
+    "schema_version": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "enum": [
+            "1.20.1",
+            "1.21.1",
+            "1.21.4"
+          ],
+          "default": "1.21.4"
+        },
+        "template": {
+          "type": "string",
+          "enum": [
+            "teleport",
+            "give",
+            "effect"
+          ],
+          "default": "teleport"
+        },
+        "target": {
+          "type": "string",
+          "maxLength": 16,
+          "default": "@s"
+        },
+        "x": {
+          "type": "string",
+          "maxLength": 32,
+          "default": "~"
+        },
+        "y": {
+          "type": "string",
+          "maxLength": 32,
+          "default": "~"
+        },
+        "z": {
+          "type": "string",
+          "maxLength": 32,
+          "default": "~"
+        },
+        "item_id": {
+          "type": "string",
+          "maxLength": 128,
+          "default": "minecraft:torch"
+        },
+        "quantity": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 64,
+          "default": 1
+        },
+        "effect_id": {
+          "type": "string",
+          "maxLength": 128,
+          "default": "minecraft:speed"
+        },
+        "seconds": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1000000,
+          "default": 30
+        },
+        "amplifier": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 127,
+          "default": 0
+        },
+        "hide_particles": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "version",
+        "template",
+        "target",
+        "x",
+        "y",
+        "z",
+        "item_id",
+        "quantity",
+        "effect_id",
+        "seconds",
+        "amplifier",
+        "hide_particles"
+      ]
+    },
+    "ui_schema": {
+      "type": "VerticalLayout",
+      "elements": [
+        {
+          "type": "Control",
+          "scope": "#/properties/version"
+        },
+        {
+          "type": "Control",
+          "scope": "#/properties/template"
+        },
+        {
+          "type": "Control",
+          "scope": "#/properties/target"
+        },
+        {
+          "type": "Group",
+          "label": "teleport_fields",
+          "rule": {
+            "effect": "SHOW",
+            "condition": {
+              "scope": "#/properties/template",
+              "schema": {
+                "const": "teleport"
+              }
+            }
+          },
+          "elements": [
+            {
+              "type": "HorizontalLayout",
+              "elements": [
+                {
+                  "type": "Control",
+                  "scope": "#/properties/x"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/y"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/z"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Group",
+          "label": "give_fields",
+          "rule": {
+            "effect": "SHOW",
+            "condition": {
+              "scope": "#/properties/template",
+              "schema": {
+                "const": "give"
+              }
+            }
+          },
+          "elements": [
+            {
+              "type": "HorizontalLayout",
+              "elements": [
+                {
+                  "type": "Control",
+                  "scope": "#/properties/item_id"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/quantity"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Group",
+          "label": "effect_fields",
+          "rule": {
+            "effect": "SHOW",
+            "condition": {
+              "scope": "#/properties/template",
+              "schema": {
+                "const": "effect"
+              }
+            }
+          },
+          "elements": [
+            {
+              "type": "Control",
+              "scope": "#/properties/effect_id"
+            },
+            {
+              "type": "HorizontalLayout",
+              "elements": [
+                {
+                  "type": "Control",
+                  "scope": "#/properties/seconds"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/amplifier"
+                }
+              ]
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/hide_particles"
+            }
+          ]
+        }
+      ]
+    },
+    "translations": {
+      "en": {
+        "version.label": "Minecraft version",
+        "version.1.20.1": "1.20.1",
+        "version.1.21.1": "1.21.1",
+        "version.1.21.4": "1.21.4",
+        "template.label": "Command",
+        "template.teleport": "Teleport",
+        "template.give": "Give item",
+        "template.effect": "Give effect",
+        "target.label": "Player or selector",
+        "x.label": "X",
+        "y.label": "Y",
+        "z.label": "Z",
+        "item_id.label": "Item ID",
+        "quantity.label": "Quantity",
+        "effect_id.label": "Effect ID",
+        "seconds.label": "Seconds",
+        "amplifier.label": "Effect amplifier (0 = level I)",
+        "hide_particles.label": "Hide particles",
+        "teleport_fields": "Coordinates",
+        "give_fields": "Item",
+        "effect_fields": "Effect"
+      },
+      "zh-CN": {
+        "version.label": "Minecraft 版本",
+        "version.1.20.1": "1.20.1",
+        "version.1.21.1": "1.21.1",
+        "version.1.21.4": "1.21.4",
+        "template.label": "指令",
+        "template.teleport": "传送",
+        "template.give": "给予物品",
+        "template.effect": "给予效果",
+        "target.label": "玩家或选择器",
+        "x.label": "X",
+        "y.label": "Y",
+        "z.label": "Z",
+        "item_id.label": "物品 ID",
+        "quantity.label": "数量",
+        "effect_id.label": "效果 ID",
+        "seconds.label": "秒数",
+        "amplifier.label": "效果倍率（0 表示 I 级）",
+        "hide_particles.label": "隐藏粒子",
+        "teleport_fields": "坐标",
+        "give_fields": "物品",
+        "effect_fields": "效果"
+      }
+    }
+  }
+}

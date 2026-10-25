@@ -5,6 +5,7 @@ use exports::launcher::resource_report::reports::{Finding, Report, Severity, Tab
 use launcher::resource_report::resources::{self, Failure, Input};
 const SNAPSHOT_MEDIA: &str = "application/vnd.cobble.mrpack-inspection+json";
 const MAX_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
+mod inventory;
 
 fn analyze_snapshot(bytes: &[u8]) -> Result<Report, Failure> {
     use cobble_modpack_inspector::{InspectionRequest, inspect_request};
@@ -322,6 +323,12 @@ impl ListingBudget {
     }
 }
 fn analyze_bytes(bytes: &[u8]) -> Result<Report, Failure> {
+    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes)
+        && value.get("schemaVersion").is_some()
+    {
+        let context = launcher::report_context::context::get();
+        return inventory::analyze(value, context.locale == "zh-CN");
+    }
     let index = cobble_modpack_inspector::inspect_index(bytes).map_err(map_inspection_error)?;
     // Fail as a whole rather than silently truncate untrusted report strings/rows.
     if index.name.len() > 2048

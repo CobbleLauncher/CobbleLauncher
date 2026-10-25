@@ -1,0 +1,12 @@
+[12:00:00] [main/INFO]: Loading Minecraft 1.21.1 with Fabric Loader 0.16.10
+[12:00:01] [main/INFO]: Loading 3 mods:
+ - synthetic example 1.0
+[12:00:03] [main/WARN]: Synthetic warning one
+[12:00:04] [main/WARN]: Synthetic warning two
+[12:00:05] [main/WARN]: Synthetic warning three
+[12:00:21] [main/INFO]: SpongePowered MIXIN Subsystem Version=0.8.7
+[12:00:23] [Render thread/INFO]: Backend library: LWJGL version 3.3.3
+[12:00:24] [Render thread/INFO]: Reloading ResourceManager: vanilla, synthetic
+[12:00:40] [Render thread/INFO]: OpenAL initialized.
+[12:00:41] [Render thread/INFO]: Sound engine started
+[12:00:44] [Render thread/INFO]: Reloading ResourceManager: vanilla, synthetic

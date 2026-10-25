@@ -3,6 +3,7 @@
 import { onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { t } from './i18n';
+import SettingsDisclosure from './ui/settings/SettingsDisclosure.vue';
 import type { CurseForgePlan } from './curseforge';
 const props = defineProps<{gameId: string; projectId: string; fileId: string; locked: boolean}>();
 const emit = defineEmits<{busy: [value: boolean]; installed: []}>();
@@ -52,7 +53,7 @@ onUnmounted(() => { ++revision; });
     <template v-else-if="plan">
       <ul class="mod-list">
         <li
-          v-for="mod in plan.mods"
+          v-for="mod in plan.mods.filter(item => !item.required_by)"
           :key="mod.project_id"
           class="mod-row"
         >
@@ -63,6 +64,25 @@ onUnmounted(() => { ++revision; });
           </div>
         </li>
       </ul>
+      <SettingsDisclosure
+        v-if="plan.mods.some(item => item.required_by)"
+        :key="plan.plan_id"
+        :title="t('market.dependencies', { count: plan.mods.filter(item => item.required_by).length })"
+      >
+        <ul class="mod-list">
+          <li
+            v-for="mod in plan.mods.filter(item => item.required_by)"
+            :key="mod.project_id"
+            class="mod-row"
+          >
+            <div class="mod-info">
+              <h3>{{ mod.name }}</h3><p class="mod-meta">
+                {{ mod.version_number }} · {{ t('curseforge.required') }}
+              </p>
+            </div>
+          </li>
+        </ul>
+      </SettingsDisclosure>
       <div
         v-for="file in plan.missing"
         :key="`${file.project_id}-${file.file_id}`"

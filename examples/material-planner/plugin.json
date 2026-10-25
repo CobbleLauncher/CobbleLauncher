@@ -1,0 +1,89 @@
+{
+  "id": "material-planner",
+  "name": "Material Planner",
+  "version": "0.1.0",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "report"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:report",
+        "version": "0.2.0"
+      },
+      {
+        "id": "launcher:web-frontend",
+        "version": "0.1.0"
+      },
+      {
+        "id": "launcher:materials-import",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "file_extensions": [],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Track blueprint material requirements and collection progress",
+    "zh-CN": "管理蓝图方块需求与材料收集进度"
+  },
+  "tags": [
+    "blueprints",
+    "materials",
+    "utilities"
+  ],
+  "permissions": [
+    {
+      "permission": "launcher:ui/webview"
+    },
+    {
+      "permission": "launcher:storage/private"
+    },
+    {
+      "permission": "launcher:clipboard/write"
+    },
+    {
+      "permission": "launcher:exports/text"
+    },
+    {
+      "permission": "launcher:game-inspection/read",
+      "scopes": [
+        "worlds"
+      ]
+    }
+  ],
+  "frontend": {
+    "entry": "ui/index.html",
+    "api_version": "0.1.0",
+    "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "contributions": {
+    "schema_version": 1,
+    "commands": [
+      {
+        "id": "material-planner.open",
+        "label": {
+          "en": "Open Material Planner",
+          "zh-CN": "打开材料筹备清单"
+        },
+        "menus": [
+          {
+            "position": "tools",
+            "when": "always"
+          },
+          {
+            "position": "instance",
+            "when": "instance_selected"
+          }
+        ],
+        "workflow": "report"
+      }
+    ]
+  },
+  "icon": {
+    "file": "icon.png",
+    "sha256": "489dc27d6f878cd7e13f0316017d118594fe947824a43e22b6fb502178994a38"
+  }
+}

@@ -18,6 +18,7 @@
   "keepPath": "保留文件的目录",
   "lockedWarning": "请先关闭游戏并等待当前任务完成。",
   "copyBusy": "复制中…",
+  "copyStarted": "复制任务已开始，可在任务中查看进度或取消。",
   "exportBusy": "导出中…",
   "removeBusy": "移除中…",
   "copyButton": "创建副本",

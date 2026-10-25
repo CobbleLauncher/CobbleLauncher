@@ -1,0 +1,13 @@
+<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head><body><div id="app"></div><script type="module">
+import {createApp,h,ref} from 'vue';
+import FirstRunPage from '/src/FirstRunPage.vue';
+import {applyAppearance} from '/src/theme.ts';
+import {setLocale} from '/src/i18n/index.ts';
+import '/src/style.css';import '/src/ui.css';
+const query=new URLSearchParams(location.search);setLocale(query.get('locale')||'en-US');
+applyAppearance({theme:query.get('theme')||'light',accent:'green',density:'standard',scale:Number(query.get('scale')||100),textSize:Number(query.get('text')||14),motion:query.get('motion')||'system'});
+const offline={id:'local',kind:'offline',name:'Alex',uuid:'fixture-local',note:null};const official={id:'official',kind:'microsoft',name:'Builder',uuid:'fixture-official',note:null};
+window.isTauri=true;window.completeLogin=false;window.authCalls=[];
+window.__TAURI_INTERNALS__={invoke:async (command)=>{window.authCalls.push(command);if(command==='begin_microsoft_login')return{flow_id:'fixture',user_code:'DEMO1234',expires_in:600,interval:1};if(command==='poll_microsoft_login')return window.completeLogin?{state:'complete',library:{profiles:[official],active_id:'official'}}:{state:'pending'};return null;}};
+createApp({setup(){const step=ref('profile'),library=ref({profiles:[],active_id:null});window.guideStep=value=>step.value=value;return()=>h('div',{class:'launcher'},[h('header',{class:'titlebar'},[h('div',{class:'drag-area'},'cobble.')]),h('main',{class:'app-workspace'},[h(FirstRunPage,{step:step.value,consentAccepted:true,meshChoice:null,profileReady:true,library:library.value,onStep:value=>step.value=value,onAddOffline:(name)=>{library.value={profiles:[{...offline,name}],active_id:'local'}},onLibraryUpdated:value=>library.value=value})])]);}}).mount('#app');
+</script></body></html>

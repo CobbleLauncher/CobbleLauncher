@@ -1,0 +1,79 @@
+{
+  "id": "trial-copy",
+  "name": "Update Trial Copy",
+  "version": "0.1.0",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "report"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "id": "launcher:report",
+        "version": "0.2.0"
+      },
+      {
+        "id": "launcher:web-frontend",
+        "version": "0.1.0"
+      }
+    ]
+  },
+  "file_extensions": [],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Try updates in an independent game copy",
+    "zh-CN": "在独立游戏副本中试验更新"
+  },
+  "tags": [
+    "games",
+    "updates",
+    "utilities"
+  ],
+  "permissions": [
+    {
+      "permission": "launcher:ui/webview"
+    },
+    {
+      "scopes": [
+        "storage"
+      ],
+      "permission": "launcher:game-inspection/read"
+    },
+    {
+      "permission": "launcher:instances/copy-request"
+    }
+  ],
+  "frontend": {
+    "entry": "ui/index.html",
+    "api_version": "0.1.0",
+    "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "contributions": {
+    "schema_version": 1,
+    "commands": [
+      {
+        "id": "trial-copy.open",
+        "label": {
+          "en": "Create update trial copy",
+          "zh-CN": "创建更新试验副本"
+        },
+        "menus": [
+          {
+            "position": "tools",
+            "when": "always"
+          },
+          {
+            "position": "instance",
+            "when": "instance_selected"
+          }
+        ],
+        "workflow": "report"
+      }
+    ]
+  },
+  "icon": {
+    "file": "icon.png",
+    "sha256": "af1701e3778204df983e0c4807e60be700db65b780848ee0aa1f51598ab12ced"
+  }
+}

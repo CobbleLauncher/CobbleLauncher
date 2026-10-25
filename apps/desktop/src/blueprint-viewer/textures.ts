@@ -19,12 +19,23 @@ export async function textureAtlas(value:ViewerTextures,signal:AbortSignal,maxSi
  const layout=textureLayout(value,maxSize);const canvas=document.createElement('canvas');canvas.width=canvas.height=layout.size;
  const context=canvas.getContext('2d');if(!context)throw Error('TEXTURE_CANVAS_UNAVAILABLE');context.imageSmoothingEnabled=false;
  const byId=new Map(value.textures.map(texture=>[texture.id,texture.dataUrl]));
- await Promise.all(layout.ids.map(async(id,index)=>{
-  const source=byId.get(id);if(!source?.startsWith('data:image/png;base64,')||source.length>1048576)throw Error('INVALID_TEXTURE');
-  const image=new Image();image.src=source;await image.decode();if(signal.aborted)return;
-  if(image.width<1||image.height<image.width||image.width>64)throw Error('INVALID_TEXTURE');
-  context.drawImage(image,0,0,image.width,image.width,index%layout.side*TILE_SIZE,Math.floor(index/layout.side)*TILE_SIZE,TILE_SIZE,TILE_SIZE);
- }));
+ const images:HTMLImageElement[]=[];
+ let rejectAbort!: (reason:Error)=>void;
+ const aborted=new Promise<never>((_,reject)=>{rejectAbort=reject;});
+ const cancelDecode=()=>{for(const image of images)image.src='';rejectAbort(Error('ABORTED'));};
+ signal.addEventListener('abort',cancelDecode,{once:true});
+ if(signal.aborted)cancelDecode();
+ try{
+  await Promise.race([Promise.all(layout.ids.map(async(id,index)=>{
+   const source=byId.get(id);if(!source?.startsWith('data:image/png;base64,')||source.length>1048576)throw Error('INVALID_TEXTURE');
+   const image=new Image();images.push(image);image.src=source;await image.decode();if(signal.aborted)return;
+   if(image.width<1||image.height<image.width||image.width>64)throw Error('INVALID_TEXTURE');
+   context.drawImage(image,0,0,image.width,image.width,index%layout.side*TILE_SIZE,Math.floor(index/layout.side)*TILE_SIZE,TILE_SIZE,TILE_SIZE);
+  })),aborted]);
+ }finally{
+  signal.removeEventListener('abort',cancelDecode);
+  for(const image of images)image.src='';
+ }
  return{...layout,canvas};
 }
 /** Pinned Three Lambert shader hooks; sampled diffuse is still lit by Lambert. */

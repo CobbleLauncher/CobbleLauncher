@@ -314,7 +314,7 @@ async fn download(
     .into())
 }
 
-fn expectation(file: &MrpackFile) -> Result<ArtifactExpectation, Error> {
+pub(crate) fn expectation(file: &MrpackFile) -> Result<ArtifactExpectation, Error> {
     Ok(ArtifactExpectation {
         expected_size: Some(file.file_size),
         max_bytes: file.file_size,

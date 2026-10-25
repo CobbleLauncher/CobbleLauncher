@@ -122,6 +122,26 @@ pub async fn restore_world_snapshot(
     .await?
 }
 
+/// Caller holds the stopped-instance lease across snapshot and retention.
+pub fn create_automatic_world_snapshot_controlled(
+    game_dir: &Path,
+    folder_name: &str,
+    repository: &mut WorldRepository,
+    control: &OperationControl,
+) -> Result<Option<WorldSnapshot>, Error> {
+    control.check_cancelled()?;
+    crate::world_restore::ensure_world_operations_complete(game_dir)?;
+    let world = cobble_content::world_directory(game_dir, folder_name)?;
+    let _lock = crate::world_restore::lock_world(&world)?;
+    let backup_control = backup_control(control);
+    let snapshot = repository.snapshot_automatic_controlled(
+        &world,
+        &world_snapshot_identity(folder_name),
+        &backup_control,
+    )?;
+    Ok(snapshot)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,24 +236,4 @@ mod tests {
             b"newer generation"
         );
     }
-}
-
-/// Caller holds the stopped-instance lease across snapshot and retention.
-pub fn create_automatic_world_snapshot_controlled(
-    game_dir: &Path,
-    folder_name: &str,
-    repository: &mut WorldRepository,
-    control: &OperationControl,
-) -> Result<Option<WorldSnapshot>, Error> {
-    control.check_cancelled()?;
-    crate::world_restore::ensure_world_operations_complete(game_dir)?;
-    let world = cobble_content::world_directory(game_dir, folder_name)?;
-    let _lock = crate::world_restore::lock_world(&world)?;
-    let backup_control = backup_control(control);
-    let snapshot = repository.snapshot_automatic_controlled(
-        &world,
-        &world_snapshot_identity(folder_name),
-        &backup_control,
-    )?;
-    Ok(snapshot)
 }

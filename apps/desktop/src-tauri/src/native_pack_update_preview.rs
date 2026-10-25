@@ -37,11 +37,17 @@ pub struct Context {
 #[derive(Serialize)]
 pub struct Preview {
     #[serde(flatten)]
-    plan: PackUpdatePreview,
+    pub(super) plan: PackUpdatePreview,
     target_name: String,
     excluded_optional_files: usize,
     observed_file_count: usize,
     unobserved_file_count: usize,
+    baseline_available: bool,
+    baseline_status: &'static str,
+    #[serde(flatten)]
+    pub(super) copy: super::pack_update_copy::CopyPreview,
+    #[serde(skip)]
+    pub(super) json_documents: Vec<super::pack_update_copy::json::PreparedJson>,
 }
 fn io_error() -> String {
     "PACK_UPDATE_IO".into()
@@ -110,26 +116,30 @@ fn context(game: &Game) -> Context {
         context.reason = Some("unsupported_format");
         return context;
     }
-    let Ok(marker) = marker(game) else {
-        context.reason = Some("incomplete_pack");
-        return context;
-    };
+    let marker = marker(game).ok();
     match plain_file(&archive, ARCHIVE_LIMIT) {
-        Ok(_) => {}
-        Err(error) => {
-            context.reason = Some(if error == "PACK_UPDATE_ARCHIVE_TOO_LARGE" {
-                "archive_too_large"
+        Ok(_) => {
+            if marker.is_none() {
+                context.reason = Some("untrusted_baseline");
+            }
+        }
+        Err(_) => {
+            context.reason = Some(if !archive.exists() {
+                "missing_baseline"
             } else {
-                "source_unavailable"
+                "untrusted_baseline"
             });
-            return context;
         }
     }
     context.supported = true;
-    context.reason = None;
     context.provider = Some("mrpack");
-    context.name = Some(marker.name);
-    context.installed_version = Some(marker.version_id);
+    context.name = marker
+        .as_ref()
+        .map(|m| m.name.clone())
+        .or_else(|| game.pack_name.clone());
+    context.installed_version = marker
+        .map(|m| m.version_id)
+        .or_else(|| game.pack_version.clone());
     context
 }
 fn archive(
@@ -175,7 +185,7 @@ fn archive(
         domain::snapshot_mrpack_file(file, &selected).map_err(|_| "PACK_UPDATE_INVALID_ARCHIVE")?;
     Ok((snapshot, pack.name, excluded))
 }
-fn observation(root: &Dir, path: &str, budget: &mut u64) -> Option<ObservedPackFile> {
+pub(super) fn observation(root: &Dir, path: &str, budget: &mut u64) -> Option<ObservedPackFile> {
     if path
         .split('/')
         .next()
@@ -267,23 +277,52 @@ fn observation(root: &Dir, path: &str, budget: &mut u64) -> Option<ObservedPackF
         sha512: Some(format!("{:x}", sha512.finalize())),
     })
 }
-fn compare(game: &Game, target: &Path) -> Result<Preview, String> {
+pub(super) fn compare(game: &Game, target: &Path) -> Result<Preview, String> {
     if !context(game).supported {
         return Err("PACK_UPDATE_UNSUPPORTED".into());
     }
-    let marker = marker(game)?;
     let source = pack_archive_path(
         game.pack_source_id
             .as_deref()
             .ok_or("PACK_UPDATE_UNSUPPORTED")?,
     )?;
-    let (installed, _, _) = archive(
-        &source,
-        Some(&marker.archive_sha256),
-        &marker.selected_optional,
-    )?;
-    let (target, target_name, excluded_optional_files) =
-        archive(target, None, &marker.selected_optional)?;
+    compare_archives(game, &source, target)
+}
+fn compare_archives(game: &Game, source: &Path, target: &Path) -> Result<Preview, String> {
+    let target_archive = target.to_path_buf();
+    let marker = marker(game).ok();
+    let optional = marker
+        .as_ref()
+        .map(|m| m.selected_optional.as_slice())
+        .unwrap_or(&game.pack_optional_files);
+    let (target, target_name, excluded_optional_files) = archive(target, None, optional)?;
+    let baseline = marker
+        .as_ref()
+        .and_then(|m| archive(source, Some(&m.archive_sha256), &m.selected_optional).ok());
+    let baseline_available = baseline.is_some();
+    let baseline_status = if baseline_available {
+        "verified"
+    } else if source.exists() {
+        "untrusted"
+    } else {
+        "missing"
+    };
+    let installed = if let Some((snapshot, _, _)) = baseline {
+        snapshot
+    } else {
+        domain::PackManifestSnapshot {
+            source: target.source.clone(),
+            version_id: marker
+                .as_ref()
+                .map(|m| m.version_id.clone())
+                .or_else(|| game.pack_version.clone())
+                .unwrap_or_else(|| "Unknown".into()),
+            minecraft_version: game.version.clone(),
+            loader_kind: game.loader_kind.clone(),
+            loader_version: game.loader_version.clone(),
+            files: Vec::new(),
+        }
+    };
     let paths: BTreeSet<_> = installed
         .files
         .iter()
@@ -301,12 +340,21 @@ fn compare(game: &Game, target: &Path) -> Result<Preview, String> {
     let observed_file_count = observed.len();
     let plan = domain::preview_pack_update(Some(&installed), &target, &observed)
         .map_err(|_| "PACK_UPDATE_INVALID_ARCHIVE")?;
+    let json_documents = if baseline_available {
+        super::pack_update_copy::json::collect(game, source, &target_archive, &plan)
+    } else {
+        vec![]
+    };
     Ok(Preview {
         plan,
         target_name,
         excluded_optional_files,
         observed_file_count,
         unobserved_file_count,
+        baseline_available,
+        baseline_status,
+        copy: Default::default(),
+        json_documents,
     })
 }
 #[tauri::command]
@@ -339,9 +387,18 @@ pub async fn preview_game_pack_update(
     };
     let target = file.path().to_owned();
     let started = Instant::now();
-    let result = tauri::async_runtime::spawn_blocking(move || compare(&game, &target))
-        .await
-        .map_err(|_| io_error())?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let mut preview = compare(&game, &target)?;
+        preview.copy = super::pack_update_copy::store_plan(
+            &game,
+            &target,
+            &preview.plan,
+            &preview.json_documents,
+        )?;
+        Ok::<_, String>(preview)
+    })
+    .await
+    .map_err(|_| io_error())?;
     tracing::info!(
         event = "pack_update_preview_finished",
         outcome = if result.is_ok() {

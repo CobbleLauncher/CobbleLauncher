@@ -11,6 +11,9 @@ pub fn config_dir() -> Option<std::path::PathBuf> {
 pub fn data_local_dir() -> Option<std::path::PathBuf> {
     std::env::var_os("LOCALAPPDATA").map(Into::into)
 }
+pub fn desktop_dir() -> Option<std::path::PathBuf> {
+    data_local_dir().map(|root| root.join("synthetic-desktop"))
+}
 #[path = "../src/appearance.rs"]
 mod appearance;
 #[path = "../src/cache.rs"]
@@ -37,6 +40,8 @@ mod plugin_catalogs;
 mod plugins;
 #[path = "../src/preferences.rs"]
 mod preferences;
+#[path = "../src/seed_map.rs"]
+mod seed_map;
 
 use serde_json::{Value, json};
 use std::{

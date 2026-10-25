@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT
 use super::*;
+#[path = "local_world_metadata.rs"]
+pub mod metadata;
+pub use metadata::read_local_world_metadata;
 
 pub(super) struct WorldSelection {
     preview_id: String,

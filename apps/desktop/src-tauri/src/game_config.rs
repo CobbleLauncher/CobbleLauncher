@@ -32,6 +32,25 @@ pub struct ConfigDocument {
     revision: String,
     backups: Vec<ConfigBackup>,
 }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigBackupDocument {
+    id: String,
+    text: String,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigRecoveryFile {
+    id: String,
+    name: String,
+    backups: Vec<ConfigBackup>,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigRecoveryMetadata {
+    files: Vec<ConfigRecoveryFile>,
+    truncated: bool,
+}
 fn failure() -> String {
     "CONFIG_IO".into()
 }
@@ -222,6 +241,65 @@ fn document(root: &Dir, id: &str) -> Result<ConfigDocument, String> {
         backups: backups(root, id)?,
     })
 }
+fn backup_document(
+    root: &Dir,
+    config_id: &str,
+    backup_id: &str,
+) -> Result<ConfigBackupDocument, String> {
+    selected(root, config_id)?;
+    if !backups(root, config_id)?
+        .iter()
+        .any(|backup| backup.id == backup_id)
+    {
+        return Err("CONFIG_BACKUP_NOT_FOUND".into());
+    }
+    let dir = backup_dir(root, config_id, false)?.ok_or("CONFIG_BACKUP_NOT_FOUND")?;
+    let bytes = bounded(&dir, Path::new(backup_id))?;
+    if backup_id.split_once('-').map(|(_, hash)| hash) != Some(digest(&bytes).as_str()) {
+        return Err("CONFIG_BACKUP_CHANGED".into());
+    }
+    let text = String::from_utf8(bytes).map_err(|_| "CONFIG_NOT_UTF8")?;
+    Ok(ConfigBackupDocument {
+        id: backup_id.into(),
+        text,
+    })
+}
+/// Bounded recovery history for the local recovery dashboard; never reads config contents.
+pub(crate) fn recovery_metadata(directory: &Path) -> Result<ConfigRecoveryMetadata, String> {
+    let root = root(directory)?;
+    let files = listing(&root)?;
+    let mut truncated = false;
+    let mut result = Vec::new();
+    for file in files {
+        if file.name.len() > 256 {
+            truncated = true;
+            continue;
+        }
+        let history = backups(&root, &file.id)?;
+        if history.is_empty() {
+            continue;
+        }
+        if result.len() >= 64 {
+            truncated = true;
+            break;
+        }
+        let backups = if history.len() > 32 {
+            truncated = true;
+            history.into_iter().take(32).collect()
+        } else {
+            history
+        };
+        result.push(ConfigRecoveryFile {
+            id: file.id,
+            name: file.name,
+            backups,
+        });
+    }
+    Ok(ConfigRecoveryMetadata {
+        files: result,
+        truncated,
+    })
+}
 /// Resolve only an opaque managed-config ID; never accepts a caller path.
 pub(crate) fn report_current_config(
     directory: &Path,
@@ -373,6 +451,19 @@ pub async fn read_game_config(
         .await
         .map_err(|_| failure())?
 }
+pub async fn read_game_config_backup(
+    app: AppHandle,
+    game_id: String,
+    config_id: String,
+    backup_id: String,
+) -> Result<ConfigBackupDocument, String> {
+    let directory = game_directory(&app, &game_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        backup_document(&root(&directory)?, &config_id, &backup_id)
+    })
+    .await
+    .map_err(|_| failure())?
+}
 #[tauri::command]
 pub async fn save_game_config(
     app: AppHandle,
@@ -402,16 +493,7 @@ fn restore(
     backup_id: &str,
     expected_revision: &str,
 ) -> Result<ConfigDocument, String> {
-    selected(root, config_id)?;
-    if !backups(root, config_id)?.iter().any(|b| b.id == backup_id) {
-        return Err("CONFIG_BACKUP_NOT_FOUND".into());
-    }
-    let dir = backup_dir(root, config_id, false)?.ok_or("CONFIG_BACKUP_NOT_FOUND")?;
-    let bytes = bounded(&dir, Path::new(backup_id))?;
-    if backup_id.split_once('-').map(|(_, hash)| hash) != Some(digest(&bytes).as_str()) {
-        return Err("CONFIG_BACKUP_CHANGED".into());
-    }
-    let text = String::from_utf8(bytes).map_err(|_| "CONFIG_NOT_UTF8")?;
+    let text = backup_document(root, config_id, backup_id)?.text;
     replace(root, config_id, &text, expected_revision)
 }
 #[tauri::command]

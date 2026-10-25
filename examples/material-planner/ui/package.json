@@ -1,0 +1,1 @@
+{"name":"material-planner-example","private":true,"type":"module","scripts":{"test":"node --test src/model.test.ts src/storage.test.ts"}}

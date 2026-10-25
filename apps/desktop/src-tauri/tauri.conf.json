@@ -1,8 +1,14 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Cobble Launcher",
-  "version": "0.1.0",
+  "version": "0.1.0-beta.1",
   "identifier": "cobble-launcher-dev",
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYxQ0U2MDMyQTg0NTVFNDgKUldSSVhrV29NbURPOFNlMHBxSlFYOHBuZlRMdG8vWEJBYkwzLzNKWVFKMlA0UTJ4bHhnOGo2anYK",
+      "requireSignedVersion": true
+    }
+  },
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -20,7 +26,7 @@
         "minHeight": 420,
         "resizable": true,
         "visible": false,
-        "dragDropEnabled": false,
+        "dragDropEnabled": true,
         "decorations": false
       }
     ],

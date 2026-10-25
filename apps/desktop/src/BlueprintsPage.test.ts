@@ -5,6 +5,7 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { setLocale } from './i18n';
 import { invoke } from '@tauri-apps/api/core';
 import BlueprintsPage from './BlueprintsPage.vue';
+import SelectField from './ui/SelectField.vue';
 import { pendingBlueprint } from './blueprints';
 import type { ResolvedCommand } from './extensions/contributions';
 import type { Game } from './games';
@@ -150,7 +151,7 @@ it('asks only when multiple local viewers match and forwards the explicit choice
   const wrapper = mount(BlueprintsPage); await flushPromises();
   await wrapper.get('.blueprint-empty button').trigger('click'); await flushPromises();
   expect(invoke).not.toHaveBeenCalledWith('open_schematic', expect.anything());
-  await wrapper.get('.local-viewer-picker select').setValue('other-viewer'); await flushPromises();
+  wrapper.findAllComponents(SelectField).find(field => field.props('id') === 'local-blueprint-viewer')!.vm.$emit('update:modelValue', 'other-viewer'); await flushPromises();
   expect(invoke).toHaveBeenCalledWith('open_schematic', { pluginId: 'other-viewer' });
   wrapper.unmount();
 });
@@ -193,7 +194,7 @@ it('pending OS file survives cancellation of a multiple-viewer choice and can be
   first.unmount();
   expect(pendingBlueprint.value?.queueId).toBe('queue-a');
   const retry = mount(BlueprintsPage); await flushPromises();
-  await retry.get('.local-viewer-picker select').setValue('other-viewer'); await flushPromises();
+  retry.findAllComponents(SelectField).find(field => field.props('id') === 'local-blueprint-viewer')!.vm.$emit('update:modelValue', 'other-viewer'); await flushPromises();
   expect(invoke).toHaveBeenCalledWith('take_pending_schematic', { pluginId: 'other-viewer', expectedQueueId: 'queue-a' });
   expect(pendingBlueprint.value).toBeNull();
   retry.unmount();
@@ -211,7 +212,7 @@ it('pending OS file remains available after a failed open and retries the same q
   expect(pendingBlueprint.value?.queueId).toBe('queue-a');
   await wrapper.get('[role="alert"] button').trigger('click'); await flushPromises();
   expect(attempts).toBe(2);
-  expect(invoke).toHaveBeenLastCalledWith('take_pending_schematic', { pluginId: 'local-viewer', expectedQueueId: 'queue-a' });
+  expect(invoke).toHaveBeenCalledWith('take_pending_schematic', { pluginId: 'local-viewer', expectedQueueId: 'queue-a' });
   expect(pendingBlueprint.value).toBeNull();
   wrapper.unmount();
 });

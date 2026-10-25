@@ -191,7 +191,14 @@ impl ModDownloads {
     }
 
     pub(super) fn contains(&self, file: &ModrinthFile) -> Result<bool, Error> {
-        Ok(crate::cache::lookup(&self.content, &self.index, file_expectation(file)?)?.is_some())
+        self.contains_expectation(file_expectation(file)?)
+    }
+
+    pub(super) fn contains_expectation(
+        &self,
+        expected: ArtifactExpectation,
+    ) -> Result<bool, Error> {
+        Ok(crate::cache::lookup(&self.content, &self.index, expected)?.is_some())
     }
     pub(super) fn ingest_manual(
         &self,
@@ -767,18 +774,25 @@ mod tests {
     fn install_history_undo_keeps_reused_mod_and_removes_new_dependency() {
         let fixture = Fixture::new();
         let root = Dir::open_ambient_dir(&fixture.0, cap_std::ambient_authority()).unwrap();
-        fixture.mods().write("sample.jar.disabled", b"fixture").unwrap();
+        fixture
+            .mods()
+            .write("sample.jar.disabled", b"fixture")
+            .unwrap();
         let control = crate::OperationControl::new(Arc::new(|_| {}));
         let result = commit_mod_plan(&root, &dependency_plan(), &control, |_, selected, mods| {
             mods.write(&selected.file.filename, b"fixture")?;
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
         assert_eq!((result.installed, result.reused), (1, 1));
         let history = crate::list_mod_operation_history(&fixture.0).unwrap();
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].files.len(), 1);
         crate::undo_mod_operation(&fixture.0, &history[0].operation_id).unwrap();
-        assert_eq!(fixture.mods().read("sample.jar.disabled").unwrap(), b"fixture");
+        assert_eq!(
+            fixture.mods().read("sample.jar.disabled").unwrap(),
+            b"fixture"
+        );
         assert!(!fixture.mods().exists("dependency.jar"));
         assert_eq!(read_provenance(&root).unwrap().len(), 1);
     }

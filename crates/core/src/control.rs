@@ -57,7 +57,8 @@ impl OperationControl {
             changed: self.changed.clone(),
         }
     }
-    pub(crate) async fn cancelled(&self) {
+    /// Wait without polling for the owning application's cancellation request.
+    pub async fn cancelled(&self) {
         let changed = self.changed.notified();
         tokio::pin!(changed);
         changed.as_mut().enable();

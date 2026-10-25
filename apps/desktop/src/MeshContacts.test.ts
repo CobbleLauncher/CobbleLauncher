@@ -77,6 +77,48 @@ it('copies the public Mesh ID rather than the private contact invitation', async
   expect(writeText).not.toHaveBeenCalledWith('private-contact-invitation');
 });
 
+it('shows the public-message pause only when the native snapshot explicitly says it is paused', async () => {
+  vi.mocked(invoke).mockImplementation(async command => command === 'mesh_app_snapshot' ? { ...snapshot, capabilities: { ...snapshot.capabilities, lan_only: false, events_public: true }, public_events_paused: true } : running(command));
+  const paused = mountPanel(); await flushPromises();
+  expect(paused.get('[role="status"]').text()).toBe('Public messages are paused during this game session.');
+  expect(paused.text()).not.toContain('Local network');
+  vi.mocked(invoke).mockImplementation(async command => command === 'mesh_app_snapshot' ? { ...snapshot, capabilities: { ...snapshot.capabilities, lan_only: false, events_public: true }, public_events_paused: false } : running(command));
+  const available = mountPanel(); await flushPromises();
+  expect(available.text()).not.toContain('Public messages are paused during this game session.');
+});
+
+it('maps a game-session public-route conflict to a brief retry action without exposing its code', async () => {
+  vi.mocked(invoke).mockImplementation(async command => {
+    if (command === 'mesh_create_contact_invitation') throw 'MESH_EVENT_ROUTE_GAME_ACTIVE';
+    return running(command);
+  });
+  const wrapper = mountPanel(); await flushPromises();
+  await button(wrapper, 'Add contact').trigger('click');
+  await button(wrapper, 'Create contact invitation').trigger('click'); await flushPromises();
+  expect(wrapper.get('[role="alert"]').text()).toBe('End the current game connection, then try again.');
+  expect(wrapper.text()).not.toContain('MESH_EVENT_ROUTE_GAME_ACTIVE');
+});
+
+it('maps a starting public route to a brief retry message without exposing its code', async () => {
+  vi.mocked(invoke).mockImplementation(async command => {
+    if (command === 'mesh_create_contact_invitation') throw 'MESH_EVENT_ROUTE_NOT_READY';
+    return running(command);
+  });
+  const wrapper = mountPanel(); await flushPromises();
+  await button(wrapper, 'Add contact').trigger('click');
+  await button(wrapper, 'Create contact invitation').trigger('click'); await flushPromises();
+  expect(wrapper.get('[role="alert"]').text()).toBe('The connection is getting ready. Try again shortly.');
+  expect(wrapper.text()).not.toContain('MESH_EVENT_ROUTE_NOT_READY');
+});
+
+it('opens the exact requested contact after the current contact list loads', async () => {
+  const wrapper = mountPanel({ initialContactId: 'peer-ben', contactRequestId: 4 });
+  await flushPromises();
+  expect(wrapper.get('.mesh-contact[aria-pressed="true"]').text()).toContain('Ben#55667788');
+  expect(wrapper.emitted('contactOpened')).toEqual([[4]]);
+  expect(invoke).toHaveBeenCalledWith('mesh_list_messages', { after: 0, limit: 40 });
+});
+
 it('keeps separate contact drafts and preserves the selected draft when sending fails', async () => {
   vi.mocked(invoke).mockImplementation(async command => { if (command === 'mesh_send_message') throw new Error('Remote acknowledgement unavailable'); return running(command); });
   const wrapper = mountPanel(); await flushPromises();

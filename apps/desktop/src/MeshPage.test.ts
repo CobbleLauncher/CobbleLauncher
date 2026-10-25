@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+/* eslint-disable vue/one-component-per-file -- Component doubles exercise separate page boundaries. */
 import { defineComponent } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -31,7 +32,7 @@ const props = { games: [game], initialGameId: game.id, active: true };
 
 it('keeps the Inspector action available offline with no games in Contacts mode', async () => {
   vi.mocked(invoke).mockResolvedValue({ available: false, reason: 'MESH_OFFLINE', can_host: false });
-  const InspectorStub = defineComponent({ props: ['active'], template: '<section data-inspector />' });
+  const InspectorStub = defineComponent({ props: { active: Boolean }, template: '<section data-inspector />' });
   const wrapper = mountPage({ props: { games: [], initialGameId: '', active: true } }, { MeshInspector: InspectorStub });
   await flushPromises();
   await wrapper.findAll('button').find(item => item.text() === 'Contacts')!.trigger('click');
@@ -76,6 +77,7 @@ it('does no work before the optional page is opened and reports a missing compan
 
 it('starts a stopped selected game through the launcher', async () => {
   const wrapper = mountPage({props: {...props, games:[{...game, launch_state:'idle'}]}}); await flushPromises();
+  expect(vi.mocked(invoke).mock.calls.some(([name]) => name === 'mesh_discover')).toBe(false);
   await wrapper.findAll('button').find(button => button.text() === 'Start game')!.trigger('click');
   expect(wrapper.emitted('launch')).toEqual([[game.id]]);
   expect(wrapper.find('button[type=submit]').exists()).toBe(false);
@@ -89,7 +91,7 @@ it('automatically chooses a discovered relay and uses the owned LAN port', async
   const wrapper = mountPage({props}); await flushPromises();
   expect(wrapper.text()).toContain('LAN port detected');
   await wrapper.get('form').trigger('submit'); await flushPromises();
-  expect(invoke).toHaveBeenCalledWith('mesh_host',{gameId:game.id,localPort:54321,relay:overview.nodes[0]!.endpoint,approveLocalPort:true});
+  expect(invoke).toHaveBeenCalledWith('mesh_host',{gameId:game.id,localPort:54321,relay:overview.nodes[0]!.endpoint,approveLocalPort:true,routePolicy:{authorization:'coordination',observer:null}});
   await wrapper.findAll('button').find(button => button.text() === 'Copy invitation')!.trigger('click'); await flushPromises();
   expect(writeText).toHaveBeenCalledWith('private-invite');
   expect(wrapper.text()).toContain('Waiting for a guest');
@@ -100,7 +102,7 @@ it('shares a loopback server without requiring a running game', async () => {
   const wrapper=mountPage({props:{games:[],initialGameId:'',active:true}}); await flushPromises();
   await wrapper.findAll('button').find(button => button.text() === 'Share server')!.trigger('click');
   await wrapper.get('form').trigger('submit'); await flushPromises();
-  expect(invoke).toHaveBeenCalledWith('mesh_host_server',{localPort:25565,relay:overview.nodes[0]!.endpoint,approveLocalPort:true});
+  expect(invoke).toHaveBeenCalledWith('mesh_host_server',{localPort:25565,relay:overview.nodes[0]!.endpoint,approveLocalPort:true,routePolicy:{authorization:'coordination',observer:null}});
   wrapper.unmount();
 });
 it('joins privately and only displays the returned local address', async () => {
@@ -108,7 +110,7 @@ it('joins privately and only displays the returned local address', async () => {
   const wrapper=mountPage({props}); await flushPromises();
   await wrapper.findAll('button').find(button => button.text() === 'Join friend')!.trigger('click');
   await wrapper.get('textarea').setValue('secret'); await wrapper.get('form').trigger('submit'); await flushPromises();
-  expect(invoke).toHaveBeenCalledWith('mesh_join',{gameId:game.id,invitation:'secret'});
+  expect(invoke).toHaveBeenCalledWith('mesh_join',{gameId:game.id,invitation:'secret',routePolicy:{authorization:'coordination',observer:null}});
   expect(wrapper.find('textarea').exists()).toBe(false);
   expect(wrapper.get('input[readonly]').element).toHaveProperty('value','127.0.0.1:40123');
   wrapper.unmount();
@@ -149,7 +151,7 @@ it('requires an explicit reconnect after a guest disconnect and reuses only its 
   expect(vi.mocked(invoke).mock.calls.filter(([name])=>name==='mesh_join')).toHaveLength(1);
   await wrapper.findAll('button').find(button=>button.text()==='Reconnect')!.trigger('click'); await flushPromises();
   expect(vi.mocked(invoke).mock.calls.filter(([name])=>name==='mesh_join')).toHaveLength(2);
-  expect(invoke).toHaveBeenLastCalledWith('mesh_join',{gameId:game.id,invitation:'owned-invitation'});
+  expect(invoke).toHaveBeenLastCalledWith('mesh_join',{gameId:game.id,invitation:'owned-invitation',routePolicy:{authorization:'coordination',observer:null}});
   wrapper.unmount();
 });
 it('hides an expired host invitation using the companion deadline', async () => {
@@ -177,6 +179,13 @@ it('opens join directly from a game entry', async () => {
   const wrapper = mountPage({ props: { ...props, initialMode: 'join' } });
   await flushPromises();
   expect(wrapper.find('form textarea').exists()).toBe(true);
+  wrapper.unmount();
+});
+
+it('opens contacts directly from a titlebar entry', async () => {
+  const wrapper = mountPage({ props: { ...props, initialMode: 'contacts' } });
+  await flushPromises();
+  expect(wrapper.get('.mesh-contacts').attributes('aria-pressed')).toBe('true');
   wrapper.unmount();
 });
 

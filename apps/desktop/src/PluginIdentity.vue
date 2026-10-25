@@ -4,6 +4,7 @@ import { onMounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { locale } from './i18n';
 import AppIcon from './ui/AppIcon.vue';
+import type { AppIconName } from './ui/icons';
 
 export type PluginIdentityManifest = {
   id: string;
@@ -23,7 +24,8 @@ const props = withDefaults(defineProps<{
   showDescription?: boolean;
   showTags?: boolean;
   iconSize?: 'small' | 'medium';
-}>(), { iconData: undefined, descriptionOverride: undefined, fetchIcon: false, bundledIcon: false, showName: true, showDescription: true, showTags: true, iconSize: 'medium' });
+  fallbackIcon?: AppIconName;
+}>(), { iconData: undefined, descriptionOverride: undefined, fetchIcon: false, bundledIcon: false, showName: true, showDescription: true, showTags: true, iconSize: 'medium', fallbackIcon: 'puzzle' });
 
 const iconCache = new Map<string, string>();
 const loadedIcon = ref<string | null>(null);
@@ -70,7 +72,7 @@ onMounted(() => { void loadIcon(); });
       >
       <AppIcon
         v-else
-        name="puzzle"
+        :name="fallbackIcon"
       />
     </div>
     <div class="plugin-identity-copy">
@@ -94,5 +96,5 @@ onMounted(() => { void loadIcon(); });
 </template>
 
 <style scoped>
-.plugin-identity{display:flex;align-items:flex-start;gap:12px;min-width:0}.plugin-identity-icon{display:grid;place-items:center;flex:none;width:44px;height:44px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--muted);overflow:hidden}.plugin-identity-icon img{width:100%;height:100%;object-fit:cover}.plugin-identity-icon :deep(svg){width:20px;height:20px}.plugin-identity-copy{min-width:0;overflow-wrap:anywhere}.plugin-identity-copy>strong{display:block;font-size:14px;font-weight:600;line-height:1.4}.plugin-identity-copy>p{margin:4px 0 0;color:var(--muted);font-size:12px;line-height:1.55}.plugin-identity-tags{display:flex;flex-wrap:wrap;gap:5px;list-style:none;padding:0;margin:7px 0 0}.plugin-identity-tags li{padding:2px 7px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:10px;line-height:1.5}.plugin-identity-small .plugin-identity-icon{width:34px;height:34px;border-radius:8px}.plugin-identity-small .plugin-identity-copy>strong{font-size:13px}
+.plugin-identity{display:flex;align-items:flex-start;gap:var(--ui-space-3);min-width:0}.plugin-identity-icon{display:grid;place-items:center;flex:none;width:44px;height:44px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-md);background:var(--ui-surface-1);color:var(--ui-text-muted);overflow:hidden}.plugin-identity-icon img{width:100%;height:100%;object-fit:cover}.plugin-identity-icon :deep(svg){width:20px;height:20px}.plugin-identity-copy{min-width:0;overflow-wrap:anywhere}.plugin-identity-copy>strong{display:block;font-size:var(--ui-text-body);font-weight:600;line-height:var(--ui-leading-body)}.plugin-identity-copy>p{margin:var(--ui-space-1) 0 0;color:var(--ui-text-muted);font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption)}.plugin-identity-tags{display:flex;flex-wrap:wrap;gap:var(--ui-space-1);list-style:none;padding:0;margin:var(--ui-space-2) 0 0}.plugin-identity-tags li{padding:0 var(--ui-space-2);border:1px solid var(--ui-border);border-radius:var(--ui-radius-sm);color:var(--ui-text-muted);font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption)}.plugin-identity-small .plugin-identity-icon{width:34px;height:34px;border-radius:8px}.plugin-identity-small .plugin-identity-copy>strong{font-size:var(--ui-text-label)}
 </style>

@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: MIT
+wit_bindgen::generate!({path:"wit",world:"tool-form"});
+use exports::launcher::tool_form::tool::{Guest, Request, Output, TextBlock, Failure};
+struct Tool;
+impl Guest for Tool {
+    fn run(request: Request) -> Result<Output, Failure> {
+        let input: serde_json::Value = serde_json::from_str(&request.input_json)
+            .map_err(|_| Failure {code:"INVALID_INPUT".into(),message:"Invalid form values".into()})?;
+        let text = input["text"].as_str().ok_or_else(|| Failure {code:"INVALID_INPUT".into(),message:"Missing text".into()})?;
+        Ok(Output {title:if request.locale == "zh-CN" {"结果"} else {"Result"}.into(),blocks:vec![TextBlock {label:None,text:text.into()}]})
+    }
+}
+export!(Tool);

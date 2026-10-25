@@ -34,7 +34,10 @@
   },
   "retry": "重试",
   "error": {
+    "fileInboxUnavailable": "请在扩展中启用文件投递，也可以使用现有的导入或添加内容操作。",
+    "fileInboxFailed": "无法接收这些文件，请在文件投递中重新选择。",
     "quickLaunchUnavailable": "快捷方式对应的游戏已不在本地，请从游戏库选择。",
+    "handoffGameUnavailable": "此交接对应的游戏已不再安装。",
     "quickLaunch": "无法打开游戏快捷方式，请从游戏库重试。",
     "tasksLoad": "无法读取任务，请重试。",
     "profileLoad": "无法读取玩家档案，请重试",

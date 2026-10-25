@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { invoke } from '@tauri-apps/api/core';
 import AdvancedRuntimeSettings from './AdvancedRuntimeSettings.vue';
+import SelectField from './ui/SelectField.vue';
 import type { Game } from './games';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 const game: Game = { id: 'forest', name: 'Forest', version: '1.21.1', directory: 'test', status: 'installed', progress: null, error: null };
@@ -23,7 +24,8 @@ describe('advanced runtime settings', () => {
     await flushPromises();
     await wrapper.get('input[type="number"]').setValue('1280');
     await wrapper.get('textarea').setValue('-Dlabel=two words\n\n-XX:+UseG1GC');
-    await wrapper.get('select').setValue('minimize');
+    wrapper.getComponent(SelectField).vm.$emit('update:modelValue', 'minimize');
+    await flushPromises();
     await wrapper.get('form').trigger('submit');
     await flushPromises();
     expect(invoke).toHaveBeenCalledWith('set_default_advanced_runtime', { windowSize: { width: 1280, height: null }, jvmArgs: ['-Dlabel=two words', '-XX:+UseG1GC'], launchBehavior: 'minimize' });

@@ -1,0 +1,9 @@
+{
+  "name": "coordinate-book-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ../../../packages/plugin-workbench/build.mjs coordinate-book",
+    "test": "node --test src/model.test.ts src/portal-planner.test.ts src/notes-model.test.ts"
+  }
+}

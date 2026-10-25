@@ -7,6 +7,7 @@ const fake = vi.hoisted(() => ({ render: vi.fn(), setSize: vi.fn(), setPixelRati
 vi.mock('three', async importOriginal => ({
   ...await importOriginal<typeof import('three')>(),
   WebGLRenderer: class {
+    capabilities = { maxTextures: 16, maxAttributes: 16, maxTextureSize: 4096 };
     setPixelRatio = fake.setPixelRatio; setSize = fake.setSize; render = fake.render; dispose = fake.dispose;
   },
 }));
@@ -90,7 +91,7 @@ it('releases partially prepared GPU resources and resolves pending preparation o
   const pending = viewer!.addChunk(Array.from({ length: 10000 }, (_, x) => ({ x, y: 0, z: 0, palette_index: 0 })));
   controller.abort();
   expect(await pending).toBe(false);
-  expect(meshDispose).toHaveBeenCalledOnce(); expect(geometryDispose).toHaveBeenCalledOnce(); expect(materialDispose).toHaveBeenCalledOnce();
+  expect(meshDispose).toHaveBeenCalledOnce(); expect(geometryDispose).toHaveBeenCalledTimes(2); expect(materialDispose).toHaveBeenCalledOnce();
   expect(vi.getTimerCount()).toBe(0);
   expect(fake.render).toHaveBeenCalledTimes(1);
 });

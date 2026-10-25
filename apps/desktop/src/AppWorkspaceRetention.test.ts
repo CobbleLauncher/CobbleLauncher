@@ -17,10 +17,10 @@ vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async (event: string, ha
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => ({ isMaximized: vi.fn().mockResolvedValue(false), onCloseRequested: vi.fn().mockResolvedValue(() => {}) }) }));
 vi.mock('./theme', () => ({ readTheme: () => 'light', applyTheme: vi.fn() }));
 vi.mock('./GameDetailsPage.vue', () => ({ __esModule: true, default: {
-  name: 'GameDetailsPage', props: ['active'], emits: ['market'],
+  name: 'GameDetailsPage', props: ['active'], emits: ['market', 'content-busy'],
   data: () => ({ search: '' }),
   methods: { confirmLeave: async () => true, refreshContent: async () => {} },
-  template: '<div data-details><h1>First game</h1><input aria-label="Retained search" v-model="search"><button @click="$emit(\'market\', \'mod\')">Find content</button></div>',
+  template: '<div data-details><h1>First game</h1><input aria-label="Retained search" v-model="search"><button @click="$emit(\'market\', \'mod\')">Find content</button><button @click="$emit(\'content-busy\', true)">Native task accepted</button></div>',
 } }));
 vi.mock('./MarketPage.vue', () => ({ __esModule: true, default: { name: 'MarketPage', template: '<div data-market>Market</div>' } }));
 
@@ -75,4 +75,26 @@ it('keeps Mesh and Tasks in the titlebar when idle and only badges active tasks'
     expect(wrapper.get('.titlebar .tasks-button').attributes('aria-expanded')).toBe('true');
     expect(wrapper.find('[data-tasks-history]').exists()).toBe(true);
   } finally { wrapper.unmount(); setLocale('zh-CN'); taskEvents.update = undefined; }
+});
+
+
+it('keeps navigation available while a retained game workspace owns a native content task', async () => {
+  setLocale('en-US');
+  const wrapper = mount(App, { global: { stubs: {
+    ProfileSwitcher: true, TasksPage: true,
+    AppNavigation: { props: ['disabled'], emits: ['navigate'], template: '<button data-market-nav :disabled="disabled" @click="$emit(\'navigate\', \'discover-packs\')">Browse market</button>' },
+    LibraryHome: { emits: ['manage'], template: '<button data-manage @click="$emit(\'manage\', \'one\')">Manage first</button>' },
+  } } });
+  try {
+    await flushPromises();
+    await wrapper.get('[data-manage]').trigger('click');
+    await vi.waitFor(() => expect(wrapper.find('[data-details]').exists()).toBe(true));
+    await wrapper.get('input[aria-label="Retained search"]').setValue('Sodium');
+    await wrapper.findAll('button').find(button => button.text() === 'Native task accepted')!.trigger('click');
+    expect(wrapper.get('[data-market-nav]').attributes('disabled')).toBeUndefined();
+    await wrapper.get('[data-market-nav]').trigger('click');
+    await vi.waitFor(() => expect(wrapper.find('[data-market]').exists()).toBe(true));
+    expect(wrapper.get('[data-details]').isVisible()).toBe(false);
+    expect((wrapper.get('input[aria-label="Retained search"]').element as HTMLInputElement).value).toBe('Sodium');
+  } finally { wrapper.unmount(); setLocale('zh-CN'); }
 });

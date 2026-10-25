@@ -3,7 +3,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { Game } from '../src/games';
 import type { MeshAppSnapshot, MeshIdentityState, MeshPublicProfile } from '../src/mesh-social';
-import type { MeshOverview } from '../src/mesh';
+import type { MeshNetworkSnapshot, MeshOverview } from '../src/mesh';
 
 type Call = { command: string; args: Record<string, unknown> };
 type FixtureWindow = Window & { __quickCalls: Call[] };
@@ -23,6 +23,7 @@ async function mockNative(page: Page, language: string, theme: string, freshIden
     localStorage.setItem('cobble.appearance', theme);
     let identity: MeshIdentityState = { profile: freshIdentity ? null : saved, mode: 'persistent', active: !freshIdentity };
     let meshEnabled = true;
+    const network = (): MeshNetworkSnapshot => ({ enabled: meshEnabled, phase: meshEnabled ? 'online' : 'offline', generation: 1, attempt: 1, retry_at: null, profile: identity.profile, services: [], last_error: null, relay_available: false, session_route: null, checks: [] });
     const snapshot = (): MeshAppSnapshot | null => identity.active && identity.profile ? { profile: identity.profile, contacts: [], capabilities } : null;
     target.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
     let callback = 0;
@@ -39,13 +40,13 @@ async function mockNative(page: Page, language: string, theme: string, freshIden
         if (command === 'create_game_shortcut') return null;
         if (command === 'list_game_servers') return { items: [{ id: 'server-1', name: 'Friends', address: 'play.example.invalid:25565', can_connect: true }], direct_connect: true };
         if (command === 'start_game_server') return game;
-        if (command === 'mesh_network_status') return { enabled: meshEnabled, connected: meshEnabled && !freshIdentity, relay_available: meshEnabled && freshIdentity, discovery_checked: meshEnabled };
-        if (command === 'mesh_set_enabled') { meshEnabled = Boolean(args.enabled); return { enabled: meshEnabled, connected: meshEnabled }; }
+        if (command === 'mesh_network_snapshot' || command === 'mesh_network_start') return network();
+        if (command === 'mesh_network_set_enabled') { meshEnabled = Boolean(args.enabled); return network(); }
+        if (command === 'mesh_network_retry') return network();
         if (command === 'mesh_overview' || command === 'mesh_discover') return meshEnabled ? freshIdentity ? { ...overview, can_host: true, component_state: 'running', discovery_state: 'published', configured_services: [{ id: 'official-relay', kind: 'relay', endpoint: '/dns4/relay.example.invalid/tcp/443/wss/p2p/fixture', state: 'authenticated', discovery: 'unavailable', game_relay: true }] } : overview : { ...overview, available: false, can_host: false, reason: 'MESH_OFFLINE' };
         if (command === 'mesh_identity_state') return identity;
         if (command === 'mesh_app_snapshot') return snapshot();
         if (command === 'mesh_set_identity_mode') { identity = { profile: args.temporary ? temporary : saved, mode: args.temporary ? 'temporary' : 'persistent', active: true }; return snapshot(); }
-        if (command === 'mesh_stop_app') { identity = { ...identity, active: false }; return true; }
         if (command === 'mesh_start_app') { identity = { ...identity, active: true }; return snapshot(); }
         if (command === 'mesh_status') return { session: null };
         if (command === 'get_launcher_preferences') return { memory_mb: 4096, game_directory: 'synthetic', custom_game_directory: false };
@@ -63,9 +64,8 @@ test('first Mesh visit shows name entry when no identity exists', async ({ page 
   await mockNative(page, 'zh-CN', 'light', true);
   await page.setViewportSize({ width: 1000, height: 720 });
   await page.goto('/');
-  await expect(page.locator('.mesh-status-button')).toHaveText('可联机');
+  await expect(page.locator('.mesh-status-button')).toHaveText('在线');
   await page.locator('.mesh-status-button').click();
-  await expect(page.getByRole('menuitem', { name: '创建 Mesh 身份' })).toBeVisible();
   await page.getByRole('menuitem', { name: '联机与联系人' }).click();
   await expect(page.locator('form.mesh-start')).toBeVisible();
   await expect(page.getByText('无法加载 Mesh。', { exact: true })).toHaveCount(0);
@@ -93,7 +93,7 @@ test('Mesh status badge is before Tasks and switches offline without starting a 
   await page.screenshot({ path: info.outputPath('mesh-status-menu.png'), animations: 'disabled' });
   await page.getByRole('menuitem', { name: '切换为离线模式' }).click();
   await expect(badge).toHaveText('离线');
-  expect((await calls(page, 'mesh_set_enabled')).at(-1)?.args).toEqual({ enabled: false });
+  expect((await calls(page, 'mesh_network_set_enabled')).at(-1)?.args).toEqual({ enabled: false });
   await badge.click();
   await page.getByRole('menuitem', { name: '联机与联系人' }).click();
   await expect(page.getByText('Mesh 已离线，可通过顶部状态上线。')).toBeVisible();
@@ -102,7 +102,7 @@ test('Mesh status badge is before Tasks and switches offline without starting a 
   await badge.click();
   await page.getByRole('menuitem', { name: '上线', exact: true }).click();
   await expect(badge).toHaveText('在线');
-  expect((await calls(page, 'mesh_set_enabled')).at(-1)?.args).toEqual({ enabled: true });
+  expect((await calls(page, 'mesh_network_set_enabled')).at(-1)?.args).toEqual({ enabled: true });
   expect(await calls(page, 'start_game')).toHaveLength(0);
 });
 
@@ -169,10 +169,7 @@ for (const { language, theme, width } of [
     expect((await calls(page, 'mesh_set_identity_mode'))[1]?.args).toEqual({ temporary: false, displayName: temporary.display_name });
     await expect(identityCard).toContainText('Aster#7D42');
     await expect(identityCard).toContainText(saved.peer_id);
-    await identityCard.getByRole('button', { name: en ? 'Disable contacts' : '关闭联系人' }).click();
-    await expect(identityCard).toContainText(en ? 'Saved on this device' : '已保存在此设备');
-    await expect(page.locator('form.mesh-start')).toHaveCount(0);
-    await expect(identityCard.getByRole('button', { name: en ? 'Enable contacts' : '启用联系人' })).toBeVisible();
+    await expect(identityCard.getByRole('button', { name: en ? 'Disable contacts' : '关闭联系人' })).toHaveCount(0);
     await expect(identityCard).toContainText(saved.peer_id);
     await page.screenshot({ path: info.outputPath('restored-saved-identity.png'), fullPage: true, animations: 'disabled' });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

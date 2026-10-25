@@ -3,11 +3,13 @@
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import SelectField from './ui/SelectField.vue';
 import SwitchField from './ui/SwitchField.vue';
+import SearchField from './ui/SearchField.vue';
 import { t } from './i18n';
 import type { ToolLocation } from './navigation';
 import type { BlueprintViewerChoices, ProviderCandidateSelection } from './online-blueprints';
 import BlueprintLibrary from './BlueprintLibrary.vue';
 import MaterialExportButton from './MaterialExportButton.vue';
+import MaterialPlannerButton from './MaterialPlannerButton.vue';
 import OnlineBlueprints from './OnlineBlueprints.vue';
 import type { Game } from './games';
 import type { ResolvedCommand } from './extensions/contributions';
@@ -16,20 +18,23 @@ import { incomingBlueprint, pendingBlueprint, type PendingBlueprintRequest, type
 import { invoke } from '@tauri-apps/api/core';
 import { createBlueprintRenderer } from './blueprint-viewer/renderer';
 import type {ViewerTextures} from './blueprint-viewer/textures';
-const props = withDefaults(defineProps<{ view?: ToolLocation['blueprintView']; games?: Game[]; initialGameId?: string; selectedCommand?: ResolvedCommand }>(), { view: undefined, games: () => [], initialGameId: '', selectedCommand: undefined });
+import { usePageWorkspace } from './use-page-workspace';
+const props = withDefaults(defineProps<{ view?: ToolLocation['blueprintView']; games?: Game[]; initialGameId?: string; initialBlueprintId?: string; selectedCommand?: ResolvedCommand }>(), { view: undefined, games: () => [], initialGameId: '', initialBlueprintId: '', selectedCommand: undefined });
+const workspace = usePageWorkspace('blueprints', props.initialGameId, () => ({ locatedBlueprintId: null as string | null }));
 const emit = defineEmits<{ market: [value: { gameId: string; query: string }]; extensions: [candidate?: ProviderCandidateSelection]; command: [value: ResolvedCommand]; navigate: [value: { view: NonNullable<ToolLocation['blueprintView']>; title?: string }] }>();
 const online = ref(false);
 const localChoices = ref<BlueprintViewerChoices | null>(null);
 const localViewerId = ref('');
 const localViewersLoading = ref(false);
-const localViewerSelect = ref<HTMLSelectElement | null>(null);
 const pendingLocalOpen = ref<{ id?: string; format?: string; queueId?: string; name?: string } | null>(null);
 const localViewers = computed(() => (localChoices.value?.viewers ?? []).filter(viewer => !pendingLocalOpen.value?.format || viewer.file_extensions.includes(pendingLocalOpen.value.format)));
 const disabledLocalViewers = computed(() => (localChoices.value?.disabled_viewers ?? []).filter(viewer => !pendingLocalOpen.value?.format || viewer.file_extensions.includes(pendingLocalOpen.value.format)));
 const library = ref<SavedBlueprint[]>([]); const opened = ref<Opened | null>(null); const busy = ref(false); const error = ref('');
 const saved = ref(false); const canvas = ref<HTMLCanvasElement | null>(null); const loaded = ref(0); const materialSearch = ref('');
 const savedBlueprintId = ref<string | null>(null);
-const locatedBlueprintId = ref<string | null>(null);
+const locatedBlueprintId = ref<string | null>(props.initialBlueprintId || workspace.locatedBlueprintId);
+watch(() => props.initialBlueprintId, id => { if (id) { locatedBlueprintId.value = id; void loadLibrary(); } });
+watch(locatedBlueprintId, value => { workspace.locatedBlueprintId = value; });
 async function saveThumbnail(id: string) {
   try {
     const png = activeRenderer?.snapshot?.();
@@ -167,7 +172,7 @@ async function requestLocalOpen(id?: string) {
     await open(id, viewer.id);
   } else {
     localViewerId.value = '';
-    await nextTick(); localViewerSelect.value?.focus();
+    await nextTick(); document.getElementById('local-blueprint-viewer')?.focus();
   }
 }
 function chooseLocalViewer() {
@@ -176,6 +181,7 @@ function chooseLocalViewer() {
   if (pending.queueId) void openPendingBlueprint(pending, localViewerId.value);
   else { pendingLocalOpen.value = null; void open(pending.id, localViewerId.value); }
 }
+function selectLocalViewer(value: string) { localViewerId.value = value; chooseLocalViewer(); }
 async function openPendingBlueprint(pending: { queueId?: string }, pluginId: string) {
   if (!pending.queueId || busy.value) return;
   const queueId = pending.queueId;
@@ -198,7 +204,7 @@ async function resumePendingBlueprint() {
   const pending = pendingLocalOpen.value;
   if (!pending?.queueId || !localChoices.value || localViewersLoading.value || busy.value) return;
   if (localViewers.value.length === 1) await openPendingBlueprint(pending, localViewers.value[0]!.id);
-  else { await nextTick(); localViewerSelect.value?.focus(); }
+  else { await nextTick(); document.getElementById('local-blueprint-viewer')?.focus(); }
 }
 function receivePendingBlueprint(request: PendingBlueprintRequest) {
   latestOpen = ++opening;
@@ -264,7 +270,7 @@ onUnmounted(() => { disposed=true; void close(); });
         {{ t('blueprints.open') }}
       </button>
       <button
-        v-if="opened"
+        v-if="opened && !view"
         class="text-button"
         @click="closePreview"
       >
@@ -272,7 +278,7 @@ onUnmounted(() => { disposed=true; void close(); });
       </button>
     </div>
     <div
-      v-if="!online"
+      v-if="!online && !opened"
       class="local-viewer-choice"
     >
       <p
@@ -281,28 +287,21 @@ onUnmounted(() => { disposed=true; void close(); });
       >
         {{ t('blueprintOnline.checkingViewers') }}
       </p>
-      <label
+      <div
         v-else-if="localViewers.length > 1"
         class="local-viewer-picker"
       >
         {{ t('blueprintOnline.viewer') }}<span v-if="pendingLocalOpen?.queueId"> · {{ pendingLocalOpen.name }}</span>
-        <select
-          ref="localViewerSelect"
-          v-model="localViewerId"
+        <SelectField
+          id="local-blueprint-viewer"
+          :model-value="localViewerId"
+          :label="t('blueprintOnline.viewer')"
+          :placeholder="t('blueprintOnline.chooseViewer')"
+          :options="localViewers.map(viewer => ({value: viewer.id, label: `${viewer.name} · ${viewer.file_extensions.map(extension => `.${extension}`).join(', ')}`}))"
           :disabled="busy"
-          @change="chooseLocalViewer"
-        >
-          <option
-            disabled
-            value=""
-          >{{ t('blueprintOnline.chooseViewer') }}</option>
-          <option
-            v-for="viewer in localViewers"
-            :key="viewer.id"
-            :value="viewer.id"
-          >{{ viewer.name }} · {{ viewer.file_extensions.map(extension => `.${extension}`).join(', ') }}</option>
-        </select>
-      </label>
+          @update:model-value="selectLocalViewer"
+        />
+      </div>
       <template v-else-if="localChoices && !localViewers.length">
         <p>{{ disabledLocalViewers.length ? t('blueprintOnline.disabledViewers', { names: disabledLocalViewers.map(viewer => viewer.name).join(', ') }) : t('blueprintOnline.viewerUnavailable') }}</p>
         <button
@@ -393,14 +392,13 @@ onUnmounted(() => { disposed=true; void close(); });
         {{ t('blueprints.loading', { loaded, total: opened.scene.chunk_count }) }}
       </p>
       <div class="material-actions">
-        <input
+        <SearchField
           id="material-search"
           v-model="materialSearch"
-          class="search-input"
-          type="search"
-          :aria-label="t('blueprints.searchMaterials')"
+          class="material-search-field"
+          :label="t('blueprints.searchMaterials')"
           :placeholder="t('blueprints.searchMaterials')"
-        >
+        />
         <SelectField
           id="material-sort"
           v-model="materialSort"
@@ -414,6 +412,13 @@ onUnmounted(() => { disposed=true; void close(); });
         >
           {{ t(copiedMaterials ? 'blueprints.materialsCopied' : 'blueprints.copyMaterials') }}
         </button>
+        <MaterialPlannerButton
+          :key="`planner-${opened.resourceId}`"
+          :resource-id="opened.resourceId"
+          :games="games"
+          :initial-game-id="initialGameId"
+          @error="error = $event"
+        />
         <MaterialExportButton
           :key="opened.resourceId"
           :resource-id="opened.resourceId"
@@ -440,7 +445,7 @@ onUnmounted(() => { disposed=true; void close(); });
       </div>
     </section>
     <section
-      v-show="!online"
+      v-show="!online && !opened"
       id="blueprint-library-panel"
       role="tabpanel"
       aria-labelledby="blueprint-library-tab"
@@ -472,8 +477,5 @@ onUnmounted(() => { disposed=true; void close(); });
   </div>
 </template>
 <style scoped>
-.local-viewer-choice:has(label),.local-viewer-choice:has(p){margin-bottom:16px}.local-viewer-picker{display:flex;align-items:center;gap:8px;font-size:12px}.local-viewer-picker select{padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit}.blueprints-page{width:100%}.blueprint-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}.blueprint-tabs{display:flex;gap:4px;margin-right:auto;border-bottom:1px solid var(--line)}.blueprint-tabs button{padding:9px 12px;border:0;background:transparent;color:var(--muted);border-bottom:2px solid transparent}.blueprint-tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}.blueprint-empty{padding:32px 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap}.blueprint-empty p{flex-basis:100%;margin:0 0 4px;color:var(--muted)}.blueprint-title{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.blueprint-title h2{font-size:15px;margin:0}.blueprint-viewer canvas{width:100%;height:320px;display:block;touch-action:none}.materials{max-height:280px;overflow:auto;margin-top:12px}table{width:100%;font-size:12px;border-collapse:collapse}th,td{padding:9px;text-align:left;border-bottom:1px solid var(--line);overflow-wrap:anywhere}td:last-child,th:last-child{text-align:right}
-.texture-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0;font-size:12px}.texture-controls label{display:flex;align-items:center;gap:6px}.texture-controls select{padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit;max-width:240px}
-.material-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:12px 0}.material-actions :deep(.select-field-trigger){width:auto;min-width:96px}.material-actions .search-input{width:200px;min-height:40px;padding:8px 12px;border:1px solid var(--ui-border-strong);border-radius:8px;background:var(--ui-surface-1);color:var(--ui-text);font:inherit;font-size:14px}.texture-controls :deep(.select-field-trigger){width:auto;max-width:240px}
+.blueprints-page{width:100%;min-width:0}.local-viewer-choice:has(.local-viewer-picker),.local-viewer-choice:has(p){margin-bottom:var(--ui-space-4)}.local-viewer-picker{display:flex;align-items:center;flex-wrap:wrap;gap:var(--ui-space-2);font-size:var(--ui-text-label);line-height:var(--ui-leading-label)}.local-viewer-picker :deep(.select-field-trigger){width:min(360px,100%)}.blueprint-toolbar{display:flex;gap:var(--ui-space-3);align-items:center;flex-wrap:wrap;margin-bottom:var(--ui-space-4)}.blueprint-toolbar>button{min-height:var(--ui-control-height);font-size:var(--ui-text-label)}.blueprint-tabs{display:flex;gap:var(--ui-space-5);margin-right:auto;border-bottom:1px solid var(--ui-border)}.blueprint-tabs button{min-height:var(--ui-control-height);padding:0 0 var(--ui-space-2);font:inherit;font-size:var(--ui-text-label);line-height:var(--ui-leading-label);border:0;background:transparent;color:var(--ui-text-muted);border-bottom:2px solid transparent}.blueprint-tabs button[aria-selected=true]{color:var(--ui-text);border-bottom-color:var(--ui-focus);font-weight:600}.blueprint-empty{padding:var(--ui-space-6) 0;display:flex;align-items:center;gap:var(--ui-space-3);flex-wrap:wrap}.blueprint-empty p{flex-basis:100%;margin:0 0 var(--ui-space-1);color:var(--ui-text-muted);font-size:var(--ui-text-body);line-height:var(--ui-leading-body)}.blueprint-title{display:flex;gap:var(--ui-space-3);align-items:center;flex-wrap:wrap;margin-bottom:var(--ui-space-3)}.blueprint-title h2{font-size:var(--ui-text-section);line-height:var(--ui-leading-section);margin:0}.blueprint-title>.setting-hint{margin:0;font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption);font-variant-numeric:tabular-nums}.blueprint-title>button{margin-left:auto;min-height:var(--ui-control-height)}.blueprint-viewer canvas{width:100%;height:clamp(260px,44dvh,480px);display:block;touch-action:none;border:1px solid var(--ui-border);border-radius:var(--ui-radius-lg);background:var(--ui-surface-2)}.texture-controls{display:flex;align-items:center;gap:var(--ui-space-3);flex-wrap:wrap;margin:var(--ui-space-3) 0;font-size:var(--ui-text-label)}.texture-controls label{display:flex;align-items:center;gap:var(--ui-space-2)}.texture-controls :deep(.select-field-trigger){width:auto;max-width:280px}.texture-controls>.setting-hint{margin:0;font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption)}.material-actions{display:flex;align-items:center;flex-wrap:wrap;gap:var(--ui-space-2);margin:var(--ui-space-4) 0}.material-actions :deep(.select-field-trigger){width:auto;min-width:110px}.material-search-field{flex:1 1 200px;min-width:160px}.material-actions>button{min-height:var(--ui-control-height);font-size:var(--ui-text-label)}.materials{max-height:320px;overflow:auto;margin-top:var(--ui-space-3)}table{width:100%;font-size:var(--ui-text-body);line-height:var(--ui-leading-body);border-collapse:collapse}th,td{padding:var(--ui-space-2) var(--ui-space-3);text-align:left;border-bottom:1px solid var(--ui-border);overflow-wrap:anywhere}td:last-child,th:last-child{text-align:right;font-variant-numeric:tabular-nums}th{font-size:var(--ui-text-caption);font-weight:500;color:var(--ui-text-muted)}
 </style>
-

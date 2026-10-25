@@ -8,12 +8,13 @@ import ModUpdates from './ModUpdates.vue';
 import CurseForgeDiscover from './CurseForgeDiscover.vue';
 import CurseForgeInstallPlan from './CurseForgeInstallPlan.vue';
 import { setLocale } from './i18n';
+import { rememberMarketWorkstate } from './market-workstate';
 import type { CurseForgePlan, CurseForgePackPreview } from './curseforge';
 vi.mock('@tauri-apps/api/core', () => ({invoke: vi.fn(), isTauri: () => true}));
 const hit = {project_id: '42', title: 'Test mod', author: 'Author', description: 'Description', slug: 'test', downloads: 10, website_url: null, allow_distribution: true, available: true};
 const file = {project_id: '42', file_id: '84', name: 'Release', file_name: 'test.jar', release_type: 'release', date_published: '2026-10-22', size_bytes: 100, game_versions: ['1.21.1'], dependencies: [], download_availability: 'available'};
 const plan: CurseForgePlan = {plan_id: 'plan', project_id: '42', version_id: '84', mods: [{project_id: '42', version_id: '84', name: 'Test mod', version_number: 'Release', required_by: null}], missing: [{project_id: '43', file_id: '85', name: 'Dependency', file_name: 'dependency.jar', size_bytes: 20, website_url: null, reason: 'manual'}], ready: false};
-beforeEach(() => { setLocale('en-US'); vi.mocked(invoke).mockReset(); });
+beforeEach(() => { setLocale('en-US'); vi.mocked(invoke).mockReset(); rememberMarketWorkstate('curseforge:modpack:global', undefined); rememberMarketWorkstate('curseforge:mod:game', undefined); });
 afterEach(() => { setLocale('zh-CN'); });
 it('searches compatible mods and loads deduplicated pages using backend offsets', async () => {
   vi.mocked(invoke).mockImplementation(async command => command === 'get_curseforge_availability' ? {available: true} : command === 'search_curseforge' ? {hits: [hit], offset: 0, total_hits: 80} : {files: [file], offset: 0, total_hits: 1});
@@ -22,7 +23,7 @@ it('searches compatible mods and loads deduplicated pages using backend offsets'
   expect(invoke).toHaveBeenCalledWith('search_curseforge', {query: 'test', kind: 'mod', minecraftVersion: '1.21.1', loader: 'fabric', offset: 0});
   await wrapper.findAll('button').find(button => button.text() === 'Load more')!.trigger('click'); await flushPromises();
   expect(wrapper.findAll('.mod-row')).toHaveLength(1);
-  await wrapper.find('.pack-result-card').trigger('click'); await flushPromises();
+  await wrapper.get('button[data-market-project]').trigger('click'); await flushPromises();
   expect(invoke).toHaveBeenCalledWith('list_curseforge_files', {projectId: '42', minecraftVersion: '1.21.1', loader: 'fabric', offset: 0});
   expect(wrapper.text()).toContain('test.jar'); expect(wrapper.emitted('installed')).toBeUndefined(); wrapper.unmount();
 });
@@ -79,7 +80,7 @@ it('checks both providers from one action and keeps CurseForge version IDs in it
     if (command === 'check_game_mod_updates') return {updates: [], managed_count: 0};
     if (command === 'list_game_curseforge_mods') return [{project_id: '42', version_id: '83', filename: 'old.jar', enabled: false}];
     if (command === 'check_game_curseforge_updates') return [{project_id: '42', name: 'Test mod', current_version: 'Old', version_number: 'New', version_id: '84', filename: 'test.jar', enabled: false}];
-    if (command === 'preview_curseforge_mod_install') return {...plan, ready: true, missing: []};
+    if (command === 'preview_game_curseforge_updates') return {plan_id: 'update-plan', changes: [{project_id: '42', name: 'Test mod', from_version: 'Old', to_version: 'New', filename: 'test.jar', enabled: false}], ready: true, missing: []};
     return {installed: 1, reused: 0};
   });
   const wrapper = mount(ModUpdates, {props: {game: {id: 'game', name: 'Target', version: '1.21.1', directory: 'private', status: 'installed', loader_kind: 'fabric', loader_version: '0.16', error: null, progress: null}, locked: false}});
@@ -88,7 +89,7 @@ it('checks both providers from one action and keeps CurseForge version IDs in it
   expect(invoke).toHaveBeenCalledWith('check_game_curseforge_updates', {id: 'game'});
   expect(wrapper.text()).not.toContain('No updates found');
   await wrapper.findAll('button').find(button => button.text() === 'Update')!.trigger('click'); await flushPromises();
-  expect(invoke).toHaveBeenCalledWith('preview_curseforge_mod_install', {id: 'game', projectId: '42', fileId: '84'});
+  expect(invoke).toHaveBeenCalledWith('preview_game_curseforge_updates', {id: 'game', projectIds: ['42']});
   await wrapper.get('.cf-updates .primary-button').trigger('click'); await flushPromises();
   expect(wrapper.emitted('updated')).toHaveLength(1);
   expect(vi.mocked(invoke).mock.calls.some(([command]) => command === 'preview_game_mod_updates')).toBe(false);
@@ -120,7 +121,7 @@ it('creates a ready CurseForge pack with saved source preferences and a native-a
 it('pins an online pack selection to the selected official project and file', async () => {
   vi.mocked(invoke).mockImplementation(async command => command === 'get_curseforge_availability' ? {available: true} : command === 'search_curseforge' ? {hits: [hit], offset: 0, total_hits: 1} : command === 'list_curseforge_files' ? {files: [file], offset: 0, total_hits: 1} : pack);
   const wrapper = mount(CurseForgeDiscover, {props: {kind: 'modpack'}}); await flushPromises(); await wrapper.get('form').trigger('submit'); await flushPromises();
-  await wrapper.find('.pack-result-card').trigger('click'); await flushPromises();
+  await wrapper.get('button[data-market-project]').trigger('click'); await flushPromises();
   await wrapper.findAll('button').find(button => button.text() === 'Prepare this version')!.trigger('click'); await flushPromises();
   expect(invoke).toHaveBeenCalledWith('preview_curseforge_online_pack', {projectId: '42', fileId: '84'}); expect(wrapper.emitted('selectedCfPack')).toBeUndefined();
   expect(wrapper.findComponent(CurseForgePackPreparation).exists()).toBe(true); wrapper.unmount();
@@ -141,7 +142,7 @@ it.each(['mod', 'pack'] as const)('accepts an exact locally supplied unavailable
 it('routes an unavailable root pack to native verified local ZIP selection', async () => {
   vi.mocked(invoke).mockImplementation(async command => command === 'get_curseforge_availability' ? {available: true} : command === 'search_curseforge' ? {hits: [hit], offset: 0, total_hits: 1} : command === 'list_curseforge_files' ? {files: [{...file, download_availability: 'unavailable'}], offset: 0, total_hits: 1} : pack);
   const wrapper = mount(CurseForgeDiscover, {props: {kind: 'modpack'}}); await flushPromises(); await wrapper.get('form').trigger('submit'); await flushPromises();
-  await wrapper.find('.pack-result-card').trigger('click'); await flushPromises();
+  await wrapper.get('button[data-market-project]').trigger('click'); await flushPromises();
   await wrapper.findAll('button').find(button => button.text() === 'Choose local ZIP')!.trigger('click'); await flushPromises();
   expect(invoke).toHaveBeenCalledWith('preview_curseforge_online_pack', {projectId: '42', fileId: '84'});
   expect(wrapper.emitted('selectedCfPack')).toBeUndefined(); wrapper.unmount();

@@ -1,0 +1,83 @@
+{
+  "id": "command-pocket",
+  "name": "Command Pocket",
+  "version": "0.2.0",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": [
+    "report"
+  ],
+  "interfaces": {
+    "provides": [
+      {
+        "version": "0.2.0",
+        "id": "launcher:report"
+      },
+      {
+        "version": "0.1.0",
+        "id": "launcher:web-frontend"
+      }
+    ]
+  },
+  "file_extensions": [],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Save server command templates, fill parameters and copy commands",
+    "zh-CN": "按服务器保存指令模板、填写参数并复制指令"
+  },
+  "tags": [
+    "commands",
+    "creative"
+  ],
+  "permissions": [
+    {
+      "permission": "launcher:ui/webview"
+    },
+    {
+      "scopes": [
+        "servers"
+      ],
+      "permission": "launcher:game-inspection/read"
+    },
+    {
+      "permission": "launcher:storage/private"
+    },
+    {
+      "permission": "launcher:clipboard/write"
+    }
+  ],
+  "contributions": {
+    "schema_version": 1,
+    "commands": [
+      {
+        "id": "command-pocket.run",
+        "label": {
+          "en": "Open Command Pocket",
+          "zh-CN": "打开指令口袋"
+        },
+        "workflow": "report",
+        "icon": "puzzle",
+        "search_keywords": [
+          "Minecraft command",
+          "指令"
+        ],
+        "quick_entry": true,
+        "suggested_shortcut": "Ctrl+Shift+C",
+        "menus": [
+          {
+            "position": "tools"
+          },
+          {
+            "position": "instance",
+            "when": "instance_selected"
+          }
+        ]
+      }
+    ]
+  },
+  "frontend": {
+    "api_version": "0.1.0",
+    "entry": "ui/index.html",
+    "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

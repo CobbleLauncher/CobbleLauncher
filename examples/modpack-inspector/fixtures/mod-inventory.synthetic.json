@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "scope": "mods",
+  "game": {"id": "synthetic-dependencies", "name": "Synthetic dependency fixture", "version": "1.21.1"},
+  "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "data": {
+    "available": true,
+    "truncated": false,
+    "items": [
+      {"id":"main.jar","name":"Synthetic Explorer","version":"1.0","loader":"fabric","disabled":false,"declaredIds":["explorer"],"dependencies":[{"id":"helper","version":">=99","optional":false},{"id":"missing","version":"~2.0","optional":false},{"id":"off","version":"*","optional":false},{"id":"java","version":">=21","optional":false}]},
+      {"id":"helper.jar","name":"Synthetic Helper","version":"1.0","loader":"fabric","disabled":false,"declaredIds":["helper"],"dependencies":[]},
+      {"id":"off.jar.disabled","name":"Synthetic Disabled Library","version":"1.0","loader":"fabric","disabled":true,"declaredIds":["off"],"dependencies":[]},
+      {"id":"unknown.jar","name":"Synthetic Unknown Metadata","version":null,"loader":null,"disabled":false,"declaredIds":[],"dependencies":[]}
+    ]
+  }
+}

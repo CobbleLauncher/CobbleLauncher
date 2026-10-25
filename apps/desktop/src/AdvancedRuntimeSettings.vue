@@ -8,7 +8,7 @@ import SelectField, { type SelectFieldOption } from './ui/SelectField.vue';
 import { computed, onMounted, ref, useId, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { Game, LauncherPreferences, LaunchBehavior } from './games';
-const props = defineProps<{ game?: Game; preferences?: LauncherPreferences }>();
+const props = withDefaults(defineProps<{ game?: Game; preferences?: LauncherPreferences; inlineActions?: boolean }>(), { game: undefined, preferences: undefined, inlineActions: true });
 const emit = defineEmits<{ updated: [game: Game]; defaultsUpdated: [preferences: LauncherPreferences]; dirty: [value: boolean] }>();
 const id = useId();
 const width = ref<number | ''>('');
@@ -80,12 +80,13 @@ defineExpose({ save, cancel, busy });
 <template>
   <SettingsDisclosure
     class="advanced-runtime-settings"
+    icon="sliders-horizontal"
     bordered
     :title="t('runtime.advanced')"
   >
     <form
       class="advanced-runtime-form"
-      @submit.prevent="save"
+      @submit.prevent="inlineActions && save()"
     >
       <SettingsRow
         :label="t('runtime.window')"
@@ -183,6 +184,7 @@ defineExpose({ save, cancel, busy });
         {{ t('runtime.retry') }}
       </button>
       <SettingsActions
+        v-if="inlineActions"
         :dirty="dirty"
         :busy="busy"
         :disabled="!ready"

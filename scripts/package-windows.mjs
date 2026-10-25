@@ -206,6 +206,10 @@ function collectDependencies(meshProject = null) {
     missing = [...new Set([...launcher.missing, ...companion.missing])];
   }
   const packages = [...cargoPackages];
+  packages.push({ ecosystem: 'vendored-c', name: 'cubiomes', version: 'e61f90580cbdd883214a8054670dacae655e59c0', license: 'MIT',
+    source: 'https://github.com/Cubitect/cubiomes/tree/e61f90580cbdd883214a8054670dacae655e59c0',
+    license_files: ['third-party/licenses/cubiomes-e61f905/LICENSE'] });
+  if (!existsSync(path.join(root, 'third-party/licenses/cubiomes-e61f905/LICENSE'))) missing.push('Vendored Cubiomes');
   const production = JSON.parse(pnpm(['licenses', 'list', '--prod', '--json']));
   for (const item of Object.values(production).flat()) {
     for (const version of item.versions) {
@@ -347,7 +351,7 @@ function main() {
     scope: `Locked desktop Cargo normal and build dependency graph filtered for Windows x64, plus installed pnpm production dependencies${companion ? ' and the selected Mesh companion Cargo normal and build dependency graph' : ''}. Includes build tools and potentially tree-shaken frontend packages; not a symbol-level linked-binary inventory. System Windows libraries and the separately installed WebView2 Runtime are excluded.`,
     packages,
   }, null, 2) + '\n');
-  writeFileSync(path.join(directory, 'START-HERE.txt'), `Cobble Launcher ${desktop.version} - Windows x64 test build\n\nThis is an unsigned testing build, not a stable release. Windows may show an unknown publisher warning. macOS and Linux have not been verified by this package.\n\n1. Extract the entire ZIP into a writable folder.\n2. Install Microsoft Edge WebView2 Evergreen Runtime if it is missing: https://developer.microsoft.com/microsoft-edge/webview2/\n3. Open Cobble Launcher.exe. No Node.js, Python or .NET installation is needed.\n4. Install Java separately for Minecraft. Minecraft 1.21.1 requires Java 21; select Java in the launcher's settings.\n\nSettings and account credentials use your user profile; game locations are configurable. A Microsoft account is optional for local offline play.\n\nLICENSE covers Cobble's own code. Third-party licenses are in third-party/licenses; DEPENDENCIES.json lists package versions, original source URLs and retained license texts. Minecraft, Java, Mods, game data and credentials are not included.\n`);
+  writeFileSync(path.join(directory, 'START-HERE.txt'), `Cobble Launcher ${desktop.version} - Windows x64 test build\n\nThis is an unsigned testing build, not a stable release. Windows may show an unknown publisher warning. macOS and Linux have not been verified by this package.\n\n1. Extract the entire ZIP into a writable folder.\n2. Install Microsoft Edge WebView2 Evergreen Runtime if it is missing: https://developer.microsoft.com/microsoft-edge/webview2/\n3. Open Cobble Launcher.exe. No Node.js, Python or .NET installation is needed.\n4. Install or select a game. Cobble can prepare a matching Java runtime automatically on Windows x64; existing runtimes are reused when compatible.\n\nSettings and account credentials use your user profile; game locations are configurable. A Microsoft account is optional for local offline play.\n\nLICENSE covers Cobble's own code. Third-party licenses are in third-party/licenses; DEPENDENCIES.json lists package versions, original source URLs and retained license texts. Minecraft, Java, Mods, game data and player account credentials are not included.\n`);
   command('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "$ErrorActionPreference = 'Stop'; Compress-Archive -LiteralPath $env:COBBLE_PACKAGE_DIR -DestinationPath $env:COBBLE_PACKAGE_ZIP -CompressionLevel Optimal"], {
     env: { ...withoutProviderCredentials(process.env), COBBLE_PACKAGE_DIR: directory, COBBLE_PACKAGE_ZIP: archive }, stdio: 'inherit',
   });

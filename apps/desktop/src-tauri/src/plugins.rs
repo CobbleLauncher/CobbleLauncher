@@ -1,8 +1,12 @@
+#[path = "plugin_generated_blueprint.rs"]
+pub mod plugin_generated_blueprint;
 // SPDX-License-Identifier: MIT
 #[path = "blueprint_export.rs"]
 pub mod blueprint_export;
 #[path = "blueprint_library.rs"]
 pub mod blueprint_library;
+#[path = "blueprint_material_handoffs.rs"]
+pub mod blueprint_material_handoffs;
 #[path = "blueprint_provider.rs"]
 pub mod blueprint_provider;
 #[path = "blueprint_viewers.rs"]
@@ -19,18 +23,46 @@ pub mod pack_inspection;
 pub mod pack_inspection_pages;
 #[path = "plugin_access_log.rs"]
 pub mod plugin_access_log;
+#[path = "plugin_ai.rs"]
+pub mod plugin_ai;
 #[path = "plugin_composers.rs"]
 pub mod plugin_composers;
+#[path = "plugin_config_workspace.rs"]
+pub mod plugin_config_workspace;
+#[path = "plugin_confirm.rs"]
+pub mod plugin_confirm;
+#[path = "plugin_data.rs"]
+pub mod plugin_data;
 #[path = "plugin_details.rs"]
 pub mod plugin_details;
+#[path = "plugin_file_inbox.rs"]
+pub mod plugin_file_inbox;
 #[path = "plugin_frontend_bridge.rs"]
 pub mod plugin_frontend_bridge;
+#[path = "plugin_frontend_exports.rs"]
+pub mod plugin_frontend_exports;
+#[path = "plugin_frontend_handoffs.rs"]
+pub mod plugin_frontend_handoffs;
+#[path = "plugin_handoffs.rs"]
+pub mod plugin_handoffs;
+#[path = "plugin_lang_package.rs"]
+pub mod plugin_lang_package;
+#[path = "plugin_material_handoffs.rs"]
+pub mod plugin_material_handoffs;
+#[path = "plugin_mesh_events.rs"]
+pub mod plugin_mesh_events;
+#[path = "plugin_play_manifest.rs"]
+pub mod plugin_play_manifest;
+#[path = "plugin_recovery_workspace.rs"]
+pub mod plugin_recovery_workspace;
 #[path = "plugin_reports.rs"]
 pub mod plugin_reports;
 #[path = "plugin_signatures.rs"]
 pub mod plugin_signatures;
 #[path = "plugin_views.rs"]
 pub mod plugin_views;
+#[path = "tool_forms.rs"]
+pub mod tool_forms;
 #[path = "viewer_lifecycle.rs"]
 mod viewer_lifecycle;
 #[path = "viewer_textures.rs"]
@@ -554,6 +586,7 @@ fn close_plugin_resources(id: &str) {
     plugin_views::revoke_plugin(id);
     pack_inspection_pages::revoke_plugin(id);
     plugin_reports::cancel_for_plugin(id);
+    tool_forms::cancel_for_plugin(id);
     if let Ok(mut resources) = resources().lock() {
         resources.retain(|_, resource| {
             if resource.plugin_id == id {
@@ -888,6 +921,7 @@ mod package_tests {
             api_version: cobble_plugin_api::API_VERSION.into(),
             publisher: "Original test fixture".into(),
             capabilities: vec!["viewer".into()],
+            tool_form: None,
             composer_permissions: Default::default(),
             interfaces: Default::default(),
             file_extensions: vec!["schem".into()],

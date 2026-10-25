@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Local launcher format inspection and independent gameplay-data migration.
-//! Foreign launch arguments, accounts, hooks and runtime files are never used.
+//! Foreign launch arguments/hooks are never executed and credentials are not
+//! imported. Existing artifacts are reused only against trusted publisher metadata.
 use crate::{InstallOutcome, InstallProgress};
 use cobble_minecraft::DownloadSource;
 use cobble_store::SafeRelativePath;
@@ -17,6 +18,17 @@ use std::{
 type Error = Box<dyn std::error::Error + Send + Sync>;
 const MARKER: &str = ".cobble-import.json";
 type Progress = Arc<dyn Fn(InstallProgress) + Send + Sync>;
+mod migration;
+mod pcl;
+mod reuse;
+pub use migration::{LauncherImportMigration, release_launcher_import_source};
+pub use pcl::discover_launcher_imports;
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LauncherRuntimeSource {
+    pub directory: PathBuf,
+    pub client_version_id: String,
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct LauncherContentRoot {
@@ -36,6 +48,8 @@ pub struct LauncherImportCandidate {
     pub unsupported_reason: Option<String>,
     pub warnings: Vec<String>,
     pub content_roots: Vec<LauncherContentRoot>,
+    #[serde(default)]
+    pub runtime_source: Option<LauncherRuntimeSource>,
 }
 
 fn linked(metadata: &Metadata) -> bool {
@@ -83,8 +97,11 @@ fn candidate(id: String, name: String) -> LauncherImportCandidate {
         loader_kind: None,
         loader_version: None,
         unsupported_reason: None,
-        warnings: vec!["账号、Java、启动参数及启动钩子不会迁移，运行文件将重新下载".into()],
+        warnings: vec![
+            "复用已校验的游戏文件，缺失文件将补齐；账号、Java、启动参数及启动钩子不迁移".into(),
+        ],
         content_roots: Vec::new(),
+        runtime_source: None,
     }
 }
 
@@ -118,8 +135,16 @@ fn runtime_supported(candidate: &mut LauncherImportCandidate) -> Result<(), Erro
         leaf(version)?;
         match kind {
             "fabric" => {}
-            "forge" | "neoforge" if mc == "1.21.1" => {}
-            "forge" | "neoforge" => return Err("Forge / NeoForge 暂仅支持 Minecraft 1.21.1".into()),
+            "forge" | "neoforge"
+                if cobble_content::query_compatibility(
+                    mc,
+                    Some(kind),
+                    Some(version),
+                    std::env::consts::OS,
+                    std::env::consts::ARCH,
+                )
+                .allowed() => {}
+            "forge" | "neoforge" => return Err("不支持此 Minecraft 与加载器版本组合".into()),
             _ => return Err("暂不支持这个加载器".into()),
         }
     }
@@ -192,12 +217,38 @@ fn content_root(id: &str, label: &str, path: &Path) -> Result<LauncherContentRoo
     })
 }
 
+// Imported arguments are identity metadata only; they are never executed.
+fn profile_game_argument<'a>(value: &'a Value, flag: &str) -> Result<Option<&'a str>, Error> {
+    let Some(arguments) = value["arguments"]["game"].as_array() else {
+        return Ok(None);
+    };
+    let mut found = None;
+    for (index, argument) in arguments.iter().enumerate() {
+        if argument.as_str() == Some(flag) {
+            if found.is_some() {
+                return Err("加载器标识参数重复".into());
+            }
+            found = Some(
+                arguments
+                    .get(index + 1)
+                    .and_then(Value::as_str)
+                    .ok_or("缺少加载器标识参数")?,
+            );
+        }
+    }
+    Ok(found)
+}
+
 fn inspect_standard(root: &Path, id: &str) -> LauncherImportCandidate {
     let mut result = candidate(format!("version-{id}"), id.into());
     let inspection = (|| -> Result<(), Error> {
         leaf(id)?;
         let versions = real_directory(&root.join("versions"))?;
         let isolated = real_directory(&versions.join(id))?;
+        result.runtime_source = Some(LauncherRuntimeSource {
+            directory: real_directory(root)?,
+            client_version_id: id.into(),
+        });
         let mut current = id.to_owned();
         let mut seen = BTreeSet::new();
         let mut nonvanilla_main = false;
@@ -214,6 +265,34 @@ fn inspect_standard(root: &Path, id: &str) -> LauncherImportCandidate {
             {
                 nonvanilla_main = true;
             }
+            if value["mainClass"].as_str() == Some("cpw.mods.bootstraplauncher.BootstrapLauncher") {
+                let forge = profile_game_argument(&value, "--fml.forgeVersion")?;
+                let neo = profile_game_argument(&value, "--fml.neoForgeVersion")?;
+                let identity = match (profile_game_argument(&value, "--launchTarget")?, forge, neo)
+                {
+                    (Some("forgeclient"), Some(version), None) => Some(("forge", version)),
+                    (Some("forgeclient" | "neoforgeclient"), None, Some(version)) => {
+                        Some(("neoforge", version))
+                    }
+                    (_, Some(_), Some(_)) => {
+                        return Err("版本含有冲突的 Forge / NeoForge 标识".into());
+                    }
+                    _ => None,
+                };
+                if let Some((kind, version)) = identity {
+                    set_loader(&mut result, kind, version)?;
+                    let mc = profile_game_argument(&value, "--fml.mcVersion")?
+                        .ok_or("缺少 Minecraft 版本标识")?;
+                    if result
+                        .minecraft_version
+                        .as_deref()
+                        .is_some_and(|old| old != mc)
+                    {
+                        return Err("加载器 Minecraft 版本冲突".into());
+                    }
+                    result.minecraft_version = Some(mc.into());
+                }
+            }
             for library in value["libraries"].as_array().into_iter().flatten() {
                 let Some(name) = library["name"].as_str() else {
                     continue;
@@ -223,7 +302,7 @@ fn inspect_standard(root: &Path, id: &str) -> LauncherImportCandidate {
                     ["net.fabricmc", "fabric-loader", version, ..] => {
                         set_loader(&mut result, "fabric", version)?
                     }
-                    ["net.minecraftforge", "forge", version, ..] => {
+                    ["net.minecraftforge", "forge" | "fmlloader", version, ..] => {
                         let (mc, loader) = version.split_once('-').ok_or("无法解析 Forge 版本")?;
                         result.minecraft_version.get_or_insert_with(|| mc.into());
                         set_loader(&mut result, "forge", loader)?;
@@ -244,13 +323,20 @@ fn inspect_standard(root: &Path, id: &str) -> LauncherImportCandidate {
             match value["inheritsFrom"].as_str() {
                 Some(parent) => current = parent.to_owned(),
                 None => {
-                    let base = value["id"].as_str().unwrap_or(&current);
+                    // PCL merged profiles keep the original game identity in
+                    // clientVersion while id becomes the user's instance name.
+                    let base = value["clientVersion"]
+                        .as_str()
+                        .or_else(|| value["id"].as_str().filter(|id| supported_mc(id)))
+                        .or(result.minecraft_version.as_deref())
+                        .unwrap_or(&current)
+                        .to_owned();
                     if let Some(old) = &result.minecraft_version
-                        && old != base
+                        && old != &base
                     {
                         return Err("Minecraft 继承版本与加载器不一致".into());
                     }
-                    result.minecraft_version = Some(base.into());
+                    result.minecraft_version = Some(base);
                     break;
                 }
             }
@@ -260,6 +346,11 @@ fn inspect_standard(root: &Path, id: &str) -> LauncherImportCandidate {
         }
         if nonvanilla_main && result.loader_kind.is_none() {
             return Err("无法识别这个版本的自定义加载器".into());
+        }
+        if result.loader_kind.is_none() && populated_mods(&isolated)? {
+            return Err(
+                "检测到 Mods，但版本元数据未声明加载器；请先在原启动器中补齐加载器配置".into(),
+            );
         }
         runtime_supported(&mut result)?;
         if has_content(&isolated)? {
@@ -372,8 +463,21 @@ fn inspect_prism(path: &Path) -> LauncherImportCandidate {
 
 /// Inspect direct local format files only; this operation never accesses network.
 pub fn inspect_launcher_import(root: &Path) -> Result<Vec<LauncherImportCandidate>, Error> {
+    pcl::inspect(root)
+}
+
+fn inspect_direct(root: &Path) -> Result<Vec<LauncherImportCandidate>, Error> {
     let root = real_directory(root)?;
     let mut candidates = Vec::new();
+    if root
+        .parent()
+        .is_some_and(|parent| parent.file_name().is_some_and(|name| name == "versions"))
+        && let Some(id) = root.file_name().and_then(|name| name.to_str())
+        && root.join(format!("{id}.json")).is_file()
+        && let Some(game_root) = root.parent().and_then(Path::parent)
+    {
+        return Ok(vec![inspect_standard(game_root, id)]);
+    }
     if root.join("mmc-pack.json").try_exists()? {
         candidates.push(inspect_prism(&root));
         return Ok(candidates);
@@ -386,7 +490,7 @@ pub fn inspect_launcher_import(root: &Path) -> Result<Vec<LauncherImportCandidat
     if standard.join("versions").try_exists()? {
         real_directory(&standard)?;
         let versions = real_directory(&standard.join("versions"))?;
-        for entry in fs::read_dir(versions)? {
+        for entry in fs::read_dir(versions)?.take(4096) {
             let entry = entry?;
             let metadata = fs::symlink_metadata(entry.path())?;
             if !linked(&metadata) && metadata.is_dir() {
@@ -419,6 +523,26 @@ pub fn inspect_launcher_import(root: &Path) -> Result<Vec<LauncherImportCandidat
     Ok(candidates)
 }
 
+fn populated_mods(root: &Path) -> Result<bool, Error> {
+    let path = root.join("mods");
+    if !path.try_exists()? {
+        return Ok(false);
+    }
+    let path = real_directory(&path)?;
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .ends_with(".jar")
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 #[derive(Serialize, Deserialize)]
 struct ImportState {
     minecraft_version: String,
@@ -431,9 +555,17 @@ struct ImportState {
     staging_complete: bool,
     content_complete: bool,
     complete: bool,
+    #[serde(default)]
+    runtime_source: Option<LauncherRuntimeSource>,
+    #[serde(default)]
+    released_roots: Vec<String>,
 }
 
 const STAGING: &str = ".cobble-import-data";
+
+#[path = "foreign_import/space.rs"]
+mod space;
+pub use space::launcher_import_space_demand;
 
 fn world_locks(root: &Path, include_saves: bool) -> Result<Vec<File>, Error> {
     let mut locks = Vec::new();
@@ -523,6 +655,7 @@ fn copy_entry(
     world_root: bool,
     depth: usize,
     control: &crate::OperationControl,
+    cancel: &std::sync::atomic::AtomicBool,
 ) -> Result<(), Error> {
     control.check_cancelled()?;
     if depth > 128 {
@@ -533,6 +666,16 @@ fn copy_entry(
         return Err("导入内容不能含链接或重解析点".into());
     }
     if before.is_dir() {
+        if depth == 0 && source.file_name().is_none_or(|name| name != "saves") {
+            let expected = crate::storage_workspace::inventory(source, cancel)?;
+            return crate::storage_workspace::copy_verified(
+                source,
+                target,
+                &expected,
+                cancel,
+                |_| {},
+            );
+        }
         fs::create_dir(target)?;
         for entry in fs::read_dir(source)? {
             let entry = entry?;
@@ -548,6 +691,7 @@ fn copy_entry(
                 depth == 0 && source.file_name().is_some_and(|name| name == "saves"),
                 depth + 1,
                 control,
+                cancel,
             )?;
         }
     } else if before.is_file() {
@@ -590,10 +734,25 @@ fn copy_content(target: &Path, state: &mut ImportState, progress: &Progress) -> 
     )
 }
 
+#[cfg(test)]
 fn copy_content_controlled(
     target: &Path,
     state: &mut ImportState,
     control: &crate::OperationControl,
+) -> Result<(), Error> {
+    copy_content_verified(
+        target,
+        state,
+        control,
+        &std::sync::atomic::AtomicBool::new(control.is_cancelled()),
+    )
+}
+
+fn copy_content_verified(
+    target: &Path,
+    state: &mut ImportState,
+    control: &crate::OperationControl,
+    cancel: &std::sync::atomic::AtomicBool,
 ) -> Result<(), Error> {
     control.check_cancelled()?;
     let progress = control.progress();
@@ -617,7 +776,14 @@ fn copy_content_controlled(
                 reused: 0,
             });
             for (index, name) in state.entries.iter().enumerate() {
-                copy_entry(&source.join(name), &staging.join(name), false, 0, control)?;
+                copy_entry(
+                    &source.join(name),
+                    &staging.join(name),
+                    false,
+                    0,
+                    control,
+                    cancel,
+                )?;
                 progress(InstallProgress {
                     detail: None,
                     phase: "import-copy".into(),
@@ -687,7 +853,16 @@ fn read_state(target: &Path) -> Result<ImportState, Error> {
     ) {
         (None, None) => {}
         (Some("fabric"), Some(version)) => leaf(version)?,
-        (Some("forge" | "neoforge"), Some(version)) if state.minecraft_version == "1.21.1" => {
+        (Some(kind @ ("forge" | "neoforge")), Some(version))
+            if cobble_content::query_compatibility(
+                &state.minecraft_version,
+                Some(kind),
+                Some(version),
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+            )
+            .allowed() =>
+        {
             leaf(version)?
         }
         _ => return Err("导入标记的加载器不受支持".into()),
@@ -776,9 +951,6 @@ pub async fn import_launcher_game_controlled(
             {
                 return Err("目标属于另一个导入任务，未修改任何内容".into());
             }
-            if state.complete {
-                return Err("这个导入任务已经完成".into());
-            }
             return Ok(state);
         }
         let content = real_directory(&content)?;
@@ -792,6 +964,12 @@ pub async fn import_launcher_game_controlled(
         if target.starts_with(&content) || content.starts_with(&target) {
             return Err("导入目标必须位于源目录之外".into());
         }
+        if let Some(runtime) = &candidate.runtime_source {
+            let runtime = real_directory(&runtime.directory)?;
+            if target.starts_with(&runtime) || runtime.starts_with(&target) {
+                return Err("导入目标必须位于来源游戏目录之外".into());
+            }
+        }
         let state = ImportState {
             minecraft_version: candidate.minecraft_version.unwrap(),
             loader_kind: candidate.loader_kind,
@@ -803,6 +981,8 @@ pub async fn import_launcher_game_controlled(
             staging_complete: false,
             content_complete: false,
             complete: false,
+            runtime_source: candidate.runtime_source,
+            released_roots: Vec::new(),
         };
         initialization_control.check_cancelled()?;
         initialize_target(&target, &state)?;
@@ -842,15 +1022,39 @@ async fn finish_import(
     control: crate::OperationControl,
 ) -> Result<InstallOutcome, Error> {
     control.check_cancelled()?;
+    if state.complete {
+        let path = target.join(format!("versions/{0}/{0}.json", state.minecraft_version));
+        let metadata = cobble_minecraft::VersionMetadata::parse_installed(
+            &fs::read(path)?,
+            &state.minecraft_version,
+        )?;
+        let plan = metadata.download_plan(&cobble_minecraft::PlatformContext::current()?)?;
+        return Ok(InstallOutcome {
+            version: state.minecraft_version,
+            java_major: plan.java_major,
+        });
+    }
+    if let Some(runtime) = &state.runtime_source {
+        reuse::prepare(runtime, &state.minecraft_version, target, &source, &control).await?;
+    }
     if !state.content_complete {
         let directory = target.to_owned();
         let copy_control = control.clone();
-        state = tokio::task::spawn_blocking(move || -> Result<ImportState, Error> {
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(control.is_cancelled()));
+        let watch_cancel = cancel.clone();
+        let watch_control = control.clone();
+        let watcher = tokio::spawn(async move {
+            watch_control.cancelled().await;
+            watch_cancel.store(true, std::sync::atomic::Ordering::Release);
+        });
+        let copied = tokio::task::spawn_blocking(move || -> Result<ImportState, Error> {
             real_directory(&directory)?;
-            copy_content_controlled(&directory, &mut state, &copy_control)?;
+            copy_content_verified(&directory, &mut state, &copy_control, &cancel)?;
             Ok(state)
         })
-        .await??;
+        .await;
+        watcher.abort();
+        state = copied??;
     }
     let outcome = match (
         state.loader_kind.as_deref(),
@@ -965,6 +1169,51 @@ mod tests {
             staging_complete: false,
             content_complete: false,
             complete: false,
+            runtime_source: None,
+            released_roots: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn real_profile_metadata_import_uses_shared_target_policy() {
+        for (mc, kind, version, raw) in [
+            (
+                "1.20.1",
+                "forge",
+                "47.4.28",
+                include_str!("../tests/fixtures/forge/forge-1.20.1-47.4.28.json"),
+            ),
+            (
+                "1.21.4",
+                "neoforge",
+                "21.4.157",
+                include_str!("../tests/fixtures/forge/neoforge-21.4.157.json"),
+            ),
+        ] {
+            let f = Fixture::new();
+            f.json(
+                &format!(".minecraft/versions/{mc}/{mc}.json"),
+                json!({"id":mc,"mainClass":"net.minecraft.client.main.Main"}),
+            );
+            f.write(
+                ".minecraft/versions/Experimental/Experimental.json",
+                raw.as_bytes(),
+            );
+            f.write(".minecraft/options.txt", b"shared");
+            let candidates = inspect_launcher_import(&f.0).unwrap();
+            let mut selected = candidates
+                .into_iter()
+                .find(|item| item.name == "Experimental")
+                .unwrap();
+            assert!(
+                selected.unsupported_reason.is_none(),
+                "{:?}",
+                selected.unsupported_reason
+            );
+            assert_eq!(selected.loader_kind.as_deref(), Some(kind));
+            assert_eq!(selected.loader_version.as_deref(), Some(version));
+            selected.loader_version = Some("99.1.0".into());
+            assert!(runtime_supported(&mut selected).is_err());
         }
     }
 
@@ -1023,7 +1272,7 @@ mod tests {
         f.write("instances/Fabric/.minecraft/options.txt", b"one");
         f.write("instances/Fabric/minecraft/options.txt", b"two");
         f.json("instances/Quilt/mmc-pack.json", json!({"components":[{"uid":"net.minecraft","version":"1.21.1"},{"uid":"org.quiltmc.quilt-loader","version":"0.28.0"}]}));
-        f.json("instances/OldForge/mmc-pack.json", json!({"components":[{"uid":"net.minecraft","version":"1.20.1"},{"uid":"net.minecraftforge","version":"47.4.0"}]}));
+        f.json("instances/OldForge/mmc-pack.json", json!({"components":[{"uid":"net.minecraft","version":"1.20.1"},{"uid":"net.minecraftforge","version":"47.3.0"}]}));
         let candidates = inspect_launcher_import(&f.0).unwrap();
         let fabric = candidates
             .iter()
@@ -1047,7 +1296,7 @@ mod tests {
                 .unsupported_reason
                 .as_deref()
                 .unwrap()
-                .contains("1.21.1")
+                .contains("不支持")
         );
     }
 

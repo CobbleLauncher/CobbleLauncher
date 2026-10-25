@@ -37,4 +37,14 @@ it('requires review then explicit undo and emits a refresh', async () => {
   expect(wrapper.text()).toContain('Disabled');
   wrapper.unmount();
 });
+it('opens a requested operation with a read-only preview and still requires explicit confirmation', async () => {
+  setLocale('en-US'); vi.mocked(invoke).mockImplementation(async command => command === 'list_game_mod_history' ? history : []);
+  const wrapper = mount(GameModHistory, { props: { game, locked: false } }); await flushPromises();
+  expect(await wrapper.vm.openOperation('operation')).toBe(true); await flushPromises();
+  expect(wrapper.get('.settings-disclosure-trigger').attributes('aria-expanded')).toBe('true');
+  expect(invoke).toHaveBeenCalledWith('preview_game_mod_operation_undo', { id: 'game', operationId: 'operation' });
+  expect(invoke).not.toHaveBeenCalledWith('undo_game_mod_operation', expect.anything());
+  await wrapper.findAll('button').find(button => button.text() === 'Undo changes')!.trigger('click'); await flushPromises();
+  expect(invoke).toHaveBeenCalledWith('undo_game_mod_operation', { id: 'game', operationId: 'operation' }); wrapper.unmount();
+});
 

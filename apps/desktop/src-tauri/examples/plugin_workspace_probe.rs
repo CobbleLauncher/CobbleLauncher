@@ -11,6 +11,12 @@ pub fn config_dir() -> Option<std::path::PathBuf> {
 pub fn data_local_dir() -> Option<std::path::PathBuf> {
     std::env::var_os("LOCALAPPDATA").map(Into::into)
 }
+pub fn desktop_dir() -> Option<std::path::PathBuf> {
+    data_local_dir().map(|root| root.join("synthetic-desktop"))
+}
+pub fn cache_dir() -> Option<std::path::PathBuf> {
+    data_local_dir().map(|root| root.join("cache"))
+}
 #[path = "../src/appearance.rs"]
 mod appearance;
 #[path = "../src/cache.rs"]
@@ -37,6 +43,8 @@ mod plugin_catalogs;
 mod plugins;
 #[path = "../src/preferences.rs"]
 mod preferences;
+#[path = "../src/seed_map.rs"]
+mod seed_map;
 use serde_json::{Value, json};
 use std::{
     path::{Path, PathBuf},
@@ -47,10 +55,19 @@ use std::{
 };
 static CHECKS: AtomicUsize = AtomicUsize::new(0);
 static EVENTS: Mutex<Vec<Value>> = Mutex::new(Vec::new());
+#[path = "support/coordinate_book_driver.rs"]
+mod coordinate_book_driver;
 #[path = "support/diagnostics_driver.rs"]
 mod diagnostics_driver;
 #[path = "support/inspection_driver.rs"]
 mod inspection_driver;
+#[path = "support/seed_compass_driver.rs"]
+mod seed_compass_driver;
+#[path = "support/upgraded_inspection_driver.rs"]
+mod upgraded_inspection_driver;
+fn upgraded(id: &Value) -> bool {
+    id == "modpack-inspector" || id == "world-dashboard"
+}
 
 #[tauri::command(rename = "frontend_call")]
 async fn observed_frontend_call(
@@ -60,6 +77,58 @@ async fn observed_frontend_call(
 ) -> Result<Value, String> {
     use plugins::plugin_frontend_bridge::FrontendRequest::*;
     let method = match &request {
+        MeshPeers(_) => "mesh.peers",
+        MeshSubscribe(_) => "mesh.subscribe",
+        MeshReceive(_) => "mesh.receive",
+        MeshUnsubscribe(_) => "mesh.unsubscribe",
+        MeshSend(_) => "mesh.send",
+        TrialPreview(_) => "trialCopy.preview",
+        TrialDestination(_) => "trialCopy.pickDestination",
+        TrialStart(_) => "trialCopy.start",
+        TrialTask(_) => "trialCopy.task",
+        TrialCancel(_) => "trialCopy.cancel",
+        TrialOpen(_) => "trialCopy.openGame",
+        StorageOverview(_) => "storageWorkspace.overview",
+        StorageDestination(_) => "storageWorkspace.pickDestination",
+        StorageClean(_) => "storageWorkspace.cleanCache",
+        StorageMove(_) => "storageWorkspace.startMove",
+        StorageTask(_) => "storageWorkspace.task",
+        StorageCancel(_) => "storageWorkspace.cancel",
+        StorageRelease(_) => "storageWorkspace.releaseSource",
+        StorageOpen(_) => "storageWorkspace.openSource",
+        ConfigList(_) => "configWorkspace.list",
+        ConfigRead(_) => "configWorkspace.read",
+        ConfigBackup(_) => "configWorkspace.readBackup",
+        ConfigWrite(_) => "configWorkspace.write",
+        ConfigRestore(_) => "configWorkspace.restore",
+        RecoverySnapshot(_) => "recovery.snapshot",
+        RecoveryOpen(_) => "recovery.openRequest",
+        PlayPreview(_) => "playManifest.preview",
+        PlayExport(_) => "playManifest.export",
+        InboxPick(_) => "fileInbox.pick",
+        InboxPending(_) => "fileInbox.pending",
+        InboxOpen(_) => "fileInbox.open",
+        InboxRelease(_) => "fileInbox.release",
+        LangPick(_) => "langPackage.pick",
+        LangCheck(_) => "langPackage.check",
+        LangDocument(_) => "langPackage.document",
+        LangCancel(_) => "langPackage.cancel",
+
+        TextExport(_) => "exports.text",
+        ClipboardWrite(_) => "clipboard.writeText",
+        ViewSetDirty(_) => "view.setDirty",
+        HandoffReceivers(_) => "handoffs.receivers",
+        HandoffSend(_) => "handoffs.send",
+        HandoffTake(_) => "handoffs.take",
+        DataRead(_) => "data.read",
+        DataWrite(_) => "data.write",
+        DataRemove(_) => "data.remove",
+        ReportPick(_) => "report.pick",
+        WorldMetadata(_) => "worlds.metadata",
+        SeedMapCapabilities(_) => "seedMap.capabilities",
+        SeedMapGenerate(_) => "seedMap.generate",
+        SeedMapSearch(_) => "seedMap.search",
+        SeedMapCancel(_) => "seedMap.cancel",
         Context(_) => "context",
         InspectionSnapshot(_) => "inspection.snapshot",
         InspectionCheck(_) => "inspection.check",
@@ -74,6 +143,20 @@ async fn observed_frontend_call(
         DiagnosticsRead(_) => "diagnostics.read",
         DiagnosticsCheck(_) => "diagnostics.check",
         DiagnosticsPick(_) => "diagnostics.pick",
+        WorldSnapshotsList(_) => "worldSnapshots.list",
+        WorldSnapshotsCompare(_) => "worldSnapshots.compare",
+        WorldSnapshotsOpenRestore(_) => "worldSnapshots.openRestore",
+        // Newer unrelated workflows are not observed by this joined fixture.
+        _ => "other",
+    };
+    let request_id = match &request {
+        SeedMapCancel(args) => Some(args.request_id.clone()),
+        _ => None,
+    };
+    let requested_version = match &request {
+        SeedMapGenerate(args) => Some(args.map.version.clone()),
+        SeedMapSearch(args) => Some(args.search.version.clone()),
+        _ => None,
     };
     let check = if matches!(&request, Check(_)) {
         CHECKS.fetch_add(1, Ordering::AcqRel) + 1
@@ -92,15 +175,31 @@ async fn observed_frontend_call(
     } else {
         None
     };
+    let summary = if method.starts_with("mesh.") {
+        json!({"ok":result.is_ok()})
+    } else {
+        coordinate_book_driver::summarized_result(method, &result)
+    };
     EVENTS
         .lock()
         .unwrap()
-        .push(json!({"method":method,"check":check,"view":label,"result":result,"fixtureTargetOptions":target_options}));
+        .push(json!({"method":method,"requestId":request_id,"requestedVersion":requested_version,"check":check,"view":label,"result":summary,"fixtureTargetOptions":target_options}));
     result
 }
 #[tauri::command]
 fn get_app_info(app: tauri::AppHandle, proof: Option<Value>) -> Value {
     if let Some(mut proof) = proof {
+        if proof["pluginId"] == "world-dashboard" {
+            let unchanged = std::fs::read(
+                dirs::data_local_dir()
+                    .unwrap()
+                    .join("managed-game/saves/FixtureWorld/region/fixture.mca"),
+            )
+            .unwrap_or_default()
+                == b"live synthetic generation remains untouched";
+            proof["worldBytesUnchanged"] = json!(unchanged);
+            proof["passed"] = json!(proof["passed"] == true && unchanged);
+        }
         let target = dirs::data_local_dir()
             .unwrap()
             .join("target-game/options.txt");
@@ -161,7 +260,13 @@ fn prepare(source: &Path, data: &Path, config: &Path) -> Result<(), Box<dyn std:
     std::fs::write(package.join("ui/index.html"), html)?;
     std::fs::write(
         package.join("ui/joined-driver.js"),
-        if inspection {
+        if source_manifest["id"] == "coordinate-book" {
+            coordinate_book_driver::DRIVER
+        } else if source_manifest["id"] == "seed-compass" {
+            seed_compass_driver::DRIVER
+        } else if upgraded(&source_manifest["id"]) {
+            upgraded_inspection_driver::DRIVER
+        } else if inspection {
             inspection_driver::DRIVER
         } else if diagnostics {
             diagnostics_driver::DRIVER
@@ -206,6 +311,9 @@ fn prepare(source: &Path, data: &Path, config: &Path) -> Result<(), Box<dyn std:
     if inspection {
         inspection_driver::prepare(&game)?;
     }
+    if source_manifest["id"] == "seed-compass" {
+        seed_compass_driver::prepare(&game)?;
+    }
     let target = data.join("target-game");
     std::fs::create_dir_all(&target)?;
     std::fs::write(
@@ -213,10 +321,20 @@ fn prepare(source: &Path, data: &Path, config: &Path) -> Result<(), Box<dyn std:
         b"key_key.forward:key.keyboard.up\nkey_key.jump:key.keyboard.enter\nfov:0.5\n",
     )?;
     std::fs::create_dir_all(config.join("CobbleLauncher"))?;
+    let game_id = if upgraded(&source_manifest["id"]) {
+        upgraded_inspection_driver::game_id(data)
+    } else {
+        "012345abcdef".into()
+    };
+    let version = if source_manifest["id"] == "seed-compass" {
+        seed_compass_driver::VERSION
+    } else {
+        "1.21.1"
+    };
     std::fs::write(
         config.join("CobbleLauncher/games.json"),
         serde_json::to_vec(
-            &json!([{"id":"012345abcdef","name":"Joined fixture","version":"1.21.1","directory":game,"status":"installed","error":null},{"id":"fedcba543210","name":"Target fixture","version":"1.21.1","directory":target,"status":"installed","error":null}]),
+            &json!([{"id":game_id,"name":"Joined fixture","version":version,"directory":game,"status":"installed","error":null},{"id":"fedcba543210","name":"Target fixture","version":"1.21.1","directory":target,"status":"installed","error":null}]),
         )?,
     )?;
     Ok(())
@@ -224,6 +342,9 @@ fn prepare(source: &Path, data: &Path, config: &Path) -> Result<(), Box<dyn std:
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data = isolated(dirs::data_local_dir().ok_or("local data")?)?;
     let config = isolated(dirs::config_dir().ok_or("config")?)?;
+    if std::env::args().nth(1).as_deref() == Some("--cleanup-fixture") {
+        return upgraded_inspection_driver::cleanup(&data);
+    }
     let source = PathBuf::from(std::env::args().nth(1).ok_or("package path")?);
     let source_manifest: Value =
         serde_json::from_slice(&std::fs::read(source.join("plugin.json"))?)?;
@@ -235,7 +356,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .iter()
                 .any(|node| node["permission"] == "launcher:game-inspection/read")
         });
-    let parent = if inspection {
+    let parent = if source_manifest["id"] == "coordinate-book" {
+        coordinate_book_driver::PARENT.to_owned()
+    } else if source_manifest["id"] == "seed-compass" {
+        seed_compass_driver::PARENT.to_owned()
+    } else if upgraded(&source_manifest["id"]) {
+        upgraded_inspection_driver::parent(
+            source_manifest["id"].as_str().ok_or("plugin id")?,
+            &upgraded_inspection_driver::game_id(&data),
+        )
+    } else if inspection {
         inspection_driver::parent(source_manifest["id"].as_str().ok_or("plugin id")?)
     } else if diagnostics {
         diagnostics_driver::PARENT.to_owned()
@@ -243,15 +373,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         PARENT.to_owned()
     };
     prepare(&source, &data, &config)?;
+    if source_manifest["id"] == "coordinate-book" {
+        coordinate_book_driver::install_sender(&source, &data)?;
+    }
+    let _fixture_credential = if source_manifest["id"] == "world-dashboard" {
+        Some(upgraded_inspection_driver::snapshots(
+            &data,
+            &data.join("managed-game"),
+        )?)
+    } else {
+        None
+    };
     plugins::plugin_views::enable_isolated_probe()?;
     let mut context = tauri::generate_context!();
     context.config_mut().app.windows.clear();
     let app=tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(games::GameLibrary::load()).manage(games::tasks::TaskLibrary::load())
         .register_uri_scheme_protocol("cobble-probe",|_,_|tauri::http::Response::builder().header("Content-Type","text/html; charset=utf-8").body(b"<!doctype html><html><body>Joined Config Doctor native workflow</body></html>".to_vec()).unwrap())
         .register_uri_scheme_protocol("cobble-plugin",plugins::plugin_views::serve_asset)
-        .invoke_handler(tauri::generate_handler![observed_frontend_call,get_app_info,plugins::plugin_views::open_plugin_view,plugins::plugin_views::close_plugin_view,plugins::plugin_views::set_plugin_view_visible,plugins::extension_settings::get_extension_settings,plugins::extension_settings::declarative::save_extension_settings_form])
+        .invoke_handler(tauri::generate_handler![observed_frontend_call,get_app_info,games::list_games,plugins::plugin_views::open_plugin_view,plugins::plugin_views::close_plugin_view,plugins::plugin_views::plugin_view_is_dirty,plugins::plugin_views::set_plugin_view_visible,plugins::extension_settings::get_extension_settings,plugins::extension_settings::declarative::save_extension_settings_form])
         .setup(move|app|{
+            games::sessions::watch_recovered(app.handle());
             let handle=app.handle().clone();std::thread::spawn(move||{std::thread::sleep(std::time::Duration::from_secs(55));eprintln!("JOINED_TIMEOUT {}",json!(*EVENTS.lock().unwrap()));handle.exit(2);});
             tauri::WebviewWindowBuilder::new(app,"main",tauri::WebviewUrl::External("http://cobble-probe.localhost/index.html".parse()?))
                 .title("Cobble joined plugin workflow probe").inner_size(1000.,760.).data_directory(data.join("main-webview"))

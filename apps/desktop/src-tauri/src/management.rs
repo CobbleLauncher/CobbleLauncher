@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 use super::*;
 
-pub(super) struct Operation {
+pub(crate) struct Operation {
     app: AppHandle,
     id: String,
 }
@@ -26,12 +26,16 @@ pub(super) fn begin(
 }
 
 pub(super) fn begin_after_exit(
-    app: &AppHandle, session: &sessions::Session,
+    app: &AppHandle,
+    session: &sessions::Session,
 ) -> Result<(Game, Operation), String> {
     begin_inner(app, &session.game_id, true, Some(session))
 }
 fn begin_inner(
-    app: &AppHandle, id: &str, installed: bool, exited: Option<&sessions::Session>,
+    app: &AppHandle,
+    id: &str,
+    installed: bool,
+    exited: Option<&sessions::Session>,
 ) -> Result<(Game, Operation), String> {
     let state = app.state::<GameLibrary>();
     let mut library = state.0.lock().map_err(|e| e.to_string())?;
@@ -41,8 +45,10 @@ fn begin_inner(
         .find(|game| game.id == id)
         .ok_or("找不到这个游戏")?;
     if let Some(session) = exited {
-        if game.directory != session.directory || sessions::alive(session)
-            || sessions::recover(game)?.is_some() {
+        if game.directory != session.directory
+            || sessions::alive(session)
+            || sessions::recover(game)?.is_some()
+        {
             return Err("游戏仍在运行，稍后重试备份".into());
         }
         if game.launch_state == "running" {

@@ -129,10 +129,10 @@ pub fn record(
         target: target(resource),
     };
     tracing::info!(event = "plugin_access", plugin_id, capability, action, outcome = ?outcome, target = ?entry.target);
-    if let (Ok(_guard), Ok(root)) = (LOCK.lock(), super::root("logs")) {
-        if append(&root.join("plugin-access.jsonl"), entry).is_err() {
-            tracing::warn!(event = "plugin_access_log_unavailable");
-        }
+    if let (Ok(_guard), Ok(root)) = (LOCK.lock(), super::root("logs"))
+        && append(&root.join("plugin-access.jsonl"), entry).is_err()
+    {
+        tracing::warn!(event = "plugin_access_log_unavailable");
     }
 }
 #[tauri::command]

@@ -1,5 +1,6 @@
 {
   "title": "本地世界",
+  "moreActions": "{name} 的更多操作",
   "importBackup": "导入世界备份",
   "loading": "读取中…",
   "refresh": "刷新",

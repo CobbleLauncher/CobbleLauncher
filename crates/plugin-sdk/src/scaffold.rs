@@ -25,6 +25,7 @@ pub fn create(id: &str, root: &Path, report: bool) -> Result<(), Box<dyn Error>>
         .into(),
         publisher: "Local developer".into(),
         capabilities: vec![if report { "report" } else { "viewer" }.into()],
+        tool_form: None,
         composer_permissions: Default::default(),
         interfaces: cobble_plugin_api::Interfaces {
             provides: vec![cobble_plugin_api::ProvidedInterface {
@@ -109,6 +110,10 @@ fn default_contributions(id: &str, report: bool) -> Contributions {
                 position: MenuPosition::Tools,
                 when: ContextCondition::Always,
             }],
+            icon: None,
+            search_keywords: Vec::new(),
+            quick_entry: false,
+            suggested_shortcut: None,
         }],
         settings: None,
     }
@@ -144,6 +149,7 @@ pub fn create_provider(id: &str, root: &Path, origin: &str) -> Result<(), Box<dy
         api_version: cobble_plugin_api::PROVIDER_API_VERSION.into(),
         publisher: "Local developer".into(),
         capabilities: vec!["blueprint-provider".into()],
+        tool_form: None,
         composer_permissions: Default::default(),
         interfaces: cobble_plugin_api::Interfaces {
             provides: vec![cobble_plugin_api::ProvidedInterface {

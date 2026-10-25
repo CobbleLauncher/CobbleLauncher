@@ -1,0 +1,16 @@
+{
+  "id": "anvil-planner",
+  "name": "Anvil Planner",
+  "version": "0.1.0",
+  "api_version": "0.2.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": ["report"],
+  "interfaces": {"provides": [{"id":"launcher:report","version":"0.2.0"},{"id":"launcher:web-frontend","version":"0.1.0"}]},
+  "file_extensions": [],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {"en":"Plan offline anvil enchantment order and level costs","zh-CN":"离线规划铁砧附魔顺序与等级消耗"},
+  "tags": ["enchantments","utilities"],
+  "permissions": [{"permission":"launcher:ui/webview"},{"permission":"launcher:clipboard/write"}],
+  "frontend": {"entry":"ui/index.html","api_version":"0.1.0","assets_sha256":"0000000000000000000000000000000000000000000000000000000000000000"},
+  "contributions": {"schema_version":1,"commands":[{"id":"anvil-planner.open","label":{"en":"Open Anvil Planner","zh-CN":"打开铁砧规划"},"workflow":"report","search_keywords":["anvil","enchant","铁砧","附魔"],"menus":[{"position":"tools","when":"always"},{"position":"instance","when":"instance_selected"}]}]}
+}

@@ -34,7 +34,7 @@ it('keeps the Tools module outside initial library rendering and loads it once o
     expect(wrapper.find('[data-testid="loaded-tools"]').exists()).toBe(true);
     let finishSuspend!: () => void;
     loaded.suspend.mockImplementationOnce(() => new Promise<void>(resolve => { finishSuspend = resolve; }));
-    const tasksButton = wrapper.find('button[aria-expanded="false"]');
+    const tasksButton = wrapper.find('button.tasks-button[aria-expanded="false"]');
     await tasksButton.trigger('click');
     await flushPromises();
     expect(loaded.suspend).toHaveBeenCalledOnce();

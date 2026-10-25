@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Bounded NBT visitor. Only names in the top-level servers list are retained.
 use super::*;
+use sha2::{Digest, Sha256};
 struct Nbt<'a> {
     bytes: &'a [u8],
     at: usize,
@@ -107,6 +108,15 @@ impl<'a> Nbt<'a> {
                         .position(|value| !canonical.is_empty() && value == &canonical);
                     let index = names.len();
                     names.push(json!({"id":index,"name":clean(&name),"duplicateOf":duplicate,"addressKind":address_kind(&canonical)}));
+                    // Endpoint identity survives list reordering and display-name changes.
+                    // Empty endpoints cannot identify a server and remain unselectable.
+                    if !canonical.is_empty() {
+                        let mut hash = Sha256::new();
+                        hash.update(b"cobble-plugin-server-v1\0");
+                        hash.update(canonical.as_bytes());
+                        names.last_mut().ok_or("Invalid server data")?["serverId"] =
+                            json!(format!("{:x}", hash.finalize()));
+                    }
                     if self.include_addresses {
                         names.last_mut().ok_or("Invalid server data")?["address"] =
                             json!(address.trim());
@@ -209,6 +219,12 @@ mod tests {
         let result = parse(bytes).unwrap();
         assert_eq!(result[0]["name"], "Home");
         assert_eq!(result[0]["addressKind"], "unknown");
+        let server_id = result[0]["serverId"].as_str().unwrap();
+        assert_eq!(server_id.len(), 64);
+        let mut renamed = bytes.to_vec();
+        let name_at = renamed.windows(4).position(|part| part == b"Home").unwrap();
+        renamed[name_at..name_at + 4].copy_from_slice(b"Away");
+        assert_eq!(parse(&renamed).unwrap()[0]["serverId"], server_id);
         assert!(parse(&bytes[..12]).is_err());
         assert!(!serde_json::to_string(&result).unwrap().contains("secret"));
         assert_eq!(parse_mode(bytes, true).unwrap()[0]["address"], "secret:42");

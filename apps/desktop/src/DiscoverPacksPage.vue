@@ -1,21 +1,26 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
+import SearchField from './ui/SearchField.vue';
+import CompatibilityNotice from './CompatibilityNotice.vue';
 import MarketImage from "./MarketImage.vue";
 import { marketReturn } from './market-return';
 import MarketGallery from "./MarketGallery.vue";
 import VersionSelector from './VersionSelector.vue';
 import { preferredRelease } from './version-selector';
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { loaderLabel, type ModrinthPackVersion, type ModSearchHit, type ModSearchPage, type PackPreview } from './games';
 import { locale, t } from './i18n';
 import LoadingIndicator from './ui/LoadingIndicator.vue';
+import { isMarketSaved, toggleMarketSaved, type SavedMarketItem } from './market-saved';
+import { marketWorkstate, rememberMarketWorkstate, restoreMarketScroll } from './market-workstate';
+const props = defineProps<{ initialQuery?: string; sharedMode?: boolean; sharedRequest?: { serial: number; query: string; minecraftVersion?: string; loader?: string }; savedRequest?: { serial: number; item: SavedMarketItem } }>();
 const emit = defineEmits<{ selectedPack: [preview: PackPreview]; busy: [value: boolean] }>();
 const root = ref<HTMLElement>();
 const detailReturn = marketReturn(root);
 const query = ref('');
-const minecraftVersion = ref('');
-const loader = ref('');
+const minecraftVersion = ref(props.sharedMode ? props.sharedRequest?.minecraftVersion ?? '' : '');
+const loader = ref(props.sharedMode ? props.sharedRequest?.loader ?? '' : '');
 const filterError = ref('');
 const submitted = ref<{ query: string; minecraftVersion: string | null; loader: string | null }>({ query: '', minecraftVersion: null, loader: null });
 const hits = ref<ModSearchHit[]>([]);
@@ -79,8 +84,34 @@ async function prepare() {
   catch (cause) { previewError.value = `无法准备安装预览：${String(cause)}`; }
   finally { preparing.value = false; emit('busy', false); }
 }
-onUnmounted(() => { ++searchRequest; ++versionRequest; });
-onMounted(() => { void search(); });
+const workKey = 'modrinth:modpack:global';
+function remember() {
+  rememberMarketWorkstate(workKey, { query: query.value, minecraftVersion: minecraftVersion.value, loader: loader.value, submitted: submitted.value, hits: hits.value, total: total.value, nextOffset: nextOffset.value, hasMore: hasMore.value }, root.value);
+}
+onActivated(() => restoreMarketScroll(workKey, root.value));
+onDeactivated(remember);
+onUnmounted(() => { remember(); ++searchRequest; ++versionRequest; });
+watch(() => props.savedRequest?.serial, () => {
+  const item = props.savedRequest?.item;
+  if (item?.provider === 'modrinth' && item.kind === 'modpack' && item.hit.project_id === item.project_id) {
+    ++searchRequest; searching.value = false; select(item.hit as ModSearchHit);
+  }
+});
+watch(() => props.sharedRequest?.serial, () => {
+  if (!props.sharedMode || !props.sharedRequest) return;
+  query.value = props.sharedRequest.query;
+  minecraftVersion.value = props.sharedRequest.minecraftVersion ?? ''; loader.value = props.sharedRequest.loader ?? '';
+  void search();
+});
+onMounted(() => {
+  const item = props.savedRequest?.item;
+  if (item?.provider === 'modrinth' && item.kind === 'modpack') select(item.hit as ModSearchHit);
+  else {
+    const state = marketWorkstate<{ query: string; minecraftVersion: string; loader: string; submitted: typeof submitted.value; hits: ModSearchHit[]; total: number; nextOffset: number; hasMore: boolean }>(workKey);
+    if (state && (!props.sharedMode || (state.query === (props.sharedRequest?.query ?? props.initialQuery ?? '') && (!props.sharedRequest || (state.minecraftVersion === (props.sharedRequest.minecraftVersion ?? '') && state.loader === (props.sharedRequest.loader ?? '')))))) { query.value = state.query; minecraftVersion.value = state.minecraftVersion; loader.value = state.loader; submitted.value = state.submitted; hits.value = state.hits; total.value = state.total; nextOffset.value = state.nextOffset; hasMore.value = state.hasMore; restoreMarketScroll(workKey, root.value); }
+    else { query.value = props.sharedMode ? props.sharedRequest?.query ?? props.initialQuery ?? '' : props.initialQuery ?? ''; void search(); }
+  }
+});
 </script>
 <template>
   <div
@@ -109,6 +140,18 @@ onMounted(() => { void search(); });
       <p class="preview-description">
         {{ selected.description }}
       </p>
+      <button
+        class="text-button market-save-button"
+        @click="toggleMarketSaved('modrinth', 'modpack', selected)"
+      >
+        {{ t(isMarketSaved('modrinth', 'modpack', selected.project_id) ? 'market.removeSaved' : 'market.saveLater') }}
+      </button>
+      <button
+        class="text-button"
+        @click="toggleMarketSaved('modrinth', 'modpack', selected, 'favorite')"
+      >
+        {{ t(isMarketSaved('modrinth', 'modpack', selected.project_id, 'favorite') ? 'market.removeFavorite' : 'market.favorite') }}
+      </button>
       <MarketGallery
         v-if="selected.gallery?.length"
         provider="modrinth"
@@ -148,6 +191,12 @@ onMounted(() => { void search(); });
           v-if="chosenVersion"
           class="pack-version-info"
         >
+          <CompatibilityNotice
+            v-for="mc in chosenVersion.minecraft_versions"
+            :key="mc"
+            :minecraft-version="mc"
+            :loader-kind="chosenVersion.loaders.find(kind => kind === 'forge' || kind === 'neoforge')"
+          />
           <div class="compatibility-tags">
             <span
               v-for="version in chosenVersion.minecraft_versions"
@@ -192,21 +241,27 @@ onMounted(() => { void search(); });
         novalidate
         @submit.prevent="search()"
       >
-        <div class="content-toolbar discover-search">
-          <input
+        <div
+          v-if="!sharedMode"
+          class="content-toolbar discover-search"
+        >
+          <SearchField
             v-model="query"
-            type="search"
             maxlength="120"
-            :aria-label="t('market.searchPacks')"
+            :label="t('market.searchPacks')"
             :placeholder="t('market.packSearchPlaceholder')"
-          ><button
+            @submit="search()"
+          /><button
             class="secondary-button"
             type="submit"
           >
             {{ searching ? t('market.searching') : t('curseforge.search') }}
           </button>
         </div>
-        <details class="pack-discovery-filter-details">
+        <details
+          v-if="!sharedMode"
+          class="pack-discovery-filter-details"
+        >
           <summary>{{ packFilterSummary }}</summary>
           <div class="pack-discovery-filters">
             <div class="form-field">
@@ -334,7 +389,7 @@ onMounted(() => { void search(); });
 </template>
 <style scoped>
 .pack-discovery-filter-details{margin-top:-7px}
-.pack-discovery-filter-details>summary{width:fit-content;color:var(--muted);font-size:11px;cursor:pointer}
+.pack-discovery-filter-details>summary{width:fit-content;color:var(--muted);font-size:var(--ui-text-caption);cursor:pointer}
 .pack-discovery-filters{margin-top:11px}
 .pack-search-results .pack-result-card{cursor:pointer;border:1px solid var(--line);border-radius:12px;padding:12px;transition:background-color .14s ease,border-color .14s ease}
 .pack-search-results .pack-result-card:not([aria-disabled="true"]):hover{background:color-mix(in srgb,var(--panel) 88%,#000 12%);border-color:var(--muted)}
@@ -342,3 +397,5 @@ onMounted(() => { void search(); });
 .pack-search-results .pack-result-card[aria-disabled="true"]{cursor:default;opacity:.72}
 @media(prefers-reduced-motion:reduce){.pack-search-results .pack-result-card{transition:none}}
 </style>
+
+<style scoped>.discover-search .search-field{flex:1;min-width:0}.discover-search{gap:var(--ui-space-3)}</style>

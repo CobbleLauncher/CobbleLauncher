@@ -5,5 +5,19 @@
   <p id="error" role="alert" hidden></p>
   <div class="workspace"><section class="inventory" aria-label="Diagnostic files"><ul id="files"></ul><p id="empty" role="status"></p></section>
   <section class="document"><div class="actions"><h2 id="name"></h2><button id="check" disabled>Analyze</button><button id="cancel" hidden>Cancel</button></div><pre id="source" tabindex="0"></pre></section></div>
-  <section id="results" aria-live="polite"><h2 id="result-title">Findings</h2><p id="status" role="status"></p><div id="findings"></div></section>
+  <section id="results">
+    <div id="views" class="view-tabs" role="tablist" aria-label="Analysis view">
+      <button id="diagnosis-tab" role="tab" aria-selected="true" aria-controls="diagnosis-panel">Diagnosis</button>
+      <button id="timeline-tab" role="tab" aria-selected="false" aria-controls="timeline-panel" tabindex="-1">Launch timeline</button>
+      <button id="share-tab" role="tab" aria-selected="false" aria-controls="share-panel" tabindex="-1">Share log</button>
+      <button id="recovery-tab" role="tab" aria-selected="false" aria-controls="recovery-panel" tabindex="-1">Recovery</button>
+      <button id="experiments-tab" role="tab" aria-selected="false" aria-controls="experiments-panel" tabindex="-1">Experiments</button>
+    </div>
+    <p id="status" role="status"></p>
+    <div id="diagnosis-panel" role="tabpanel" aria-labelledby="diagnosis-tab"><h2 id="result-title">Findings</h2><div id="findings"></div></div>
+    <div id="timeline-panel" role="tabpanel" aria-labelledby="timeline-tab" hidden></div>
+    <div id="share-panel" role="tabpanel" aria-labelledby="share-tab" hidden></div>
+    <div id="recovery-panel" role="tabpanel" aria-labelledby="recovery-tab" hidden></div>
+    <div id="experiments-panel" role="tabpanel" aria-labelledby="experiments-tab" hidden></div>
+  </section>
 </main><script type="module" src="./src/main.ts"></script></body></html>

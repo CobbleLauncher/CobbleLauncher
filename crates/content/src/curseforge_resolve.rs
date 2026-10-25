@@ -2,9 +2,8 @@
 //! Bounded, pinned official dependency resolution. No metadata is persisted.
 use super::*;
 use crate::{ModrinthFile, ModrinthPlan, ResolvedMod};
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RestrictedFile {
     pub project_id: String,
     pub file_id: String,
@@ -14,7 +13,7 @@ pub struct RestrictedFile {
     pub website_url: Option<String>,
     pub reason: String,
 }
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InstallPlan {
     pub graph: ModrinthPlan,
     pub restricted: Vec<RestrictedFile>,
@@ -100,7 +99,7 @@ impl CurseForgeClient {
             version: file.display_name,
         })
     }
-    async fn exact_file(&self, project: u32, id: u32) -> Result<RawFile, ApiError> {
+    pub(super) async fn exact_file(&self, project: u32, id: u32) -> Result<RawFile, ApiError> {
         if project == 0 || id == 0 {
             return Err(ApiError::InvalidInput);
         }
@@ -183,144 +182,7 @@ impl CurseForgeClient {
         version: &str,
         loader: Option<&str>,
     ) -> Result<PackInstallPlan, ApiError> {
-        if let Some(loader) = loader {
-            loader_id(loader)?;
-        }
-        if pins.is_empty() || pins.len() > 256 || pins.iter().any(|(p, f)| *p == 0 || *f == 0) {
-            return Err(ApiError::InvalidInput);
-        }
-        let mut queue: VecDeque<_> = pins.iter().map(|(p, f)| (*p, Some(*f), None)).collect();
-        let mut selected = BTreeMap::new();
-        let mut incompatible = BTreeSet::new();
-        let mut restricted = Vec::new();
-        while let Some((project, pinned, required_by)) = queue.pop_front() {
-            if let Some(previous) = selected.get(&project) {
-                let previous: &ResolvedPackFile = previous;
-                if pinned.is_some_and(|id| previous.file_id != id.to_string()) {
-                    return Err(ApiError::InvalidResponse);
-                }
-                continue;
-            }
-            if selected.len() >= 256 || queue.len() > 1024 || incompatible.contains(&project) {
-                return Err(ApiError::InvalidResponse);
-            }
-            let metadata = self.project(project).await?;
-            let destination = match metadata.class_id {
-                6 => PackFileDestination::Mods,
-                12 => PackFileDestination::ResourcePack,
-                6552 => PackFileDestination::ShaderPack,
-                _ => return Err(ApiError::UnsupportedClass),
-            };
-            let file_loader = if destination == PackFileDestination::Mods {
-                Some(loader.ok_or(ApiError::InvalidInput)?)
-            } else {
-                None
-            };
-            let file = if let Some(id) = pinned {
-                self.exact_file(project, id).await?
-            } else {
-                let page: Page<RawFile> = self
-                    .get(files_url(project, Some(version), file_loader, 0)?)
-                    .await?;
-                validate_page(&page, 0)?;
-                page.data
-                    .into_iter()
-                    .find(|file| file.is_available)
-                    .ok_or(ApiError::NotFound)?
-            };
-            let expected_loader = match file_loader {
-                Some("forge") => Some("Forge"),
-                Some("fabric") => Some("Fabric"),
-                Some("quilt") => Some("Quilt"),
-                Some("neoforge") => Some("NeoForge"),
-                None => None,
-                _ => return Err(ApiError::InvalidInput),
-            };
-            let invalid = |field| ApiError::FileValidation {
-                project_id: project,
-                file_id: file.id,
-                field,
-            };
-            if file.mod_id != project || file.game_id != MINECRAFT {
-                return Err(invalid("identity"));
-            }
-            if !file.game_versions.iter().any(|v| v == version) {
-                return Err(invalid("minecraft_version"));
-            }
-            if expected_loader.is_some_and(|loader| {
-                !file
-                    .game_versions
-                    .iter()
-                    .any(|v| v.eq_ignore_ascii_case(loader))
-            }) {
-                return Err(invalid("loader"));
-            }
-            let sha1 = file
-                .hashes
-                .iter()
-                .find(|h| h.algo == 1)
-                .filter(|h| h.value.len() == 40 && h.value.bytes().all(|b| b.is_ascii_hexdigit()))
-                .ok_or_else(|| invalid("sha1"))?
-                .value
-                .to_ascii_lowercase();
-            if file.file_length == 0
-                || file.file_length > 512 * 1024 * 1024
-                || file.file_name.len() > 240
-                || file.file_name.contains(['/', '\\', ':'])
-                || file.file_name.starts_with('.')
-                || !file.file_name.to_ascii_lowercase().ends_with(
-                    if destination == PackFileDestination::Mods {
-                        ".jar"
-                    } else {
-                        ".zip"
-                    },
-                )
-            {
-                return Err(invalid("file_name_or_size"));
-            }
-            let (url, missing) = artifact_route(&metadata, &file)?;
-            if let Some(missing) = missing {
-                restricted.push(missing);
-            }
-            for dependency in &file.dependencies {
-                match dependency.relation_type {
-                    1 | 3 => {
-                        queue.push_back((dependency.mod_id, None, Some(metadata.title.clone())))
-                    }
-                    5 => {
-                        if selected.contains_key(&dependency.mod_id) {
-                            return Err(ApiError::InvalidResponse);
-                        }
-                        incompatible.insert(dependency.mod_id);
-                    }
-                    2 | 4 | 6 => (),
-                    _ => return Err(ApiError::InvalidResponse),
-                }
-            }
-            selected.insert(
-                project,
-                ResolvedPackFile {
-                    destination,
-                    project_id: project.to_string(),
-                    file_id: file.id.to_string(),
-                    name: metadata.title,
-                    version_number: file.display_name,
-                    file: ModrinthFile {
-                        url,
-                        filename: file.file_name,
-                        size: file.file_length,
-                        sha1,
-                        sha512: None,
-                    },
-                    required_by,
-                },
-            );
-        }
-        Ok(PackInstallPlan {
-            files: selected.into_values().collect(),
-            restricted,
-            incompatible: incompatible.into_iter().map(|id| id.to_string()).collect(),
-        })
+        super::solver::resolve_pinned(self, pins, version, loader).await
     }
     pub async fn find_update(
         &self,
@@ -368,7 +230,7 @@ fn date_key(value: &str) -> Result<(String, String), ApiError> {
 
 /// Availability controls automatic network acquisition, not whether the user
 /// may supply already owned bytes with the exact official identity/hash/size.
-fn artifact_route(
+pub(super) fn artifact_route(
     project: &Project,
     file: &RawFile,
 ) -> Result<(String, Option<RestrictedFile>), ApiError> {

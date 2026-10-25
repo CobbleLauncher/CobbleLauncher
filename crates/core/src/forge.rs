@@ -118,7 +118,7 @@ pub async fn list_forge_versions_from(
                 &broker,
                 "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge",
                 4 * 1024 * 1024,
-                parse_neoforge_versions,
+                |bytes| parse_neoforge_versions_for(bytes, mc),
             )
             .await
         }
@@ -147,7 +147,11 @@ fn parse_forge_versions(bytes: &[u8], mc: &str) -> Result<Vec<ForgeVersion>, Err
     Ok(versions)
 }
 
+#[cfg(test)]
 fn parse_neoforge_versions(bytes: &[u8]) -> Result<Vec<ForgeVersion>, Error> {
+    parse_neoforge_versions_for(bytes, "1.21.1")
+}
+fn parse_neoforge_versions_for(bytes: &[u8], mc: &str) -> Result<Vec<ForgeVersion>, Error> {
     let value: serde_json::Value = serde_json::from_slice(bytes)?;
     let mut versions: Vec<_> = value["versions"]
         .as_array()
@@ -155,7 +159,14 @@ fn parse_neoforge_versions(bytes: &[u8]) -> Result<Vec<ForgeVersion>, Error> {
         .iter()
         .filter_map(serde_json::Value::as_str)
         .filter(|version| {
-            version.starts_with("21.1.")
+            cobble_content::query_compatibility(
+                mc,
+                Some("neoforge"),
+                Some(version),
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+            )
+            .allowed()
                 && version.split('.').all(|part| part.parse::<u32>().is_ok())
         })
         .map(|version| ForgeVersion {
@@ -209,6 +220,15 @@ pub async fn install_forge_controlled(
     let on_progress = control.progress();
 
     supported(mc, kind, Some(version))?;
+    let java_major = cobble_content::query_compatibility(
+        mc,
+        Some(kind.id()),
+        Some(version),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+    )
+    .java_major
+    .ok_or("missing loader Java requirement")?;
     if target.join(".cobble-fabric.json").exists() {
         return Err("this instance already has Fabric".into());
     }
@@ -221,23 +241,27 @@ pub async fn install_forge_controlled(
             if completed_install_ready(target, mc, &old.profile) {
                 return Ok(InstallOutcome {
                     version: mc.into(),
-                    java_major: 21,
+                    java_major,
                 });
             }
         }
     }
-    let java = cobble_minecraft::resolve_java(21).await?;
+    let java = crate::ensure_launch_java_controlled(
+        java_major,
+        &cobble_minecraft::JavaOverride::Inherit,
+        control.clone(),
+    )
+    .await?;
     control.check_cancelled()?;
-    let outcome =
-        crate::install_game_controlled(mc, target, source.clone(), control.clone()).await?;
-    let directory = dunce::canonicalize(target)?;
     let broker = Broker::new(BrokerConfig {
         total_timeout: Duration::from_secs(300),
         ..BrokerConfig::default()
     })?;
     let url = kind.installer_url(mc, version);
-    let checksum = fetch(&broker, &format!("{url}.sha1"), 256).await?;
-    let expected = parse_sha1(std::str::from_utf8(&checksum)?.trim())?;
+    let expected = fetch_metadata(&source, &broker, &format!("{url}.sha1"), 256, |bytes| {
+        parse_sha1(std::str::from_utf8(bytes)?.trim())
+    })
+    .await?;
     // Binaries follow the remembered metadata winner, without racing JAR bodies.
     // Keep the loader-only system-proxy fallback on every concrete attempt.
     let mut bytes = None;
@@ -283,6 +307,10 @@ pub async fn install_forge_controlled(
         complete: false,
         profile,
     };
+    control.check_cancelled()?;
+    let outcome =
+        crate::install_game_controlled(mc, target, source.clone(), control.clone()).await?;
+    let directory = dunce::canonicalize(target)?;
     write_state(&directory, &state)?;
     let installers = directory.join(".cobble-installers");
     fs::create_dir_all(&installers)?;
@@ -394,19 +422,16 @@ async fn wait_installer(
 }
 
 fn supported(mc: &str, kind: ForgeKind, version: Option<&str>) -> Result<(), Error> {
-    if mc != "1.21.1" {
-        return Err("Forge adapters currently support only Minecraft 1.21.1".into());
-    }
-    if let Some(version) = version {
-        let prefix = match kind {
-            ForgeKind::Forge => "52.",
-            ForgeKind::NeoForge => "21.1.",
-        };
-        if !version.starts_with(prefix)
-            || !version.split('.').all(|part| part.parse::<u32>().is_ok())
-        {
-            return Err("unsupported Forge-family loader version".into());
-        }
+    if !cobble_content::query_compatibility(
+        mc,
+        Some(kind.id()),
+        version,
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+    )
+    .allowed()
+    {
+        return Err("unsupported Forge-family Minecraft, loader or platform target".into());
     }
     Ok(())
 }
@@ -422,7 +447,8 @@ fn validate_profile(
         ForgeKind::NeoForge => format!("neoforge-{version}"),
     };
     let main = match kind {
-        ForgeKind::Forge => "net.minecraftforge.bootstrap.ForgeBootstrap",
+        ForgeKind::Forge if mc == "1.21.1" => "net.minecraftforge.bootstrap.ForgeBootstrap",
+        ForgeKind::Forge => "cpw.mods.bootstraplauncher.BootstrapLauncher",
         ForgeKind::NeoForge => "cpw.mods.bootstraplauncher.BootstrapLauncher",
     };
     if profile.id != expected_id
@@ -573,6 +599,7 @@ pub(crate) fn load_overlay(directory: &Path, mc: &str) -> Result<Option<ForgeSta
                 .into(),
         );
     }
+    supported(mc, state.kind, Some(&state.loader_version))?;
     validate_profile(&state.profile, mc, &state.loader_version, state.kind)?;
     Ok(Some(state))
 }
@@ -935,6 +962,43 @@ mod tests {
         ] {
             assert!(maven_path(coordinate).is_err());
         }
+    }
+
+    #[test]
+    fn verified_modern_installer_profiles_match_bounded_adapters() {
+        for (mc, version, kind, raw) in [
+            (
+                "1.20.1",
+                "47.4.28",
+                ForgeKind::Forge,
+                include_str!("../tests/fixtures/forge/forge-1.20.1-47.4.28.json"),
+            ),
+            (
+                "1.21.4",
+                "21.4.157",
+                ForgeKind::NeoForge,
+                include_str!("../tests/fixtures/forge/neoforge-21.4.157.json"),
+            ),
+        ] {
+            supported(mc, kind, Some(version)).unwrap();
+            let mut profile: ForgeProfile = serde_json::from_str(raw).unwrap();
+            validate_profile(&profile, mc, version, kind).unwrap();
+            normalize_libraries(&mut profile).unwrap();
+            validate_profile(&profile, mc, version, kind).unwrap();
+            assert!(validate_profile(&profile, "1.21.1", version, kind).is_err());
+        }
+        let versions = parse_neoforge_versions_for(
+            br#"{"versions":["21.4.157","21.1.9","21.4.9-beta","21.4.158"]}"#,
+            "1.21.4",
+        )
+        .unwrap();
+        assert_eq!(
+            versions
+                .iter()
+                .map(|v| v.version.as_str())
+                .collect::<Vec<_>>(),
+            ["21.4.158", "21.4.157"]
+        );
     }
 
     #[test]

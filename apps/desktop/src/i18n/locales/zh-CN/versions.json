@@ -3,5 +3,13 @@
   "expand": "展开版本",
   "empty": "没有匹配的版本",
   "current": "（当前版本）",
-  "more": "加载更多"
+  "more": "加载更多",
+  "versionKind": "版本类型",
+  "release": "正式版",
+  "snapshot": "快照",
+  "legacy": "远古版本",
+  "selected": "已选",
+  "browse": "更多版本",
+  "collapse": "收起",
+  "latest": "最新"
 }

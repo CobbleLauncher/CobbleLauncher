@@ -33,7 +33,7 @@ export type Game = {
   error: string | null;
   progress: { phase: 'metadata' | 'files' | 'assets' | 'fabric' | 'forge-installer' | 'neoforge-installer' | 'pack-base-metadata' | 'pack-base-files' | 'pack-base-assets' | 'pack-base-fabric' | 'pack-base-forge-installer' | 'pack-base-neoforge-installer' | 'pack-base-complete' | 'pack-download' | 'pack-overrides' | 'pack-install' | 'import-copy' | 'complete'; completed: number; total: number; reused: number } | null;
   content_installing?: boolean;
-  launch_state?: 'idle' | 'preparing' | 'running';
+  launch_state?: 'idle' | 'preparing' | 'running' | 'verifying' | 'recovery_failed';
   launch_error?: string | null;
   log_path?: string | null;
 };
@@ -57,7 +57,7 @@ export type ModSearchPage = { hits: ModSearchHit[]; offset: number; total_hits: 
 export type ModInstallPreview = { plan_id: string; project_id: string; version_id: string; mods: { project_id: string; version_id: string; name: string; version_number: string; required_by: string | null }[] };
 export type ModVersion = { version_id: string; name: string; version_number: string; version_type: string; date_published: string };
 export type ModVersionDetails = ModVersion & { changelog: string };
-export type ManagedGameMod = { project_id: string; version_id: string; filename: string; enabled: boolean; name?: string };
+export type ManagedGameMod = { project_id: string; version_id: string; filename: string; enabled: boolean; pinned: boolean; name?: string };
 export type ModUpdateCandidate = { project_id: string; name: string; current_version: string; version_number: string; version_id: string; filename: string; enabled: boolean; pack_owned: boolean };
 export type ModUpdateCheck = { updates: ModUpdateCandidate[]; managed_count: number };
 export type ModUpdatePreview = { plan_id: string; changes: { project_id: string; name: string; from_version: string | null; to_version: string; filename: string; enabled: boolean }[] };
@@ -68,7 +68,7 @@ export type LocalPack = { file_name: string; name: string; description: string |
 export type ContentPackVersion = { version_id: string; name: string; version_number: string; version_type: string; date_published: string };
 export type ModrinthPackVersion = { version_id: string; name: string; version_number: string; minecraft_versions: string[]; loaders: string[]; version_type: string; date_published: string };
 export type LocalWorld = { folder_name: string; name: string; minecraft_version: string | null; game_mode: number | null; hardcore: boolean; last_played: number | null; metadata_error: boolean };
-export type LauncherImportContentRoot = { content_id: string; label: string; has_saves: boolean };
-export type LauncherImportCandidate = { candidate_id: string; name: string; minecraft_version: string | null; loader_kind: LoaderKind | null; loader_version: string | null; supported: boolean; unsupported_reason: string | null; content_roots: LauncherImportContentRoot[]; warnings: string[] };
+export type LauncherImportContentRoot = { content_id: string; label: string; has_saves: boolean; source_display?: string };
+export type LauncherImportCandidate = { candidate_id: string; name: string; minecraft_version: string | null; loader_kind: LoaderKind | null; loader_version: string | null; supported: boolean; unsupported_reason: string | null; content_roots: LauncherImportContentRoot[]; warnings: string[]; source_display?: string | null };
 export type LauncherImportPreview = { preview_id: string; source_display: string; candidates: LauncherImportCandidate[] };
 

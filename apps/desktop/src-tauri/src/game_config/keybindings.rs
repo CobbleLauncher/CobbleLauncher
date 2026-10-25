@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Explicit, revision-checked transfer of modern options.txt keybindings only.
 use super::*;
-use std::collections::BTreeMap;
+use cobble_core::personal_options::{binding_values as bindings, modern_binding as modern};
 const OPTIONS: &str = "options.txt";
 fn options_id() -> String {
     digest(b"root-options-keybindings")
@@ -57,29 +57,6 @@ fn read_options(root: &Dir) -> Result<(Vec<u8>, String), String> {
         return Err("CONFIG_NOT_UTF8".into());
     }
     Ok((bytes, text))
-}
-fn modern(value: &str) -> bool {
-    let suffix = value
-        .strip_prefix("key.keyboard.")
-        .or_else(|| value.strip_prefix("key.mouse."));
-    suffix.is_some_and(|s| {
-        !s.is_empty()
-            && s.len() <= 80
-            && s.bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'_')
-    })
-}
-fn bindings(text: &str) -> Result<BTreeMap<String, String>, String> {
-    let mut result = BTreeMap::new();
-    for line in text.trim_start_matches('\u{feff}').lines() {
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        if key.starts_with("key_") && result.insert(key.into(), value.into()).is_some() {
-            return Err("KEYBINDINGS_DUPLICATE".into());
-        }
-    }
-    Ok(result)
 }
 fn merge(source: &str, target: &str) -> Result<(String, Vec<BindingChange>, usize), String> {
     let source = bindings(source)?;

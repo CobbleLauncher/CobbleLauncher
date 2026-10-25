@@ -49,6 +49,7 @@ fn prepare(version: &str, directory: &Path) -> Result<LaunchPreparation, Error> 
         return Err("invalid version identifier".into());
     }
     let directory = dunce::canonicalize(directory)?;
+    crate::environment_install::ensure_environment_complete(&directory)?;
     crate::foreign_import::ensure_import_complete(&directory)?;
     crate::modupdates::ensure_update_complete(&directory)?;
     crate::modrinth::ensure_mod_install_complete(&directory)?;

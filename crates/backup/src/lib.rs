@@ -5,7 +5,9 @@
 
 mod backend;
 mod insights;
-pub use insights::{RepositoryInsights, SnapshotChange, SnapshotChangeKind, SnapshotComparison};
+pub use insights::{
+    RepositoryInsights, SnapshotChange, SnapshotChangeKind, SnapshotComparePage, SnapshotComparison,
+};
 mod control;
 mod retention;
 mod source;

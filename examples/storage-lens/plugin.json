@@ -1,7 +1,7 @@
 {
   "id": "storage-lens",
   "name": "Storage Lens",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "api_version": "0.2.0",
   "publisher": "CobbleLauncher",
   "capabilities": [
@@ -10,8 +10,8 @@
   "file_extensions": [],
   "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "description": {
-    "en": "See where a game uses disk space",
-    "zh-CN": "查看游戏的磁盘占用分布"
+    "en": "Review disk usage, clear public cache and move games safely",
+    "zh-CN": "查看磁盘占用、清理公开缓存并安全迁移游戏"
   },
   "tags": [
     "storage",
@@ -38,6 +38,12 @@
     },
     {
       "permission": "launcher:ui/webview"
+    },
+    {
+      "permission": "launcher:storage/cache/clear"
+    },
+    {
+      "permission": "launcher:instances/move-request"
     }
   ],
   "frontend": {
@@ -48,5 +54,28 @@
   "icon": {
     "file": "icon.png",
     "sha256": "83b751257c8c439f9db2e41188a624b9823b2828cc0403af9f1a947c2f371e1e"
+  },
+  "contributions": {
+    "schema_version": 1,
+    "commands": [
+      {
+        "id": "storage-lens.open",
+        "label": {
+          "en": "Open Storage",
+          "zh-CN": "打开磁盘整理"
+        },
+        "menus": [
+          {
+            "position": "tools",
+            "when": "always"
+          },
+          {
+            "position": "instance",
+            "when": "instance_selected"
+          }
+        ],
+        "workflow": "report"
+      }
+    ]
   }
 }

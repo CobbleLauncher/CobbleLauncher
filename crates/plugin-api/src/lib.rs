@@ -13,15 +13,19 @@ pub mod inspection;
 pub use inspection::*;
 pub mod interfaces;
 pub mod message_composer;
+pub mod mesh_events;
 pub mod permissions;
 pub use interfaces::*;
 pub use message_composer::*;
+pub use mesh_events::*;
 pub use permissions::*;
 pub mod report;
 pub mod settings_form;
+pub mod tool_form;
 pub use contributions::*;
 pub use report::Report;
 pub use settings_form::*;
+pub use tool_form::*;
 
 pub const API_VERSION: &str = "1.0.0";
 pub const REPORT_API_VERSION: &str = "0.1.0";
@@ -29,6 +33,7 @@ pub const REPORT_CONTEXT_API_VERSION: &str = "0.2.0";
 pub const PROVIDER_API_VERSION: &str = "0.2.0";
 pub const MRPACK_PAGE_PROTOCOL: &str = "cobble.mrpack-page@1";
 pub const PACK_METADATA_PROTOCOL: &str = "cobble.pack-metadata@1";
+pub const LANG_PACKAGE_PROTOCOL: &str = "cobble.lang-package@1";
 
 #[cfg(test)]
 #[test]
@@ -68,6 +73,8 @@ pub struct PluginIcon {
 #[serde(deny_unknown_fields)]
 pub struct PluginManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_form: Option<ToolForm>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub frontend: Option<FrontendManifest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permissions: Option<Vec<PermissionNode>>,
@@ -97,6 +104,52 @@ pub struct PluginManifest {
     pub component_sha256: String,
 }
 impl PluginManifest {
+    /// A local frontend calculator needs no implicit file or storage grant.
+    pub fn is_local_frontend_report(&self) -> bool {
+        self.api_version == REPORT_CONTEXT_API_VERSION
+            && self.capabilities == ["report"]
+            && self.frontend.is_some()
+            && self.file_extensions.is_empty()
+            && self.report_protocols.is_empty()
+            && self.permissions.as_ref().is_some_and(|nodes| {
+                nodes.contains(&PermissionNode::UiWebview {})
+                    && nodes.iter().all(|node| matches!(node,
+                        PermissionNode::UiWebview {} | PermissionNode::ClipboardWrite {} | PermissionNode::GeneratedBlueprintSave {}))
+            })
+    }
+    /// Closed host workflows do not imply a selected-file read grant.
+    pub fn is_host_workflow_report(&self) -> bool {
+        self.api_version == REPORT_CONTEXT_API_VERSION
+            && self.capabilities == ["report"]
+            && self.frontend.is_some()
+            && self.file_extensions.is_empty()
+            && self.report_protocols.is_empty()
+            && self
+                .permissions
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .any(|node| {
+                    matches!(
+                        node,
+                        PermissionNode::PlayManifestExport {}
+                            | PermissionNode::FileInboxImportRequest {}
+                    )
+                })
+    }
+    /// Plugin-owned JSON data does not require a selected-file association.
+    pub fn is_private_data_report(&self) -> bool {
+        self.api_version == REPORT_CONTEXT_API_VERSION
+            && self.capabilities == ["report"]
+            && self.frontend.is_some()
+            && self.file_extensions.is_empty()
+            && self.report_protocols.is_empty()
+            && self
+                .permissions
+                .as_deref()
+                .unwrap_or_default()
+                .contains(&PermissionNode::PrivateStorage {})
+    }
     /// Host JSON payloads are independent of user-selected file associations.
     pub fn is_inspection_report(&self) -> bool {
         self.api_version == REPORT_CONTEXT_API_VERSION
@@ -187,6 +240,7 @@ impl PluginManifest {
         }
         self.validate_interface_abi()?;
         self.validate_composer_permissions()?;
+        self.validate_tool_form()?;
         self.validate_permissions()?;
         self.validate_metadata()?;
         let viewer = self.api_version == API_VERSION
@@ -207,7 +261,12 @@ impl PluginManifest {
             self.api_version.as_str(),
             REPORT_API_VERSION | REPORT_CONTEXT_API_VERSION
         ) && self.capabilities == ["report"]
-            && (!self.file_extensions.is_empty() || self.is_inspection_report())
+            && (!self.file_extensions.is_empty()
+                || self.is_inspection_report()
+                || self.is_private_data_report()
+                || self.is_host_workflow_report()
+                || self.is_mesh_events_frontend()
+                || self.is_local_frontend_report())
             && self.file_extensions.len() <= 8
             && self.file_extensions.iter().all(|extension| {
                 matches!(
@@ -244,12 +303,20 @@ impl PluginManifest {
                 && self
                     .file_extensions
                     .iter()
-                    .all(|extension| matches!(extension.as_str(), "zip" | "mcmeta" | "json"))))
+                    .all(|extension| matches!(extension.as_str(), "zip" | "mcmeta" | "json")))
+            || (report
+                && self.api_version == REPORT_CONTEXT_API_VERSION
+                && self.report_protocols == [LANG_PACKAGE_PROTOCOL]
+                && self
+                    .file_extensions
+                    .iter()
+                    .all(|extension| matches!(extension.as_str(), "json" | "zip"))))
             && (!self
                 .file_extensions
                 .iter()
                 .any(|extension| extension == "zip")
-                || self.report_protocols == [PACK_METADATA_PROTOCOL]);
+                || self.report_protocols == [PACK_METADATA_PROTOCOL]
+                || self.report_protocols == [LANG_PACKAGE_PROTOCOL]);
         let provider = self.api_version == PROVIDER_API_VERSION
             && self.capabilities == ["blueprint-provider"]
             && self.file_extensions.is_empty()
@@ -276,7 +343,11 @@ impl PluginManifest {
         } else {
             self.provider_origins.is_empty()
         };
-        if (!viewer && !report && !provider && !composer && !image_layout)
+        let tool_form = self.api_version == TOOL_FORM_API_VERSION
+            && self.capabilities == ["tool-form"]
+            && self.file_extensions.is_empty()
+            && self.report_protocols.is_empty();
+        if (!viewer && !report && !provider && !composer && !image_layout && !tool_form)
             || !protocols_valid
             || !origins_valid
         {
@@ -489,6 +560,7 @@ mod tests {
             api_version: API_VERSION.into(),
             publisher: "CobbleLauncher".into(),
             capabilities: vec!["viewer".into()],
+            tool_form: None,
             composer_permissions: Default::default(),
             interfaces: Default::default(),
             file_extensions: vec!["schem".into()],
@@ -524,6 +596,7 @@ mod tests {
             api_version: REPORT_API_VERSION.into(),
             publisher: "CobbleLauncher".into(),
             capabilities: vec!["report".into()],
+            tool_form: None,
             composer_permissions: Default::default(),
             interfaces: Default::default(),
             file_extensions: vec!["log".into(), "txt".into(), "json".into()],
@@ -641,3 +714,4 @@ mod metadata_tests {
         assert!(manifest.validate().is_err());
     }
 }
+

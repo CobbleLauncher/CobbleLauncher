@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
-import { connect, type Client, type Context, type InspectionScope, type InspectionSnapshot, type Report } from '../../plugin-web-sdk/src/index';
+import { connect, hostContext, type Client, type Context, type InspectionScope, type InspectionSnapshot, type Report } from '../../plugin-web-sdk/src/index';
 import { columns, datasets, filterRows, format, humanize, localized, lookup, type Field, type Localized, type Row } from './model';
 import './style.css';
+import './host-appearance.css';
+import { installPluginPresentation } from './presentation';
 export type WorkbenchOptions = {
     scope: InspectionScope;
     title: Localized;
@@ -54,6 +56,8 @@ export function mountWorkbench(options: WorkbenchOptions) {
     tableHost.id = 'inventory';
     findings.id = 'findings';
     analysisStatus.id = 'analysis-status';
+    installPluginPresentation({ id: 'inspection', tone: 'diagnostic', icons: { '#refresh': 'refresh', '#cancel': 'close', '.analysis>.section-heading h2': 'shield' }, scope: '.toolbar', results: '.analysis', groups: '.stats' });
+
     function ui() { game.disabled = loading || !!context?.instanceId; refresh.disabled = loading || !game.value; refresh.textContent = tr('Refresh', '刷新'); cancel.textContent = tr('Cancel analysis', '取消分析'); cancel.hidden = !checking; game.setAttribute('aria-label', tr('Game', '游戏')); search.placeholder = tr('Search inventory', '搜索清单'); search.setAttribute('aria-label', search.placeholder); findingsTitle.textContent = tr('Findings', '检查结果'); severity.setAttribute('aria-label', tr('Filter findings', '筛选结果')); collection.setAttribute('aria-label', tr('Inventory', '清单')); host.setAttribute('aria-busy', String(loading)); }
     function renderStats() { stats.replaceChildren(); if (!snapshot)
         return; const items = datasets(snapshot.data).find(value => value.key === 'items')?.rows ?? []; const bytes = items.reduce((total, row) => total + (typeof row.sizeBytes === 'number' ? row.sizeBytes : 0), 0); const metrics = options.metrics ?? [{ key: '$count', label: scopeLabels[options.scope] ? [scopeLabels[options.scope]![0], scopeLabels[options.scope]![1]][zh ? 1 : 0] : tr('Items', '项目') }, ...(bytes ? [{ key: '$bytes', label: tr('Total size', '总大小'), format: 'bytes' as const }] : []), { key: '$findings', label: tr('Findings', '诊断') }]; for (const metric of metrics) {
@@ -166,7 +170,7 @@ export function mountWorkbench(options: WorkbenchOptions) {
     window.addEventListener('pagehide', controller.dispose, { once: true });
     void (async () => { try {
         client = connect();
-        context = await client.context();
+        context = await hostContext(client.context());
         zh = context.locale === 'zh-CN';
         document.documentElement.lang = zh ? 'zh-CN' : 'en';
         document.title = localized(options.title, zh);

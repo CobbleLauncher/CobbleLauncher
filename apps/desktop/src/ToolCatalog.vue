@@ -1,24 +1,30 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { locale, t } from './i18n';
 import AppIcon from './ui/AppIcon.vue';
-import AppIconButton from './ui/AppIconButton.vue';
+import SearchField from './ui/SearchField.vue';
+import { ContextMenuRoot, ContextMenuTrigger, ContextMenuPortal, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from 'reka-ui';
 import PluginIdentity, { type PluginIdentityManifest } from './PluginIdentity.vue';
 import PluginListPagination from './PluginListPagination.vue';
 import { usePluginListPagination } from './plugin-list-pagination';
+import { usePageWorkspace } from './use-page-workspace';
+import { navigateListWithArrows } from './list-keyboard';
+import { pluginFallbackIcon } from './plugin-presentation';
 
 export type ToolCatalogPlugin = {
   manifest: PluginIdentityManifest & { publisher?: string; capabilities?: string[] };
   commands: { id: string; label: string }[];
 };
-const props = defineProps<{ plugins: ToolCatalogPlugin[] }>();
+const props = defineProps<{ plugins: ToolCatalogPlugin[]; gameId?: string; pendingPluginId?: string }>();
 const emit = defineEmits<{
   blueprints: [];
   plugin: [id: string];
   command: [pluginId: string, commandId: string];
+  extensionDetails: [pluginId: string];
 }>();
-const query = ref('');
+const workspace = usePageWorkspace('tools-catalog', props.gameId, () => ({ query: '', page: 1 }));
+const query = ref(workspace.query);
 function toolTone(plugin: ToolCatalogPlugin) {
   const metadata = [...(plugin.manifest.tags ?? []), ...(plugin.manifest.capabilities ?? []), plugin.manifest.id].join(' ').toLowerCase();
   if (/blueprint|schematic|mesh|creative|skin|screenshot/.test(metadata)) return 'creative';
@@ -49,6 +55,9 @@ const filteredEntries = computed(() => [
   ...filteredPlugins.value.map(plugin => ({ kind: 'plugin' as const, plugin })),
 ]);
 const pages = usePluginListPagination(filteredEntries, [query, () => props.plugins]);
+pages.page.value = workspace.page;
+watch(query, value => { workspace.query = value; });
+watch(pages.page, value => { workspace.page = value; });
 </script>
 
 <template>
@@ -56,88 +65,154 @@ const pages = usePluginListPagination(filteredEntries, [query, () => props.plugi
     class="tool-catalog"
     :aria-label="t('tools.title')"
   >
-    <label class="tool-search">
-      <AppIcon name="search" />
-      <span class="visually-hidden">{{ t('tools.search') }}</span>
-      <input
+    <div class="tool-catalog-toolbar">
+      <SearchField
         v-model="query"
-        type="search"
+        class="tool-search"
+        :label="t('tools.search')"
         :placeholder="t('tools.search')"
-      >
-      <AppIconButton
-        v-if="query"
-        class="tool-search-clear"
-        icon="x"
-        :label="t('tools.clearSearch')"
-        @click="query = ''"
+        :clear-label="t('tools.clearSearch')"
       />
-    </label>
-    <ul class="tool-list">
-      <li
+      <slot name="actions" />
+    </div>
+    <ul
+      class="tool-list"
+      @keydown="navigateListWithArrows($event, 'button.tool-card')"
+    >
+      <ContextMenuRoot
         v-for="entry in pages.pageItems.value"
         :key="entry.kind === 'blueprints' ? 'blueprints' : entry.plugin.manifest.id"
-        :class="`tool-entry-${entry.kind === 'blueprints' ? 'creative' : toolTone(entry.plugin)}`"
       >
-        <button
-          v-if="entry.kind === 'blueprints'"
-          class="tool-card"
-          @click="emit('blueprints')"
-        >
-          <div
-            class="tool-card-icon"
-            aria-hidden="true"
-          >
-            <AppIcon name="folder" />
-          </div>
-          <div class="tool-card-copy">
-            <strong>{{ t('tools.blueprintsName') }}</strong>
-            <p>{{ t('tools.blueprintsDescription') }}</p>
-            <ul
-              class="tool-tags"
-              :aria-label="t('tools.tags')"
+        <ContextMenuTrigger as-child>
+          <li :class="`tool-entry-${entry.kind === 'blueprints' ? 'creative' : toolTone(entry.plugin)}`">
+            <button
+              v-if="entry.kind === 'blueprints'"
+              class="tool-card"
+              @click="emit('blueprints')"
             >
-              <li
-                v-for="tag in t('tools.blueprintsTags').split('|')"
-                :key="tag"
-              >
-                {{ tag }}
-              </li>
-            </ul>
-          </div>
-        </button>
-        <template v-else>
-          <button
-            v-if="entry.plugin.commands.length <= 1"
-            class="tool-card"
-            :aria-label="entry.plugin.manifest.name"
-            @click="entry.plugin.commands.length ? emit('command', entry.plugin.manifest.id, entry.plugin.commands[0]?.id ?? '') : emit('plugin', entry.plugin.manifest.id)"
+              <span
+                class="tool-card-icon"
+                aria-hidden="true"
+              ><AppIcon name="folder" /></span>
+              <span class="tool-card-copy"><strong>{{ t('tools.blueprintsName') }}</strong><span>{{ t('tools.blueprintsDescription') }}</span></span>
+              <AppIcon
+                name="chevron-down"
+                class="tool-open-indicator"
+              />
+            </button>
+            <button
+              v-else-if="entry.plugin.commands.length <= 1"
+              class="tool-card"
+              :aria-label="entry.plugin.manifest.name"
+              :aria-busy="pendingPluginId === entry.plugin.manifest.id"
+              :disabled="pendingPluginId === entry.plugin.manifest.id"
+              @click="entry.plugin.commands.length ? emit('command', entry.plugin.manifest.id, entry.plugin.commands[0]?.id ?? '') : emit('plugin', entry.plugin.manifest.id)"
+            >
+              <PluginIdentity
+                :manifest="entry.plugin.manifest"
+                :fallback-icon="pluginFallbackIcon(entry.plugin.manifest)"
+                fetch-icon
+                :show-tags="false"
+              />
+              <AppIcon
+                v-if="pendingPluginId === entry.plugin.manifest.id"
+                name="loader-circle"
+                class="ui-busy-icon tool-action-indicator"
+              />
+              <AppIcon
+                v-else
+                name="chevron-down"
+                class="tool-open-indicator"
+              />
+            </button>
+            <DropdownMenuRoot v-else>
+              <DropdownMenuTrigger as-child>
+                <button
+                  class="tool-card tool-plugin-card"
+                  :aria-label="entry.plugin.manifest.name"
+                  :aria-busy="pendingPluginId === entry.plugin.manifest.id"
+                  :disabled="pendingPluginId === entry.plugin.manifest.id"
+                >
+                  <PluginIdentity
+                    :manifest="entry.plugin.manifest"
+                    :fallback-icon="pluginFallbackIcon(entry.plugin.manifest)"
+                    fetch-icon
+                    :show-tags="false"
+                  />
+                  <AppIcon
+                    :name="pendingPluginId === entry.plugin.manifest.id ? 'loader-circle' : 'chevron-down'"
+                    class="tool-action-indicator"
+                    :class="{'ui-busy-icon': pendingPluginId === entry.plugin.manifest.id}"
+                  />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuContent
+                  class="profile-menu"
+                  align="end"
+                  :side-offset="6"
+                  :collision-padding="12"
+                >
+                  <DropdownMenuItem
+                    v-for="command in entry.plugin.commands"
+                    :key="command.id"
+                    class="profile-menu-item"
+                    @select="emit('command', entry.plugin.manifest.id, command.id)"
+                  >
+                    {{ command.label }}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator class="profile-menu-separator" />
+                  <DropdownMenuItem
+                    class="profile-menu-item"
+                    @select="emit('extensionDetails', entry.plugin.manifest.id)"
+                  >
+                    <AppIcon name="settings" />{{ t('tools.manageExtension') }}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenuPortal>
+            </DropdownMenuRoot>
+          </li>
+        </ContextMenuTrigger>
+        <ContextMenuPortal>
+          <ContextMenuContent
+            class="profile-menu"
+            :collision-padding="12"
           >
-            <PluginIdentity
-              :manifest="entry.plugin.manifest"
-              fetch-icon
-            />
-          </button>
-          <div
-            v-else
-            class="tool-card tool-plugin-card"
-          >
-            <PluginIdentity
-              :manifest="entry.plugin.manifest"
-              fetch-icon
-            />
-            <div class="tool-actions">
-              <button
+            <ContextMenuItem
+              v-if="entry.kind === 'blueprints'"
+              class="profile-menu-item"
+              @select="emit('blueprints')"
+            >
+              {{ t('tools.open') }}
+            </ContextMenuItem>
+            <template v-else>
+              <ContextMenuItem
                 v-for="command in entry.plugin.commands"
                 :key="command.id"
-                class="tool-action"
-                @click="emit('command', entry.plugin.manifest.id, command.id)"
+                class="profile-menu-item"
+                :disabled="pendingPluginId === entry.plugin.manifest.id"
+                @select="emit('command', entry.plugin.manifest.id, command.id)"
               >
                 {{ command.label }}
-              </button>
-            </div>
-          </div>
-        </template>
-      </li>
+              </ContextMenuItem>
+              <ContextMenuItem
+                v-if="!entry.plugin.commands.length"
+                class="profile-menu-item"
+                @select="emit('plugin', entry.plugin.manifest.id)"
+              >
+                {{ t('tools.open') }}
+              </ContextMenuItem>
+              <ContextMenuSeparator class="profile-menu-separator" />
+              <ContextMenuItem
+                class="profile-menu-item"
+                @select="emit('extensionDetails', entry.plugin.manifest.id)"
+              >
+                <AppIcon name="settings" />{{ t('tools.manageExtension') }}
+              </ContextMenuItem>
+            </template>
+          </ContextMenuContent>
+        </ContextMenuPortal>
+      </ContextMenuRoot>
       <li
         v-if="!showBlueprints && !filteredPlugins.length"
         class="tool-empty"
@@ -153,11 +228,8 @@ const pages = usePluginListPagination(filteredEntries, [query, () => props.plugi
     />
   </section>
 </template>
-
 <style scoped>
-.tool-catalog{width:100%;margin:0}.tool-search{display:flex;align-items:center;gap:10px;min-height:var(--ui-control-height);padding:0 11px;border:1px solid var(--line);border-radius:var(--ui-radius-md);background:var(--panel);color:var(--muted)}.tool-search>svg{width:17px;height:17px;flex:none}.tool-search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--ink);font:inherit;font-size:14px}.tool-search input:focus-visible{outline:0}.tool-search input::-webkit-search-decoration,.tool-search input::-webkit-search-cancel-button{appearance:none}.tool-search:focus-within{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 20%,transparent)}.tool-search-clear{min-height:28px;width:28px}
-.tool-list{list-style:none;padding:0;margin:14px 0 0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:28px;row-gap:0}.tool-list>li{min-width:0;border-bottom:1px solid var(--line);--tool-tone:var(--muted)}.tool-list>.tool-entry-creative{--tool-tone:var(--ui-creative,#8b6bc1)}.tool-list>.tool-entry-data{--tool-tone:var(--ui-info,#4f8ab5)}.tool-list>.tool-entry-diagnostic{--tool-tone:var(--ui-warning,#b58b37)}
-.tool-card{width:100%;min-height:100%;display:flex;align-items:flex-start;gap:14px;padding:20px 8px;border:0;border-radius:0;background:transparent;color:var(--ink);text-align:left;transition:background-color .14s ease}.tool-card:hover{background:color-mix(in srgb,var(--tool-tone) 6%,transparent)}button.tool-card{font:inherit;cursor:pointer}.tool-card:focus-visible{outline:2px solid var(--tool-tone);outline-offset:-2px}
-.tool-card-icon,.tool-card :deep(.plugin-identity-icon){display:grid;place-items:center;flex:none;width:46px;height:46px;border:0;border-radius:var(--ui-radius-md);background:color-mix(in srgb,var(--tool-tone) 13%,transparent);color:var(--tool-tone)}.tool-card-icon :deep(svg){width:23px;height:23px}.tool-card-copy{min-width:0;overflow-wrap:anywhere}.tool-card-copy>strong,.tool-card :deep(.plugin-identity-copy>strong){font-size:16px;font-weight:650;line-height:1.4}.tool-card-copy>p,.tool-card :deep(.plugin-identity-copy>p){margin:5px 0 0;color:var(--muted);font-size:14px;line-height:1.5}.tool-card :deep(.plugin-identity){gap:14px}.tool-tags,.tool-card :deep(.plugin-identity-tags){display:flex;flex-wrap:wrap;gap:5px 10px;list-style:none;padding:0;margin:9px 0 0}.tool-tags li,.tool-card :deep(.plugin-identity-tags li){padding:0;border:0;border-radius:0;background:transparent;color:var(--tool-tone);font-size:12px;line-height:1.5}.tool-card :deep(.plugin-identity-tags li:nth-child(n+4)){display:none}
-.tool-plugin-card{display:block}.tool-actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0 60px}.tool-action{min-height:32px;padding:5px 10px;border:0;border-radius:var(--ui-radius-sm);background:color-mix(in srgb,var(--tool-tone) 9%,transparent);color:var(--ink);font:inherit;font-size:14px;cursor:pointer}.tool-action:hover{background:color-mix(in srgb,var(--tool-tone) 17%,transparent)}.tool-empty{grid-column:1/-1;padding:24px 8px;color:var(--muted);font-size:14px}.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@media(max-width:620px){.tool-list{grid-template-columns:minmax(0,1fr)}.tool-card{padding:18px 4px}.tool-actions{margin-left:60px}}
+.tool-catalog{width:100%;min-width:0}.tool-catalog-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:var(--ui-space-3);padding-bottom:var(--ui-space-4);border-bottom:1px solid var(--ui-border)}.tool-search{flex:1;min-width:220px}.tool-list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:var(--ui-space-5)}.tool-list>li{min-width:0;border-bottom:1px solid var(--ui-border);--tool-tone:var(--ui-text-muted)}.tool-list>.tool-entry-creative{--tool-tone:var(--ui-creative)}.tool-list>.tool-entry-data{--tool-tone:var(--ui-info)}.tool-list>.tool-entry-diagnostic{--tool-tone:var(--ui-warning)}
+.tool-card{width:100%;height:100%;display:flex;align-items:center;gap:var(--ui-space-3);min-height:88px;padding:var(--ui-space-4) var(--ui-space-2);border:0;border-radius:var(--ui-radius-sm);background:transparent;color:var(--ui-text);text-align:left;font:inherit;cursor:pointer;transition:background-color var(--ui-duration-fast)}.tool-card:hover:not(:disabled){background:var(--ui-surface-hover)}.tool-card:focus-visible{outline:var(--ui-focus-ring);outline-offset:-2px}.tool-card :deep(.plugin-identity){flex:1;gap:var(--ui-space-3);align-items:center}.tool-card-icon,.tool-card :deep(.plugin-identity-icon){display:grid;place-items:center;flex:none;width:44px;height:44px;border:0;border-radius:var(--ui-radius-md);background:color-mix(in srgb,var(--tool-tone) 10%,transparent);color:var(--tool-tone)}.tool-card-icon :deep(svg){width:var(--ui-icon-md);height:var(--ui-icon-md)}.tool-card-copy{flex:1;display:grid;gap:var(--ui-space-1);min-width:0}.tool-card-copy>strong,.tool-card :deep(.plugin-identity-copy>strong){font-size:var(--ui-text-body);line-height:var(--ui-leading-body);font-weight:600}.tool-card-copy>span,.tool-card :deep(.plugin-identity-copy>p){display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin:var(--ui-space-1) 0 0;color:var(--ui-text-muted);font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption)}.tool-open-indicator{flex:none;transform:rotate(-90deg);color:var(--ui-text-muted)}.tool-action-indicator{flex:none;color:var(--ui-text-muted)}.tool-empty{grid-column:1/-1;padding:var(--ui-space-5) var(--ui-space-2);color:var(--ui-text-muted);font-size:var(--ui-text-body);line-height:var(--ui-leading-body)}
+@media(max-width:680px){.tool-list{grid-template-columns:minmax(0,1fr)}.tool-card{padding:var(--ui-space-3) var(--ui-space-1)}}
 </style>

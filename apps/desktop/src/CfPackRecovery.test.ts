@@ -16,7 +16,7 @@ vi.mock('@tauri-apps/api/window', () => ({getCurrentWindow: () => ({isMaximized:
 vi.mock('./theme', () => ({readTheme: () => 'light', applyTheme: vi.fn()}));
 const preview: CurseForgePackPreview = {preview_id: 'recovered-pack', name: 'Recovered adventure', version_id: '1', minecraft_version: '1.21.1', loader_kind: null, loader_version: null, required_files: 0, optional_files: [], selected_optional_files: [], overrides: 1, plan_id: null, files: [], missing: [], ready: false};
 const task: TaskSnapshot = {id: 'recovered-task', game_id: null, game_name: preview.name, title: preview.name, kind: 'curseforge_pack_download', state: 'succeeded', progress: null, error: null, can_retry: false, created_at: 1, updated_at: 2, has_result: true};
-const stubs = {LibraryHome: true, AppNavigation: true, ProfileSwitcher: true, MarketPage: true, CreateGamePage: true, ImportPackPage: true, ImportLauncherPage: true, SettingsPage: true, ToolsPage: true, PluginsPanel: true, ExtensionSettingsPanel: true, GameDetailsPage: true, GameActionsPage: true, MeshPage: true, ProfilesPage: true, AddProfilePage: true};
+const stubs = {LibraryHome: true, AppNavigation: true, ProfileSwitcher: true, MarketPage: true, CreateGamePage: true, ImportPackPage: true, ImportLauncherPage: true, SettingsPage: true, ToolsPage: {template: '<div />', methods: {confirmLeave: async () => true, suspend: async () => {}, resume: () => {}, reload: () => {}}}, PluginsPanel: true, ExtensionSettingsPanel: true, GameDetailsPage: true, GameActionsPage: true, MeshPage: true, ProfilesPage: true, AddProfilePage: true};
 beforeEach(() => {
   setLocale('en-US'); vi.mocked(invoke).mockReset(); window.scrollTo = vi.fn();
   vi.mocked(invoke).mockImplementation(async command => {
@@ -55,7 +55,7 @@ it('resumes, prepares, and creates through CF commands while preventing another 
   const continueButton = wrapper.findComponent(TasksPage).get('.task-actions button');
   expect(continueButton.attributes('disabled')).toBeDefined(); await continueButton.trigger('click');
   expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === 'get_task_curseforge_pack_preview')).toHaveLength(1);
-  await wrapper.get('.tasks-workspace .back-button').trigger('click');
+  await wrapper.get('.app-workspace > .page-header .back-button').trigger('click');
   finishPrepare({...preview, plan_id: 'recovered-plan', ready: true}); await flushPromises();
   await page.get('.primary-button').trigger('click'); await flushPromises();
   await page.get('form').trigger('submit'); await flushPromises();
@@ -100,7 +100,7 @@ it('keeps the task workspace open until its recovered preview has finished loadi
   const wrapper = mount(App, {global: {stubs}}); await flushPromises();
   await wrapper.get('.tasks-button').trigger('click'); await wrapper.findComponent(TasksPage).get('.task-actions button').trigger('click'); await flushPromises();
   expect(wrapper.get('.tasks-button').attributes('disabled')).toBeDefined();
-  const back = wrapper.get('.tasks-workspace .back-button'); expect(back.attributes('disabled')).toBeDefined(); await back.trigger('click');
+  const back = wrapper.get('.app-workspace > .page-header .back-button'); expect(back.attributes('disabled')).toBeDefined(); await back.trigger('click');
   expect(wrapper.findComponent(CfPackInstallPage).exists()).toBe(false);
   finish({...preview}); await flushPromises();
   expect(wrapper.findComponent(CfPackInstallPage).exists()).toBe(true);

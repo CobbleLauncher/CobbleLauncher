@@ -1,0 +1,1 @@
+{"name":"world-time-machine-example","private":true,"type":"module","scripts":{"build":"node ../../../packages/plugin-workbench/build.mjs world-dashboard","test":"node --test src/model.test.ts"}}

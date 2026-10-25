@@ -22,11 +22,11 @@ const game: Game = {
 };
 
 beforeEach(() => { vi.mocked(invoke).mockReset(); setLocale('zh-CN'); });
-afterEach(() => { setLocale('zh-CN'); document.body.innerHTML = ''; });
+afterEach(() => { vi.useRealTimers(); setLocale('zh-CN'); document.body.innerHTML = ''; });
 
-it('localizes and preserves copy options and result events', async () => {
+it('starts a durable copy and releases navigation without awaiting copy completion', async () => {
   setLocale('en-US');
-  vi.mocked(invoke).mockResolvedValue(game);
+  vi.mocked(invoke).mockResolvedValue('task-copy-1');
   const wrapper = mount(GameActionsPage, { props: { game, action: 'copy', starting: false } });
 
   expect(wrapper.text()).toContain('Copy the game, mods, and settings');
@@ -35,9 +35,24 @@ it('localizes and preserves copy options and result events', async () => {
   await wrapper.get('form').trigger('submit');
   await flushPromises();
 
-  expect(invoke).toHaveBeenCalledWith('copy_game', { id: game.id, name: 'Maple copy', includeSaves: true });
-  expect(wrapper.emitted('copied')?.[0]?.[0]).toEqual(game);
+  expect(invoke).toHaveBeenCalledWith('start_game_copy', { id: game.id, name: 'Maple copy', includeSaves: true });
+  expect(wrapper.emitted('copyStarted')?.[0]?.[0]).toBe('task-copy-1');
+  expect(wrapper.emitted('copied')).toBeUndefined();
+  expect(wrapper.emitted('busy')).toEqual([[true],[false]]);
+  expect(wrapper.text()).toContain('Copy started');
   wrapper.unmount();
+  expect(vi.mocked(invoke).mock.calls.some(([command])=>command==='cancel_task')).toBe(false);
+});
+it('leaves worlds excluded and keeps copy startup failure recoverable',async()=>{
+ vi.mocked(invoke).mockRejectedValueOnce('GAME_COPY_BUSY').mockResolvedValueOnce('task-copy-2');
+ const wrapper=mount(GameActionsPage,{props:{game,action:'copy',starting:false}});
+ expect((wrapper.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false);
+ await wrapper.get('form').trigger('submit');await flushPromises();
+ expect(wrapper.find('[role="alert"]').exists()).toBe(true);
+ expect(wrapper.emitted('busy')).toEqual([[true],[false]]);
+ await wrapper.get('form').trigger('submit');await flushPromises();
+ expect(invoke).toHaveBeenLastCalledWith('start_game_copy',{id:game.id,name:'Maple 副本',includeSaves:false});
+ expect(wrapper.emitted('copyStarted')?.[0]).toEqual(['task-copy-2']);wrapper.unmount();
 });
 
 it('keeps export warnings and reports successful export in Chinese', async () => {
@@ -52,8 +67,17 @@ it('keeps export warnings and reports successful export in Chinese', async () =>
   expect(wrapper.get('[role="status"]').text()).toContain('整合包已导出');
   wrapper.unmount();
 });
+it('keeps the existing export action explicitly busy until it finishes',async()=>{
+ let finish!:(value:boolean)=>void;vi.mocked(invoke).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+ const wrapper=mount(GameActionsPage,{props:{game,action:'export',starting:false}});
+ await wrapper.get('form').trigger('submit');await flushPromises();
+ expect(wrapper.emitted('busy')).toEqual([[true]]);
+ expect(wrapper.get('button[type="submit"]').text()).toContain('导出中');
+ finish(true);await flushPromises();expect(wrapper.emitted('busy')).toEqual([[true],[false]]);wrapper.unmount();
+});
 
 it('keeps the irreversible delete warning and removes only the selected game folder', async () => {
+  vi.useFakeTimers({toFake:['Date','setTimeout','clearTimeout','setInterval','clearInterval']});
   vi.mocked(invoke).mockResolvedValue(undefined);
   const wrapper = mount(GameActionsPage, { props: { game, action: 'remove', starting: false } });
 
@@ -63,8 +87,13 @@ it('keeps the irreversible delete warning and removes only the selected game fol
   expect(wrapper.text()).toContain(game.directory);
   await wrapper.get('form').trigger('submit');
   await flushPromises();
-
+  expect(invoke).not.toHaveBeenCalled();
+  const confirmation=document.querySelector<HTMLButtonElement>('.confirmation-confirm')!;
+  expect(confirmation.disabled).toBe(true);
+  await vi.advanceTimersByTimeAsync(3000);
+  confirmation.click();await flushPromises();
   expect(invoke).toHaveBeenCalledWith('remove_game', { id: game.id, deleteFiles: true });
   expect(wrapper.emitted('removed')?.[0]?.[0]).toBe(game.id);
   wrapper.unmount();
 });
+it('confirms library-only removal without a countdown and leaves cancellation harmless',async()=>{setLocale('en-US');vi.mocked(invoke).mockResolvedValue(undefined);const wrapper=mount(GameActionsPage,{props:{game,action:'remove',starting:false}});await wrapper.get('form').trigger('submit');await flushPromises();expect(document.querySelector<HTMLButtonElement>('.confirmation-confirm')!.disabled).toBe(false);document.querySelector<HTMLButtonElement>('.confirmation-cancel')!.click();await flushPromises();expect(invoke).not.toHaveBeenCalled();await wrapper.get('form').trigger('submit');await flushPromises();document.querySelector<HTMLButtonElement>('.confirmation-confirm')!.click();await flushPromises();expect(invoke).toHaveBeenCalledWith('remove_game',{id:game.id,deleteFiles:false});wrapper.unmount();});

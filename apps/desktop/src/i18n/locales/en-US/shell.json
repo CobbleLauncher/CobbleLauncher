@@ -34,7 +34,10 @@
   },
   "retry": "Retry",
   "error": {
+    "fileInboxUnavailable": "Enable File Inbox in Extensions, or use the existing Import and Add content actions.",
+    "fileInboxFailed": "Could not receive these files. Try selecting them in File Inbox.",
     "quickLaunchUnavailable": "This shortcut's game is no longer installed. Choose a game from the library.",
+    "handoffGameUnavailable": "The game for this handoff is no longer installed.",
     "quickLaunch": "Could not open the game shortcut. Try again from the game library.",
     "tasksLoad": "Could not load tasks. Try again.",
     "profileLoad": "Could not load player profiles. Try again.",

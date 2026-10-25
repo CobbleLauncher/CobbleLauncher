@@ -1,22 +1,25 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
+import SearchField from './ui/SearchField.vue';
 import MarketImage from "./MarketImage.vue";
 import { marketReturn } from './market-return';
 import MarketGallery from "./MarketGallery.vue";
 import VersionSelector from './VersionSelector.vue';
 import { preferredRelease } from './version-selector';
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { t } from './i18n';
 import LoadingIndicator from './ui/LoadingIndicator.vue';
 import type { ContentPackVersion, LocalPack, LocalPackKind, ModSearchHit, ModSearchPage } from './games';
+import { isMarketSaved, toggleMarketSaved, type SavedMarketItem } from './market-saved';
+import { marketWorkstate, rememberMarketWorkstate, restoreMarketScroll } from './market-workstate';
 
-const props = defineProps<{ gameId: string; kind: LocalPackKind; locked: boolean; revision?: number; browseOnMount?: boolean }>();
+const props = defineProps<{ gameId: string; kind: LocalPackKind; locked: boolean; revision?: number; browseOnMount?: boolean; initialQuery?: string; sharedMode?: boolean; sharedRequest?: {serial:number;query:string}; savedRequest?: { serial: number; item: SavedMarketItem } }>();
 const emit = defineEmits<{ busy: [value: boolean]; installed: [packs: LocalPack[]] }>();
 const label = computed(() => props.kind === 'resource_pack' ? '资源包' : '光影包');
 const root = ref<HTMLElement>();
 const detailReturn = marketReturn(root);
-const query = ref('');
+const query = ref(props.sharedMode ? props.sharedRequest?.query ?? props.initialQuery ?? '' : props.initialQuery ?? '');
 const submitted = ref('');
 const hits = ref<ModSearchHit[]>([]);
 const searched = ref(false);
@@ -89,9 +92,30 @@ watch(() => [props.gameId, props.kind], () => {
   searching.value = false; loadingVersions.value = false; hasMore.value = false;
   searchError.value = ''; versionError.value = ''; installError.value = ''; detailReturn.restore();
 });
+watch(() => props.sharedRequest?.serial, () => { if (!props.sharedMode || !props.sharedRequest || installing.value) return; query.value = props.sharedRequest.query; selected.value = null; ++versionRequest; void search(); });
 watch(() => props.revision, () => { installError.value = ''; });
-onUnmounted(() => { disposed = true; ++searchRequest; ++versionRequest; });
-onMounted(() => { if (props.browseOnMount) void search(); });
+function workKey() { return `modrinth:${props.kind}:${props.gameId}`; }
+function remember() {
+  rememberMarketWorkstate(workKey(), { query: query.value, submitted: submitted.value, hits: hits.value, searched: searched.value, nextOffset: nextOffset.value, hasMore: hasMore.value }, root.value);
+}
+onActivated(() => restoreMarketScroll(workKey(), root.value));
+onDeactivated(remember);
+onUnmounted(() => { remember(); disposed = true; ++searchRequest; ++versionRequest; });
+watch(() => props.savedRequest?.serial, () => {
+  const item = props.savedRequest?.item;
+  if (item?.provider === 'modrinth' && item.kind === props.kind && item.hit.project_id === item.project_id) {
+    ++searchRequest; searching.value = false; select(item.hit as ModSearchHit);
+  }
+});
+onMounted(() => {
+  const item = props.savedRequest?.item;
+  if (item?.provider === 'modrinth' && item.kind === props.kind) select(item.hit as ModSearchHit);
+  else {
+    const state = marketWorkstate<{ query: string; submitted: string; hits: ModSearchHit[]; searched: boolean; nextOffset: number; hasMore: boolean }>(workKey());
+    if (state && (!props.sharedMode || state.query === (props.sharedRequest?.query ?? props.initialQuery ?? ''))) { query.value = state.query; submitted.value = state.submitted; hits.value = state.hits; searched.value = state.searched; nextOffset.value = state.nextOffset; hasMore.value = state.hasMore; restoreMarketScroll(workKey(), root.value); }
+    else if (props.browseOnMount) void search();
+  }
+});
 </script>
 <template>
   <div
@@ -121,6 +145,18 @@ onMounted(() => { if (props.browseOnMount) void search(); });
       <p class="preview-description">
         {{ selected.description }}
       </p>
+      <button
+        class="text-button market-save-button"
+        @click="toggleMarketSaved('modrinth', kind, selected)"
+      >
+        {{ t(isMarketSaved('modrinth', kind, selected.project_id) ? 'market.removeSaved' : 'market.saveLater') }}
+      </button>
+      <button
+        class="text-button"
+        @click="toggleMarketSaved('modrinth', kind, selected, 'favorite')"
+      >
+        {{ t(isMarketSaved('modrinth', kind, selected.project_id, 'favorite') ? 'market.removeFavorite' : 'market.favorite') }}
+      </button>
       <MarketGallery
         v-if="selected.gallery?.length"
         provider="modrinth"
@@ -196,15 +232,16 @@ onMounted(() => { if (props.browseOnMount) void search(); });
     </template>
     <template v-else>
       <form
+        v-if="!sharedMode"
         class="content-toolbar discover-search"
         @submit.prevent="search()"
       >
-        <input
+        <SearchField
           v-model="query"
-          type="search"
-          :aria-label="`搜索 Modrinth ${label}`"
+          :label="`搜索 Modrinth ${label}`"
           :placeholder="`搜索想要的${label}`"
-        >
+          @submit="search()"
+        />
         <button
           class="secondary-button"
           type="submit"
@@ -288,3 +325,5 @@ onMounted(() => { if (props.browseOnMount) void search(); });
     </template>
   </div>
 </template>
+
+<style scoped>.discover-search .search-field{flex:1;min-width:0}.discover-search{gap:var(--ui-space-3)}</style>

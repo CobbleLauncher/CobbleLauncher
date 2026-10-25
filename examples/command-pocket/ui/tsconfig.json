@@ -1,0 +1,1 @@
+{"extends":"../../../apps/desktop/tsconfig.json","include":["src/main.ts","src/model.ts","../../../packages/plugin-web-sdk/src/index.ts","../../../packages/plugin-workbench/src/styles.d.ts"],"compilerOptions":{"types":[],"allowImportingTsExtensions":true}}

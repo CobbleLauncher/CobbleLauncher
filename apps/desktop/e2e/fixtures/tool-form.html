@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Host tool form review fixture</title></head>
+<body><main id="app" style="max-width:1000px;margin:0 auto;padding:24px"></main>
+<script type="module">
+// Actual manifest and host renderer; deterministic native boundary, no Wasm acceptance claim.
+import { createApp, h, ref } from 'vue';
+import ToolFormPanel from '../../src/ToolFormPanel.vue';
+import manifest from '../../../../examples/command-pocket/plugin.json';
+import { i18n, setLocale } from '../../src/i18n';
+import '../../src/style.css';
+import '../../src/ui.css';
+const query = new URLSearchParams(location.search);
+setLocale(query.get('locale') ?? 'en-US');
+document.documentElement.dataset.theme = query.get('theme') ?? 'light';
+createApp({setup(){const panel=ref(); window.__toolConfirmLeave=()=>panel.value.confirmLeave();return()=>h('div',{style:'display:grid;gap:24px'},[h('h1',manifest.name),h(ToolFormPanel,{ref:panel,pluginId:manifest.id,form:manifest.tool_form,contextVersion:'1.21.1'})]);}}).use(i18n).mount('#app');
+</script></body></html>

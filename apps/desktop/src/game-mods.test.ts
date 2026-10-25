@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT
 import { afterEach, expect, it, vi } from 'vitest';
-import { flushPromises, mount } from '@vue/test-utils';
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import GameModsPanel from './GameModsPanel.vue';
 import GameDetailsPage from './GameDetailsPage.vue';
 import type { Game, LocalMod } from './games';
 import { setLocale } from './i18n';
+import { clearPageWorkspacesForTests } from './use-page-workspace';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-afterEach(() => { vi.mocked(invoke).mockReset(); setLocale('zh-CN'); });
+afterEach(() => { vi.mocked(invoke).mockReset(); setLocale('zh-CN'); clearPageWorkspacesForTests(); document.body.innerHTML = ''; });
 const game: Game = { id: 'owned-game', name: 'Game', version: '1.21.1', loader_kind: 'fabric', loader_version: '0.16.14', directory: 'synthetic', status: 'installed', progress: null, error: null };
 const initial: LocalMod[] = [
   { file_name: 'alpha.jar', name: 'Alpha', version: '1', authors: ['A'], loader: 'fabric', enabled: true, description: '' },
@@ -25,7 +26,7 @@ it('keeps filtering and selected batch mutations scoped to visible Mods and repo
     return Promise.resolve(null);
   });
   const wrapper = mountMods(); await flushPromises();
-  await wrapper.get('input[type="search"]').setValue('Alpha'); await wrapper.get('input[aria-label="Select all visible Mods"]').setValue(true);
+  await wrapper.get('input[type="search"]').setValue('Alpha'); await wrapper.get('input[aria-label="Select all matching Mods"]').setValue(true);
   await button(wrapper, 'Disable selected').trigger('click');
   expect(wrapper.emitted('activity')?.at(-1)?.[0]).toMatchObject({ busy: true });
   expect(invoke).toHaveBeenCalledWith('set_game_mod_enabled', { id: game.id, fileName: 'alpha.jar', enabled: false });
@@ -43,12 +44,12 @@ it('requires batch removal confirmation and preserves the unprocessed selection 
     return mods;
   });
   const wrapper = mountMods(); await flushPromises();
-  await wrapper.get('input[aria-label="Select all visible Mods"]').setValue(true); await button(wrapper, 'Remove selected').trigger('click');
+  await wrapper.get('input[aria-label="Select all matching Mods"]').setValue(true); await button(wrapper, 'Remove selected').trigger('click');
   expect(vi.mocked(invoke).mock.calls.some(([command]) => command === 'remove_game_mod')).toBe(false);
   await button(wrapper, 'Confirm removal').trigger('click'); await flushPromises();
   expect(wrapper.get('[role="alert"]').text()).toContain('Could not process Beta: Error: Synthetic failure');
   expect(wrapper.findAll('.mod-row')).toHaveLength(1); expect(wrapper.get('.mod-row').text()).toContain('Beta');
-  expect(wrapper.get('.mod-selection-label').text()).toContain('1 selected'); wrapper.unmount();
+  expect(wrapper.get('.mod-selection-toolbar').text()).toContain('1 selected'); wrapper.unmount();
 });
 it('opens updates as a separate view and preserves activity and refresh contracts', async () => {
   vi.mocked(invoke).mockResolvedValue(initial);
@@ -57,7 +58,9 @@ it('opens updates as a separate view and preserves activity and refresh contract
   expect(updates.props()).toMatchObject({game, revision: 3});
   expect(wrapper.find('[role=tablist]').exists()).toBe(false);
   expect(wrapper.findComponent({name: 'DiscoverMods'}).exists()).toBe(false);
-  await button(wrapper, 'Updates').trigger('click'); expect(updates.isVisible()).toBe(true);
+  await wrapper.get('[aria-label="More content actions"]').trigger('keydown', {key: 'Enter'}); await flushPromises();
+  const menu = new DOMWrapper(document.body.querySelector('[role="menu"]')!);
+  await menu.findAll('[role="menuitem"]').find(item => item.text() === 'Updates')!.trigger('click'); await flushPromises(); expect(updates.isVisible()).toBe(true);
   updates.vm.$emit('recognizing', true); updates.vm.$emit('busy', true); await flushPromises();
   expect(wrapper.emitted('activity')?.at(-1)?.[0]).toMatchObject({busy: true, updating: true, recognizing: true});
   updates.vm.$emit('busy', false); updates.vm.$emit('recognizing', false); await flushPromises();
@@ -98,7 +101,7 @@ it('keeps Mesh available while running but locks launch and content writes', asy
   setLocale('en-US');
   const wrapper = mount(GameDetailsPage, {props: {game: {...game, launch_state: 'running'}, starting: false, profile: null, library: {profiles: [], active_id: null}}, global: {stubs: {GameModsPanel: true, LocalPacks: true, ExtensionMenuItems: true, GameDiagnosticsPanel: true}}});
   expect(wrapper.get('.play-button').attributes('disabled')).toBeDefined();
-  expect(wrapper.get('.details-content-toolbar button').attributes('disabled')).toBeDefined();
+  expect(wrapper.findComponent({name: 'GameModsPanel'}).props('locked')).toBe(true);
   expect(wrapper.get('.details-mesh').attributes('disabled')).toBeUndefined();
   await wrapper.get('.details-mesh').trigger('click'); expect(wrapper.emitted('mesh')).toHaveLength(1); wrapper.unmount();
 });
@@ -111,8 +114,8 @@ it('preserves runtime dirty guards when moving to worlds or content', async () =
   setLocale('en-US'); const confirmLeave = vi.fn().mockResolvedValue(false);
   const Runtime = defineComponent({setup(_props, {expose}) {expose({canLeave: () => false, confirmLeave}); return () => h('div', 'Dirty runtime');}});
   const wrapper = mount(GameDetailsPage, {props: {game, starting: false, profile: null, library: {profiles: [], active_id: null}}, global: {stubs: {GameModsPanel: true, LocalPacks: true, ExtensionMenuItems: true, GameDiagnosticsPanel: true, GameRuntimeSettings: Runtime, GameAppearancePanel: true, InstanceExtensionSettings: true, GameWorlds: true}}});
-  await wrapper.get('#game-runtime-tab').trigger('click'); await flushPromises();
-  await wrapper.get('#game-worlds-tab').trigger('click'); await flushPromises();
+  await wrapper.get('#game-runtime-tab').trigger('keydown', {key: 'Enter'}); await flushPromises();
+  await wrapper.get('#game-worlds-tab').trigger('keydown', {key: 'Enter'}); await flushPromises();
   expect(confirmLeave).toHaveBeenCalledOnce(); expect(wrapper.get('#game-runtime-tab').attributes('aria-selected')).toBe('true');
   expect(wrapper.vm.canLeave()).toBe(false); expect(wrapper.findComponent({name: 'GameWorlds'}).exists()).toBe(false); wrapper.unmount();
 });

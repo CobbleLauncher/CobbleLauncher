@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: MIT
-import { connect, type Client, type Context, type ConfigFile, type FolderReport } from '../../../../packages/plugin-web-sdk/src/index';
+import { presentation } from './presentation';
+import { installPluginPresentation } from '../../../../packages/plugin-workbench/src/presentation';
+import { hostContext, connect, type Client, type Context, type ConfigFile, type FolderReport } from '../../../../packages/plugin-web-sdk/src/index';
 import './style.css';
+import '../../../../packages/plugin-workbench/src/host-appearance.css';
 import { populateGames } from './game-choice';
 import { mountKeybindings } from './keybindings';
+import { mountRecovery } from './recovery';
 
 const messages = {
   en: { game:'Game', chooseGame:'Choose game', search:'Search configs', select:'Select visible', refresh:'Refresh', check:'Check selected', cancel:'Cancel', preview:'Source preview', results:'Results', selectFile:'Select a file to preview.', ready:'Select configs, then check.', loading:'Loading configs…', reading:'Reading config…', checking:'Checking selected configs…', cancelling:'Cancelling…', empty:'No supported configs found.', noMatches:'No matching configs.', noGame:'No games available.', listFailed:'Could not load configs. Try refreshing.', readFailed:'Could not read this config. Refresh and select it again.', checkFailed:'The check could not finish. Try again.', contextFailed:'Open this extension from CobbleLauncher.', cancelled:'Check cancelled.', previewLimit:'Preview limited to the first 64 KiB.', selected:'selected', files:'files', checked:'checked', skipped:'skipped', incomplete:'Folder scan incomplete', all:'All findings', error:'Errors', warning:'Warnings', info:'Information', noFindings:'No findings in this filter.', limit:'Select up to 64 configs.' },
@@ -29,6 +33,7 @@ let checking = 0;
 let busy = false;
 let listing = false;
 let result: FolderReport | null = null;
+let recoveryView:ReturnType<typeof mountRecovery>|null=null;
 function text(id: string, value: string) { element(id).textContent = value; }
 function error(message = '') { text('error', message); element('error').hidden = !message; }
 function status(id: string, message: string, loading = false) { text(id,message); element(id).classList.toggle('loading',loading); }
@@ -101,17 +106,26 @@ function applyContext(value: Context) {
   severity.replaceChildren(...(['all','error','warning','info'] as const).map(key=>new Option(t(key),key)));
   populateGames(game, value, t('chooseGame'));
   const canSwitch=mountKeybindings(client,value,element('bindings-panel'));
+  recoveryView=mountRecovery(client.configWorkspace,value,()=>game.value,element('recovery-panel'));
   text('configs-tab',locale==='zh-CN'?'配置检查':'Configs');text('bindings-tab',locale==='zh-CN'?'按键复制':'Keybindings');
-  function switchTab(bindings:boolean){if(busy||!canSwitch())return;element('configs-panel').hidden=bindings;element('bindings-panel').hidden=!bindings;element('configs-tab').setAttribute('aria-pressed',String(!bindings));element('bindings-tab').setAttribute('aria-pressed',String(bindings));game.parentElement!.hidden=bindings;}
-  element('configs-tab').onclick=()=>switchTab(false);element('bindings-tab').onclick=()=>switchTab(true);
-  if(value.keybindingTargetId)switchTab(true);
+  text('recovery-tab',locale==='zh-CN'?'恢复':'Recovery');
+  function switchTab(tab:'configs'|'recovery'|'bindings'){
+    if(busy||!canSwitch())return;
+    const bindings=tab==='bindings',recovery=tab==='recovery';
+    element('configs-panel').hidden=bindings||recovery;element('bindings-panel').hidden=!bindings;element('recovery-panel').hidden=!recovery;
+    element('configs-tab').setAttribute('aria-pressed',String(tab==='configs'));element('recovery-tab').setAttribute('aria-pressed',String(recovery));element('bindings-tab').setAttribute('aria-pressed',String(bindings));game.parentElement!.hidden=bindings;
+  }
+  element('configs-tab').onclick=()=>switchTab('configs');element('recovery-tab').onclick=()=>switchTab('recovery');element('bindings-tab').onclick=()=>switchTab('bindings');
+  if((value as Context&{configRestoreTarget?:{configId:string;backupId:string}|null}).configRestoreTarget)switchTab('recovery');else if(value.keybindingTargetId)switchTab('bindings');
   status('preview-status',t('selectFile'));status('result-status',t('ready'));updateActions();
 }
 search.oninput=renderFiles;
 selectAll.onchange=()=>{if(selectAll.checked){for(const file of matches()){if(selected.size>=64)break;selected.add(file.id);}}else for(const file of matches())selected.delete(file.id);renderFiles();};
 refresh.onclick=()=>void inventory();check.onclick=()=>void run();severity.onchange=renderReport;
-game.onchange=()=>{selected.clear();files=[];result=null;element('source').hidden=true;element('preview-note').hidden=true;text('preview-title',t('preview'));text('preview-size','');status('preview-status',t('selectFile'));status('result-status',t('ready'));element('report').replaceChildren();severity.hidden=true;void inventory();};
+game.onchange=()=>{selected.clear();files=[];result=null;element('source').hidden=true;element('preview-note').hidden=true;text('preview-title',t('preview'));text('preview-size','');status('preview-status',t('selectFile'));status('result-status',t('ready'));element('report').replaceChildren();severity.hidden=true;void inventory();recoveryView?.refresh();};
 cancel.onclick=async()=>{cancel.disabled=true;status('result-status',t('cancelling'),true);try{await client.report.cancel();}catch{error(t('checkFailed'));}finally{cancel.disabled=false;}};
-window.addEventListener('pagehide',()=>{generation++;reading++;checking++;if(busy)void client?.report.cancel().catch(()=>{});});
-async function start(){try{client=connect();applyContext(await client.context());if(game.value)await inventory();else status('list-status',context.games.length ? '' : t('noGame'));}catch{error(t('contextFailed'));}}
+window.addEventListener('pagehide',()=>{generation++;reading++;checking++;recoveryView?.dispose();if(busy)void client?.report.cancel().catch(()=>{});});
+async function start(){try{client=connect();applyContext(await hostContext(client.context()));if(game.value)await inventory();else status('list-status',context.games.length ? '' : t('noGame'));}catch{error(t('contextFailed'));}}
 void start();
+
+installPluginPresentation(presentation);

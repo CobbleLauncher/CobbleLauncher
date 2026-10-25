@@ -1,0 +1,4 @@
+// SPDX-License-Identifier: MIT
+import {test} from 'node:test';import assert from 'node:assert/strict';import {createPlayManifest} from './play-manifest.ts';
+test('share export sends only scoped identifiers and chosen configs',async()=>{const calls:unknown[]=[];const client=createPlayManifest(async value=>{calls.push(value);return {saved:false};});assert.deepEqual(await client.export({gameId:'game',revision:'a'.repeat(64),configIds:['b'.repeat(64)]}),{saved:false});assert.deepEqual(calls,[{method:'playManifest.export',params:{gameId:'game',revision:'a'.repeat(64),configIds:['b'.repeat(64)]}}]);});
+test('share rejects paths and duplicate choices',()=>{const client=createPlayManifest(async()=>null);assert.throws(()=>client.export({gameId:'g',revision:'a'.repeat(64),configIds:['../secret']}));assert.throws(()=>client.export({gameId:'g',revision:'a'.repeat(64),configIds:['b'.repeat(64),'b'.repeat(64)]}));});

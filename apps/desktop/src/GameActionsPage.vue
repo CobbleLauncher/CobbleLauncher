@@ -1,12 +1,13 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
+import ConfirmationDialog from './ui/ConfirmationDialog.vue';
 import { invoke } from '@tauri-apps/api/core';
 import { RadioGroupItem, RadioGroupRoot } from 'reka-ui';
 import { loaderLabel, type Game, type GameAction } from './games';
 import { t } from './i18n';
 const props = defineProps<{ game: Game; action: GameAction; starting: boolean }>();
-const emit = defineEmits<{ copied: [game: Game]; removed: [id: string]; busy: [value: boolean]; cancel: [] }>();
+const emit = defineEmits<{ copyStarted:[taskId:string]; removed: [id: string]; busy: [value: boolean]; cancel: [] }>();
 const copySuffix = t('gameActions.copySuffix');
 const copyName = ref(`${props.game.name.slice(0, 80 - copySuffix.length)}${copySuffix}`);
 const includeSaves = ref(false);
@@ -14,10 +15,14 @@ const removeMode = ref<'keep' | 'delete'>('keep');
 const busy = ref(false);
 const error = ref('');
 const exported = ref(false);
+const confirming = ref(false);
+function requestSubmit() { if (unavailable.value) return; if (props.action === 'remove') confirming.value = true; else void submit(); }
+watch(()=>[props.game.id,props.action,removeMode.value],()=>{confirming.value=false;});
+const copyTaskId=ref('');
 const loader = computed(() => props.game.loader_version ? `${loaderLabel(props.game.loader_kind ?? 'fabric')} ${props.game.loader_version}` : t('gameActions.vanilla'));
 const gameContext = computed(() => t('gameActions.gameContext', { version: props.game.version, loader: loader.value }));
 const locked = computed(() => props.starting || props.game.status === 'installing' || props.game.content_installing || props.game.launch_state === 'preparing' || props.game.launch_state === 'running');
-const unavailable = computed(() => busy.value || locked.value);
+const unavailable = computed(() => busy.value || locked.value || (props.action==='copy' && !!copyTaskId.value));
 const buttonLabel = computed(() => busy.value
   ? props.action === 'copy' ? t('gameActions.copyBusy') : props.action === 'export' ? t('gameActions.exportBusy') : t('gameActions.removeBusy')
   : props.action === 'copy' ? t('gameActions.copyButton') : props.action === 'export' ? t('gameActions.exportButton') : removeMode.value === 'delete' ? t('gameActions.deleteButton') : t('gameActions.removeButton'));
@@ -28,14 +33,18 @@ async function submit() {
   if (props.action === 'copy' && (!name || name.length > 80)) { error.value = t('gameActions.copyNameInvalid'); return; }
   busy.value = true; emit('busy', true);
   try {
-    if (props.action === 'copy') emit('copied', await invoke<Game>('copy_game', { id: props.game.id, name, includeSaves: includeSaves.value }));
+    if (props.action === 'copy') {
+      const taskId=await invoke<string>('start_game_copy',{id:props.game.id,name,includeSaves:includeSaves.value});
+      copyTaskId.value=taskId;
+      busy.value=false;emit('busy',false);emit('copyStarted',taskId);
+    }
     else if (props.action === 'export') exported.value = await invoke<boolean>('export_game', { id: props.game.id, includeSaves: includeSaves.value });
     else { await invoke('remove_game', { id: props.game.id, deleteFiles: removeMode.value === 'delete' }); emit('removed', props.game.id); }
   } catch (cause) {
     const message = props.action === 'copy' ? 'gameActions.copyError' : props.action === 'export' ? 'gameActions.exportError' : 'gameActions.removeError';
     error.value = t(message, { cause: String(cause) });
   }
-  finally { busy.value = false; emit('busy', false); }
+  finally { if(busy.value){busy.value = false; emit('busy', false);} }
 }
 </script>
 <template>
@@ -50,7 +59,7 @@ async function submit() {
     <form
       class="game-action-form"
       novalidate
-      @submit.prevent="submit"
+      @submit.prevent="requestSubmit"
     >
       <template v-if="action === 'copy'">
         <p class="action-description">
@@ -139,6 +148,13 @@ async function submit() {
       >
         {{ t('gameActions.exported') }}
       </p>
+      <p
+        v-if="copyTaskId"
+        class="game-action-result"
+        role="status"
+      >
+        {{ t('gameActions.copyStarted') }}
+      </p>
       <div class="profile-form-actions">
         <button
           class="primary-button"
@@ -161,5 +177,17 @@ async function submit() {
         </button>
       </div>
     </form>
+    <ConfirmationDialog
+      v-model:open="confirming"
+      :title="buttonLabel"
+      :description="removeMode === 'delete' ? t('gameActions.deleteWarning') : t('gameActions.keepHelp')"
+      :confirm-label="buttonLabel"
+      :danger="removeMode === 'delete'"
+      :require-delay="removeMode === 'delete'"
+      :disabled="unavailable"
+      @confirm="submit"
+    >
+      <strong>{{ game.name }}</strong><p>{{ game.directory }}</p>
+    </ConfirmationDialog>
   </div>
 </template>

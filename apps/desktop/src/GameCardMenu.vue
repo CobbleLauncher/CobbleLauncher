@@ -1,87 +1,127 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { invoke } from '@tauri-apps/api/core';
+import { computed, nextTick, ref } from 'vue';
 import { ContextMenuPortal, ContextMenuContent, ContextMenuItem, DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenuContent, DropdownMenuItem } from 'reka-ui';
 import AppIcon from './ui/AppIcon.vue';
+import AppIconButton from './ui/AppIconButton.vue';
 import type { HomeGame } from './library-home';
 import { t } from './i18n';
-import type { AppIconName } from './ui/icons';
-const props = defineProps<{ game: HomeGame }>();
-const emit = defineEmits<{ updated: [game: HomeGame]; manage: [id: string] }>();
+import { createGameActions } from './game-actions';
+const props = defineProps<{ game: HomeGame; adjustCover?: boolean; contextOpen?: boolean; contextReturnTarget?: HTMLElement }>();
+const emit = defineEmits<{ updated: [game: HomeGame]; manage: [id: string]; adjustCover: [] }>();
 const busy = ref(false);
 const failed = ref(false);
 const shortcutStatus = ref('');
 const shortcutFailed = ref(false);
-const actions = computed<{ id: string; icon: AppIconName; label: string; run: () => unknown }[]>(() => [
-  ...(props.game.status === 'installed' ? [{ id: 'manage', icon: 'settings' as const, label: t('home.manage', { name: props.game.name }), run: () => emit('manage', props.game.id) }] : []),
-  ...(props.game.status === 'installed' ? [{ id: 'shortcut', icon: 'external-link' as const, label: t('home.shortcutCreate'), run: () => createShortcut() }] : []),
-  { id: 'pin', icon: 'pin', label: t(props.game.pinned ? 'home.unpin' : 'home.pin'), run: () => change('set_game_pinned') },
-  { id: 'cover', icon: 'palette', label: t('home.chooseCover'), run: () => change('pick_game_cover') },
-  ...(props.game.cover_ref ? [{ id: 'reset-cover', icon: 'x' as const, label: t('home.removeCover'), run: () => change('reset_game_cover') }] : []),
-]);
-async function createShortcut() {
+const menu = ref<HTMLElement>();
+const dropdownReady = ref(false);
+const dropdownOpen = ref(false);
+async function openDropdown() {
+  if (busy.value) return;
+  dropdownReady.value = true;
+  await nextTick();
+  menu.value?.querySelector<HTMLButtonElement>('.game-menu-trigger')?.focus();
+  dropdownOpen.value = true;
+}
+function dropdownKey(event: KeyboardEvent) {
+  if (!['Enter', ' ', 'ArrowDown'].includes(event.key)) return;
+  event.preventDefault(); void openDropdown();
+}
+function returnContextFocus(event: Event) {
+  const target = props.contextReturnTarget;
+  if (!target?.isConnected) return;
+  event.preventDefault();
+  const fallback = menu.value?.closest<HTMLElement>('.library-game')?.querySelector<HTMLElement>('.library-game-open');
+  (target.matches(':disabled') ? fallback : target)?.focus({ preventScroll: true });
+}
+const actions = computed(() => {
+  const items = createGameActions(props.game, { manage: id => emit('manage', id), updated: game => emit('updated', game) });
+  if (props.adjustCover) items.splice(items.findIndex(action => action.id === 'game.cover') + 1, 0, {id: 'game.adjustCover', icon: 'palette', label: t('home.adjustCover'), run: () => emit('adjustCover')});
+  return items;
+});
+async function run(action: (typeof actions.value)[number]) {
   if (busy.value) return;
   busy.value = true; failed.value = false; shortcutStatus.value = ''; shortcutFailed.value = false;
-  try { await invoke('create_game_shortcut', { id: props.game.id }); shortcutStatus.value = t('home.shortcutCreated'); }
-  catch (cause) { shortcutFailed.value = true; shortcutStatus.value = t(String(cause).includes('SHORTCUT_UNSUPPORTED_PLATFORM') ? 'home.shortcutUnsupported' : 'home.shortcutFailed'); }
-  finally { busy.value = false; }
-}
-async function change(command: string) {
-  if (busy.value) return;
-  busy.value = true;
-  failed.value = false;
-  try {
-    const game = await invoke<HomeGame | null>(command, { id: props.game.id, ...(command === 'set_game_pinned' ? { pinned: !props.game.pinned } : {}) });
-    if (game) emit('updated', game);
-  } catch { failed.value = true; }
+  try { await action.run(); if (action.id === 'game.shortcut') shortcutStatus.value = t('home.shortcutCreated'); }
+  catch (cause) {
+    if (action.id === 'game.shortcut') { shortcutFailed.value = true; shortcutStatus.value = t(String(cause).includes('SHORTCUT_UNSUPPORTED_PLATFORM') ? 'home.shortcutUnsupported' : 'home.shortcutFailed'); }
+    else failed.value = true;
+  }
   finally { busy.value = false; }
 }
 </script>
 <template>
-  <div class="game-menu">
-    <DropdownMenuRoot>
-      <DropdownMenuTrigger
-        class="game-menu-trigger"
-        :disabled="busy"
-        :aria-label="t('home.options', { name: game.name })"
-      >
-        <AppIcon name="more-horizontal" />
+  <div
+    ref="menu"
+    class="game-menu"
+  >
+    <AppIconButton
+      v-if="!dropdownReady"
+      class="game-menu-trigger"
+      icon="more-horizontal"
+      :disabled="busy"
+      :label="t('home.options', { name: game.name })"
+      aria-haspopup="menu"
+      :aria-expanded="false"
+      @click="openDropdown"
+      @keydown="dropdownKey"
+    />
+    <DropdownMenuRoot
+      v-else
+      v-model:open="dropdownOpen"
+    >
+      <DropdownMenuTrigger as-child>
+        <AppIconButton
+          class="game-menu-trigger"
+          icon="more-horizontal"
+          :disabled="busy"
+          :label="t('home.options', { name: game.name })"
+        />
       </DropdownMenuTrigger>
-      <DropdownMenuPortal>
-        <DropdownMenuContent
+      <DropdownMenuPortal v-if="dropdownOpen">
+        <!-- A positioned portal gives Floating UI the scaled offset parent for app zoom. -->
+        <div style="position: fixed; inset: 0; z-index: 30; pointer-events: none">
+          <DropdownMenuContent
+            class="profile-menu"
+            position-strategy="absolute"
+            style="pointer-events: auto"
+            align="end"
+            :side-offset="7"
+            :collision-padding="12"
+          >
+            <DropdownMenuItem
+              v-for="action in actions"
+              :key="action.id"
+              class="profile-menu-item"
+              :disabled="busy"
+              @select="run(action)"
+            >
+              <AppIcon :name="action.icon ?? 'puzzle'" />{{ action.label }}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </div>
+      </DropdownMenuPortal>
+    </DropdownMenuRoot>
+    <ContextMenuPortal v-if="contextOpen">
+      <div style="position: fixed; inset: 0; z-index: 30; pointer-events: none">
+        <ContextMenuContent
           class="profile-menu"
-          align="end"
-          :side-offset="7"
+          position-strategy="absolute"
+          style="pointer-events: auto"
           :collision-padding="12"
+          @close-auto-focus="returnContextFocus"
         >
-          <DropdownMenuItem
+          <ContextMenuItem
             v-for="action in actions"
             :key="action.id"
             class="profile-menu-item"
             :disabled="busy"
-            @select="action.run()"
+            @select="run(action)"
           >
-            <AppIcon :name="action.icon" />{{ action.label }}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenuPortal>
-    </DropdownMenuRoot>
-    <ContextMenuPortal>
-      <ContextMenuContent
-        class="profile-menu"
-        :collision-padding="12"
-      >
-        <ContextMenuItem
-          v-for="action in actions"
-          :key="action.id"
-          class="profile-menu-item"
-          :disabled="busy"
-          @select="action.run()"
-        >
-          <AppIcon :name="action.icon" />{{ action.label }}
-        </ContextMenuItem>
-      </ContextMenuContent>
+            <AppIcon :name="action.icon ?? 'puzzle'" />{{ action.label }}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </div>
     </ContextMenuPortal>
     <span
       v-if="failed"
@@ -97,6 +137,5 @@ async function change(command: string) {
   </div>
 </template>
 <style scoped>
-.game-menu-notice{position:absolute;right:0;top:36px;min-width:180px;padding:8px 12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--ink);font-size:12px;z-index:2}.game-menu-notice.is-error{color:var(--danger)}
-.game-menu{position:relative}.game-menu-trigger{display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:8px;background:transparent;color:var(--muted)}.game-menu-trigger:hover{background:var(--hover);color:var(--ink)}.game-menu-trigger:disabled{opacity:.5}.game-menu-error{position:absolute;right:0;top:36px;min-width:180px;padding:8px 12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--danger);font-size:12px;z-index:2}
+.game-menu{position:relative}.game-menu-trigger{width:var(--ui-control-height);height:var(--ui-control-height);border:0;background:transparent;color:var(--ui-text-muted)}.game-menu-trigger:hover{background:var(--ui-surface-hover);color:var(--ui-text)}.game-menu-trigger:disabled{opacity:.5}.game-menu-notice,.game-menu-error{position:absolute;right:0;top:calc(var(--ui-control-height) + var(--ui-space-1));min-width:180px;padding:var(--ui-space-2) var(--ui-space-3);background:var(--ui-surface-1);border:1px solid var(--ui-border);border-radius:var(--ui-radius-md);color:var(--ui-text);font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption);z-index:2}.game-menu-notice.is-error,.game-menu-error{color:var(--ui-danger)}
 </style>

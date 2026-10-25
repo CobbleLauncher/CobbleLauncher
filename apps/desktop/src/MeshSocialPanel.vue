@@ -14,8 +14,8 @@ import MeshIdentityCard from './mesh-ui/MeshIdentityCard.vue';
 import MeshIdentityAvatar from './mesh-ui/MeshIdentityAvatar.vue';
 import SettingsDisclosure from './ui/settings/SettingsDisclosure.vue';
 import { meshIdentityCard, type MeshIdentityState, meshProfileLabel, meshMessageBytes, MAX_MESH_MESSAGE_BYTES, type MeshAppSnapshot, type MeshPublicProfile, type MeshContact, type MeshContactInvitation, type MeshMessageReceipt, type MeshMessage, type MeshMessagePage, type MeshMessageComposer } from './mesh-social';
-const props = withDefaults(defineProps<{ active: boolean; showContacts?: boolean; gameId?: string; games?: Game[] }>(), { showContacts: true, gameId: undefined, games: () => [] });
-const emit = defineEmits<{ busy: [value: boolean] }>();
+const props = withDefaults(defineProps<{ active: boolean; showContacts?: boolean; gameId?: string; games?: Game[]; initialContactId?: string; contactRequestId?: number }>(), { showContacts: true, gameId: undefined, games: () => [], initialContactId: undefined, contactRequestId: undefined });
+const emit = defineEmits<{ busy: [value: boolean]; contactOpened: [requestId: number] }>();
 const identityState = ref<MeshIdentityState>({ profile: null, mode: 'persistent', active: false });
 const identityProfile = computed(() => snapshot.value?.profile ?? identityState.value.profile);
 const identitySwitchPrompt = ref(false);
@@ -23,6 +23,7 @@ const snapshot = ref<MeshAppSnapshot | null>(null); const checked = ref(false); 
 const operation = ref(''); const busy = computed(() => Boolean(operation.value));
 const startName = ref(''); const nameDraft = ref(''); const editingName = ref(false); const copied = ref('');
 const query = ref(''); const selectedPeer = ref(''); const drafts = ref<Record<string, string>>({});
+let handledContactRequest = 0;
 const invitation = ref<MeshContactInvitation | null>(null); const invitationInput = ref('');
 const messages = ref<MeshMessage[]>([]); const cursor = ref(0); const inboxGeneration = ref(''); const hasMore = ref(false); const readingMessages = ref(false); const receipt = ref<MeshMessageReceipt | null>(null);
 const contextGame = ref(props.gameId ?? '');
@@ -36,6 +37,18 @@ const draft = computed({ get: () => drafts.value[selectedPeer.value] ?? '', set:
 const nameDirty = computed(() => Boolean(snapshot.value && nameDraft.value !== snapshot.value.profile.display_name));
 const messageDirty = computed(() => Object.values(drafts.value).some(value => value.length > 0));
 const nameValid = computed(() => Boolean(nameDraft.value.trim()) && validName(nameDraft.value));
+const publicRouteErrorKeys: Record<string, string> = {
+  MESH_EVENT_ROUTE_NOT_READY: 'meshSocial.eventRouteNotReady',
+  MESH_EVENT_ROUTE_GAME_ACTIVE: 'meshSocial.eventRouteGameActive',
+  MESH_EVENT_ROUTE_ACTIVE: 'meshSocial.eventRouteActive',
+  MESH_EVENT_ROUTE_NOT_AUTHORIZED: 'meshSocial.eventRouteNotAuthorized',
+  MESH_EVENT_DIRECT_REQUIRED: 'meshSocial.eventDirectRequired',
+  MESH_EVENT_ROUTE_FAILED: 'meshSocial.eventRouteFailed',
+};
+function contactError(cause: unknown, fallback: string) {
+  const code = typeof cause === 'string' ? cause : cause instanceof Error ? cause.message : '';
+  return t(publicRouteErrorKeys[code] ?? fallback);
+}
 function validName(value: string) { return [...value.trim()].length <= 32 && meshMessageBytes(value.trim()) <= 128 && ![...value].some(character => character.codePointAt(0)! < 32 || character.codePointAt(0) === 127); }
 const startValid = computed(() => Boolean(startName.value.trim()) && validName(startName.value));
 const messageTooLong = computed(() => meshMessageBytes(draft.value) > MAX_MESH_MESSAGE_BYTES);
@@ -63,13 +76,6 @@ async function start() {
   try { const value = await invoke<MeshAppSnapshot>('mesh_start_app', { displayName: startName.value.trim() }); if (!disposed && current === version) { applySnapshot(value); checked.value = true; } }
   catch { if (!disposed && current === version) error.value = t('meshSocial.startFailed'); }
   finally { if (!disposed) operation.value = ''; }
-}
-async function stop() {
-  if (busy.value || !await confirmLeave()) return;
-  const current = version; operation.value = 'stop'; error.value = ''; startName.value = snapshot.value?.profile.display_name ?? '';
-  try { await invoke<boolean>('mesh_stop_app'); if (!disposed && current === version) { applySnapshot(null); invitation.value = null; } }
-  catch { if (!disposed && current === version) error.value = t('meshSocial.stopFailed'); }
-  finally { if (!disposed) { operation.value = ''; void refreshSnapshot(); } }
 }
 async function saveName() {
   if (!nameValid.value || busy.value || !snapshot.value) return;
@@ -100,14 +106,14 @@ async function createInvitation() {
   if (busy.value || !snapshot.value?.capabilities.contact_invites) return;
   const current = version; operation.value = 'invite'; error.value = ''; invitation.value = null;
   try { const value = await invoke<MeshContactInvitation>('mesh_create_contact_invitation'); if (!disposed && current === version) invitation.value = value; }
-  catch { if (!disposed && current === version) error.value = t('meshSocial.inviteFailed'); }
+  catch (cause) { if (!disposed && current === version) error.value = contactError(cause, 'meshSocial.inviteFailed'); }
   finally { if (!disposed) operation.value = ''; }
 }
 async function acceptInvitation() {
   if (busy.value || !invitationInput.value.trim() || !snapshot.value?.capabilities.contact_invites) return;
   const current = version; const secret = invitationInput.value.trim(); invitationInput.value = ''; operation.value = 'accept'; error.value = '';
   try { const contact = await invoke<MeshContact>('mesh_accept_contact_invitation', { invitation: secret }); if (!disposed && current === version && snapshot.value) { snapshot.value = { ...snapshot.value, contacts: [...snapshot.value.contacts.filter(item => item.profile.peer_id !== contact.profile.peer_id), contact] }; selectedPeer.value = contact.profile.peer_id; } }
-  catch { if (!disposed && current === version) error.value = t('meshSocial.acceptFailed'); }
+  catch (cause) { if (!disposed && current === version) error.value = contactError(cause, 'meshSocial.acceptFailed'); }
   finally { if (!disposed) operation.value = ''; }
 }
 async function removeContact() {
@@ -143,7 +149,7 @@ async function send() {
     if (disposed || current !== version) return;
     if (!value.received) throw new Error('Message not acknowledged');
     receipt.value = value; if (drafts.value[peerId] === text) drafts.value = { ...drafts.value, [peerId]: '' };
-  } catch { if (!disposed && current === version) error.value = t('meshSocial.sendFailed'); }
+  } catch (cause) { if (!disposed && current === version) error.value = contactError(cause, 'meshSocial.sendFailed'); }
   finally { if (!disposed) { operation.value = ''; if (current === version) void loadMessages(); } }
 }
 async function loadComposers() {
@@ -164,6 +170,12 @@ async function generateDraft() {
 async function cancelComposer() { if (operation.value !== 'compose') return; cancelRequested = true; ++composeVersion; await invoke('mesh_cancel_message_composer').catch(() => {}); }
 function useDraft() { if (suggestion.value?.peerId === selectedPeer.value) { draft.value = suggestion.value.text; suggestion.value = null; } }
 function selectContact(peerId: string) { if (busy.value) return; selectedPeer.value = peerId; suggestion.value = null; receipt.value = null; void loadMessages(); }
+watch([contacts, () => props.initialContactId, () => props.contactRequestId, () => props.active, () => props.showContacts], ([items, peerId, requestId, active, visible]) => {
+  if (!peerId || !requestId || requestId === handledContactRequest || !active || !visible || !items.some(contact => contact.profile.peer_id === peerId)) return;
+  handledContactRequest = requestId;
+  selectContact(peerId);
+  emit('contactOpened', requestId);
+}, { immediate: true });
 function canLeave() { return !busy.value && !nameDirty.value && !messageDirty.value && !suggestion.value; }
 async function confirmLeave(): Promise<boolean> { if (busy.value) return false; if (canLeave()) return true; leavePrompt.value = true; return new Promise(resolve => { leaveResolver?.(false); leaveResolver = resolve; }); }
 function finishLeave(value: boolean) { leavePrompt.value = false; leaveResolver?.(value); leaveResolver = null; }
@@ -220,7 +232,6 @@ defineExpose({ canLeave, confirmLeave });
       :copied="copied"
       @edit="editingName = true"
       @copy="copyIdentity"
-      @stop="stop"
       @switch="identitySwitchPrompt = true"
     >
       <button
@@ -261,6 +272,13 @@ defineExpose({ canLeave, confirmLeave });
       </form>
     </MeshIdentityCard>
     <template v-if="snapshot">
+      <p
+        v-if="snapshot.public_events_paused === true"
+        class="setting-hint"
+        role="status"
+      >
+        {{ t('meshSocial.publicEventsPaused') }}
+      </p>
       <div
         v-if="showContacts"
         class="mesh-contacts-layout"

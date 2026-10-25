@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Market and pin review</title></head>
+<body><main id="app" style="max-width:1100px;margin:20px auto;padding:0 20px"></main>
+<script type="module">
+import { createApp, h } from 'vue';
+import MarketPage from '../../src/MarketPage.vue';
+import ModUpdates from '../../src/ModUpdates.vue';
+import { setLocale } from '../../src/i18n';
+import { applyTheme } from '../../src/theme';
+import { savedMarketItems, toggleMarketSaved } from '../../src/market-saved';
+import '../../src/style.css';
+import '../../src/ui.css';
+const params = new URLSearchParams(location.search);
+setLocale(params.get('lang') === 'en-US' ? 'en-US' : 'zh-CN');
+applyTheme(params.get('theme') === 'dark' ? 'dark' : 'light');
+const game = {id:'review-game',name:'Forest World',version:'1.21.1',loader_kind:'fabric',loader_version:'0.16',directory:'synthetic',status:'installed',error:null,progress:null};
+const hit = {project_id:'shared-project',slug:'forest-map',title:'Forest Map',description:'A small map for exploring the forest.',author:'Moss',downloads:4200};
+let pinned = true;
+window.__pinCalls = [];
+window.__searchCalls = [];
+window.isTauri = true;
+savedMarketItems.value = [];
+toggleMarketSaved('modrinth','mod',hit,'favorite');
+toggleMarketSaved('curseforge','mod',{...hit,title:'Forest Map CF',website_url:null,allow_distribution:true,available:true},'favorite');
+toggleMarketSaved('modrinth','resource_pack',{...hit,project_id:'leaf-textures',title:'Leaf Textures'},'later');
+window.__TAURI_INTERNALS__ = { invoke: async (command,args) => {
+  if (command === 'search_game_mods') { window.__searchCalls.push({command,args}); return {hits:[hit],offset:0,total_hits:1}; }
+  if (command === 'search_modrinth_packs') { window.__searchCalls.push({command,args}); return {hits:[hit],offset:0,total_hits:1}; }
+  if (command === 'get_curseforge_availability') return {available:true};
+  if (command === 'search_curseforge') { window.__searchCalls.push({command,args}); return {hits:[{...hit,project_id:'cf-forest-map',title:'Forest Map CF',website_url:null,allow_distribution:true,available:true}],offset:0,total_hits:1}; }
+  if (command === 'list_game_mod_versions') return [
+    {version_id:'v1',name:'Forest Map',version_number:'1.0',version_type:'release',date_published:'2026-10-20T12:00:00Z'},
+    {version_id:'v2',name:'Forest Map',version_number:'2.0',version_type:'release',date_published:'2026-10-23T12:00:00Z'}
+  ];
+  if (command === 'list_managed_game_mods') return [
+    {project_id:'shared-project',version_id:'v1',filename:'forest-map.jar',enabled:true,pinned,name:'Forest Map'},
+    {project_id:'other-project',version_id:'v2',filename:'other.jar',enabled:false,pinned:false,name:'Other Mod'}
+  ];
+  if (command === 'list_game_mod_history') return [];
+  if (command === 'set_game_mod_pinned') { pinned = args?.pinned ?? false; window.__pinCalls.push(args); return null; }
+  if (command === 'list_game_curseforge_mods') return [];
+  return null;
+}};
+const view = params.get('view');
+createApp({render:()=> view === 'pins' ? h(ModUpdates,{game,locked:false}) : h(MarketPage,{games:[game],initialKind:params.get('kind') === 'modpack' ? 'modpack' : 'mod',initialGameId:params.get('kind') === 'modpack' ? undefined : game.id})}).mount('#app');
+</script></body></html>

@@ -1,26 +1,30 @@
 // SPDX-License-Identifier: MIT
 #[path = "blueprint_import.rs"]
 pub mod blueprint_import;
+#[path = "native_builtin_copy.rs"]
+pub(crate) mod builtin_copy;
 #[path = "curseforge_install.rs"]
 pub mod curseforge_install;
 #[path = "curseforge_pack.rs"]
 pub mod curseforge_pack;
+#[path = "game_directory_migration.rs"]
+pub mod directory_migration;
+#[path = "file_inbox_games.rs"]
+pub(crate) mod file_inbox_games;
 #[path = "game_appearance.rs"]
 pub mod game_appearance;
 #[path = "game_config.rs"]
 pub mod game_config;
-#[path = "game_servers.rs"]
-pub mod game_servers;
-#[path = "quick_launch.rs"]
-pub mod quick_launch;
 #[path = "game_diagnostics.rs"]
 pub mod game_diagnostics;
 #[path = "game_inspection.rs"]
 pub mod game_inspection;
-#[path = "launcher_import.rs"]
-pub mod launcher_import;
+#[path = "game_servers.rs"]
+pub mod game_servers;
 #[path = "launch_recovery.rs"]
 pub mod launch_recovery;
+#[path = "launcher_import.rs"]
+pub mod launcher_import;
 #[path = "local_packs.rs"]
 pub mod local_packs;
 #[path = "management.rs"]
@@ -31,10 +35,24 @@ pub mod marketplace;
 pub mod mesh;
 #[path = "mod_updates.rs"]
 pub mod mod_updates;
+#[path = "native_readiness.rs"]
+pub mod native_readiness;
+#[path = "native_readiness_space.rs"]
+mod native_readiness_space;
+#[path = "native_reverse.rs"]
+pub mod native_reverse;
+#[path = "native_reverse_install.rs"]
+pub mod native_reverse_install;
 #[path = "pack_origin.rs"]
 pub mod pack_origin;
+#[path = "pack_update_copy.rs"]
+pub mod pack_update_copy;
 #[path = "native_pack_update_preview.rs"]
 pub mod pack_update_preview;
+#[path = "quick_launch.rs"]
+pub mod quick_launch;
+#[path = "reverse_config.rs"]
+pub mod reverse_config;
 #[path = "runtime.rs"]
 pub mod runtime;
 #[path = "screenshot_sheet.rs"]
@@ -43,8 +61,14 @@ pub mod screenshot_sheet;
 pub mod screenshots;
 #[path = "sessions.rs"]
 pub mod sessions;
+#[path = "storage_workspace.rs"]
+pub mod storage_workspace;
 #[path = "tasks.rs"]
 pub mod tasks;
+#[path = "trial_copy.rs"]
+pub(crate) mod trial_copy;
+#[path = "game_workspace.rs"]
+pub(crate) mod workspace;
 #[path = "world_datapacks.rs"]
 pub mod world_datapacks;
 #[path = "worlds.rs"]
@@ -339,7 +363,6 @@ pub fn create_mrpack_game(
 #[derive(Default)]
 struct Library {
     games: Vec<Game>,
-    recovered_sessions: Vec<sessions::Session>,
     picked_directory: Option<PathBuf>,
     load_error: Option<String>,
     mod_plans: HashMap<String, (String, cobble_content::ModrinthPlan)>,
@@ -361,9 +384,11 @@ fn library_file() -> Result<PathBuf, String> {
         .join("CobbleLauncher/games.json"))
 }
 fn default_directory() -> Result<PathBuf, String> {
+    directory_migration::require_idle()?;
     crate::preferences::game_directory()
 }
 fn save(games: &[Game]) -> Result<(), String> {
+    directory_migration::require_idle()?;
     let path = library_file()?;
     fs::create_dir_all(path.parent().expect("library has a parent")).map_err(|e| e.to_string())?;
     fs::write(
@@ -374,40 +399,59 @@ fn save(games: &[Game]) -> Result<(), String> {
 }
 impl GameLibrary {
     pub fn load() -> Self {
+        let started = Instant::now();
         let result = (|| {
             let bytes = match fs::read(library_file()?) {
                 Ok(bytes) => bytes,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    return Ok((Vec::new(), Vec::new()));
+                    return Ok(Vec::new());
                 }
                 Err(e) => return Err(e.to_string()),
             };
-            let mut games: Vec<Game> = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-            for game in &mut games {
-                if game.status == "installing" {
-                    game.status = "failed".into();
-                    game.error = Some("安装已中断，请重试".into());
-                }
-            }
-            let mut sessions = Vec::new();
-            for game in &mut games {
-                if let Some(session) = sessions::recover(game)? {
-                    game.launch_state = "running".into();
-                    sessions.push(session);
-                }
-            }
-            Ok::<_, String>((games, sessions))
+            load_summaries(&bytes)
         })();
-        let (games, recovered_sessions, load_error) = match result {
-            Ok((games, sessions)) => (games, sessions, None),
-            Err(error) => (Vec::new(), Vec::new(), Some(error)),
+        let (games, load_error) = match result {
+            Ok(games) => (games, None),
+            Err(error) => (Vec::new(), Some(error)),
         };
+        tracing::info!(
+            event = "startup_library_summaries_loaded",
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            instances = games.len(),
+            failed = load_error.is_some()
+        );
         Self(Mutex::new(Library {
             games,
-            recovered_sessions,
             load_error,
             ..Library::default()
         }))
+    }
+}
+
+fn load_summaries(bytes: &[u8]) -> Result<Vec<Game>, String> {
+    let mut games: Vec<Game> = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+    for game in &mut games {
+        if game.status == "installing" {
+            game.status = "failed".into();
+            game.error = Some("安装已中断，请重试".into());
+        }
+        // No instance filesystem or process access on the summary render path.
+        game.launch_state = "verifying".into();
+    }
+    Ok(games)
+}
+
+#[cfg(test)]
+mod startup_summary_tests {
+    use super::*;
+    #[test]
+    fn summaries_do_not_access_instance_directories_and_keep_each_game_locked_until_verified() {
+        let games = load_summaries(br#"[{"id":"ab","name":"Offline drive","version":"1.21.1","directory":"unavailable:/synthetic","status":"installed"},{"id":"cd","name":"Interrupted","version":"1.21.1","directory":"unavailable:/other","status":"installing"}]"#).unwrap();
+        assert_eq!(games.len(), 2);
+        assert!(games.iter().all(|game| game.launch_state == "verifying"));
+        assert_eq!(games[0].status, "installed");
+        assert_eq!(games[1].status, "failed");
+        assert!(games[1].error.is_some());
     }
 }
 
@@ -459,6 +503,23 @@ pub fn list_games(library: State<'_, GameLibrary>) -> Result<Vec<Game>, String> 
         return Err(error.clone());
     }
     Ok(library.games.clone())
+}
+
+pub(crate) fn launcher_update_safe(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<GameLibrary>();
+    let library = state.0.lock().map_err(|_| "UPDATE_BUSY")?;
+    if library.load_error.is_some()
+        || library.games.iter().any(|game| {
+            game.launch_state != "idle" || game.content_installing || game.status == "installing"
+        })
+    {
+        return Err("UPDATE_BUSY".into());
+    }
+    drop(library);
+    if tasks::active_count(app) > 0 {
+        return Err("UPDATE_BUSY".into());
+    }
+    Ok(())
 }
 
 pub(crate) fn ensure_registered_game(app: &AppHandle, id: &str) -> Result<(), String> {
@@ -529,6 +590,170 @@ pub fn create_game(
     loader_kind: Option<String>,
     automatic_name: Option<bool>,
 ) -> Result<Game, String> {
+    create_game_inner(
+        app,
+        library,
+        name,
+        version,
+        source,
+        use_default_directory,
+        loader_version,
+        loader_kind,
+        automatic_name,
+        None,
+        None,
+        Vec::new(),
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn create_with_mod_plan(
+    app: AppHandle,
+    name: String,
+    version: String,
+    source: DownloadSettings,
+    use_default_directory: bool,
+    loader_version: String,
+    loader_kind: String,
+    automatic_name: bool,
+    plan: cobble_content::ModrinthPlan,
+) -> Result<Game, String> {
+    create_game_inner(
+        app.clone(),
+        app.state::<GameLibrary>(),
+        name,
+        version,
+        source,
+        use_default_directory,
+        Some(loader_version),
+        Some(loader_kind),
+        Some(automatic_name),
+        Some(plan),
+        None,
+        Vec::new(),
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn create_with_environment_plan(
+    app: AppHandle,
+    name: String,
+    version: String,
+    source: DownloadSettings,
+    use_default_directory: bool,
+    loader_version: String,
+    loader_kind: String,
+    automatic_name: bool,
+    plan: cobble_content::EnvironmentPlan,
+) -> Result<Game, String> {
+    create_with_environment_plan_and_configs(
+        app,
+        name,
+        version,
+        source,
+        use_default_directory,
+        loader_version,
+        loader_kind,
+        automatic_name,
+        plan,
+        Vec::new(),
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn create_with_environment_plan_and_configs(
+    app: AppHandle,
+    name: String,
+    version: String,
+    source: DownloadSettings,
+    use_default_directory: bool,
+    loader_version: String,
+    loader_kind: String,
+    automatic_name: bool,
+    plan: cobble_content::EnvironmentPlan,
+    configs: Vec<cobble_core::environment_install::SharedConfig>,
+    personal_options: Option<cobble_core::personal_options::PersonalOptions>,
+) -> Result<Game, String> {
+    cobble_core::environment_install::validate_environment_plan(&plan)
+        .map_err(|e| e.to_string())?;
+    cobble_core::environment_install::validate_shared_configs(&configs)
+        .map_err(|e| e.to_string())?;
+    if version != plan.game_version || loader_kind != plan.loader {
+        return Err("ENVIRONMENT_GAME_CHANGED".into());
+    }
+    create_game_inner(
+        app.clone(),
+        app.state::<GameLibrary>(),
+        name,
+        version,
+        source,
+        use_default_directory,
+        Some(loader_version),
+        Some(loader_kind),
+        Some(automatic_name),
+        None,
+        Some(plan),
+        configs,
+        personal_options,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn create_with_shared_setup(
+    app: AppHandle,
+    name: String,
+    version: String,
+    source: DownloadSettings,
+    use_default_directory: bool,
+    loader_version: Option<String>,
+    loader_kind: Option<String>,
+    configs: Vec<cobble_core::environment_install::SharedConfig>,
+    personal_options: Option<cobble_core::personal_options::PersonalOptions>,
+) -> Result<Game, String> {
+    cobble_core::environment_install::validate_shared_configs(&configs)
+        .map_err(|e| e.to_string())?;
+    create_game_inner(
+        app.clone(),
+        app.state::<GameLibrary>(),
+        name,
+        version,
+        source,
+        use_default_directory,
+        loader_version,
+        loader_kind,
+        Some(false),
+        None,
+        None,
+        configs,
+        personal_options,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create_game_inner(
+    app: AppHandle,
+    library: State<'_, GameLibrary>,
+    name: String,
+    version: String,
+    source: DownloadSettings,
+    use_default_directory: bool,
+    loader_version: Option<String>,
+    loader_kind: Option<String>,
+    automatic_name: Option<bool>,
+    initial_mod_plan: Option<cobble_content::ModrinthPlan>,
+    initial_environment_plan: Option<cobble_content::EnvironmentPlan>,
+    initial_shared_configs: Vec<cobble_core::environment_install::SharedConfig>,
+    initial_personal_options: Option<cobble_core::personal_options::PersonalOptions>,
+) -> Result<Game, String> {
+    if let Some(options) = &initial_personal_options {
+        cobble_core::personal_options::validate(options)?;
+        if options.target_version != version {
+            return Err("PERSONAL_OPTIONS_TARGET_CHANGED".into());
+        }
+    }
     if name.trim().is_empty() {
         return Err("请填写游戏名称".into());
     }
@@ -541,7 +766,7 @@ pub fn create_game(
     } else {
         None
     };
-    let resolved_source = source.download_source().map_err(|e| e.to_string())?;
+    source.download_source().map_err(|e| e.to_string())?;
     let mut library = library.0.lock().map_err(|e| e.to_string())?;
     if let Some(error) = &library.load_error {
         return Err(error.clone());
@@ -600,12 +825,36 @@ pub fn create_game(
         launcher_import_id: None,
     };
     library.games.push(game.clone());
+    drop(library);
+    // Persist the request first: a recovered game must never lose its initial
+    // Mod selection if the process exits between these separate durable writes.
+    let task = register_install(
+        &app,
+        &game,
+        initial_mod_plan,
+        initial_environment_plan,
+        initial_shared_configs,
+        initial_personal_options,
+    );
+    let state = app.state::<GameLibrary>();
+    let mut library = state.0.lock().map_err(|e| e.to_string())?;
+    let task_id = match task {
+        Ok(id) => id,
+        Err(error) => {
+            library.games.retain(|item| item.id != game.id);
+            return Err(error);
+        }
+    };
     if let Err(error) = save(&library.games) {
-        library.games.pop();
+        library.games.retain(|item| item.id != game.id);
+        drop(library);
+        tasks::discard_unstarted_install(&app, &task_id)?;
         return Err(error);
     }
     drop(library);
-    start_install(app, game.clone(), resolved_source);
+    tauri::async_runtime::spawn(async move {
+        let _ = tasks::execute(app, task_id).await;
+    });
     Ok(game)
 }
 #[tauri::command]
@@ -614,6 +863,7 @@ pub fn retry_game(
     library: State<'_, GameLibrary>,
     id: String,
 ) -> Result<Game, String> {
+    let install_task = tasks::game_install_task(&app, &id)?;
     let mut library = library.0.lock().map_err(|e| e.to_string())?;
     if library.games.iter().any(|g| g.status == "installing") {
         return Err("已有游戏正在安装，请稍候".into());
@@ -625,6 +875,18 @@ pub fn retry_game(
         .ok_or("找不到这个游戏")?;
     if game.status != "failed" {
         return Err("这个游戏无需重试".into());
+    }
+    if let Some(task_id) = install_task {
+        drop(library);
+        tasks::retry_task(app.clone(), task_id)?;
+        let state = app.state::<GameLibrary>();
+        let library = state.0.lock().map_err(|e| e.to_string())?;
+        return library
+            .games
+            .iter()
+            .find(|game| game.id == id)
+            .cloned()
+            .ok_or("找不到这个游戏".into());
     }
     let source = match &game.download_source {
         Some(source) => source.clone(),
@@ -672,16 +934,8 @@ fn update_game(app: &AppHandle, id: &str, change: impl FnOnce(&mut Game), persis
     let _ = app.emit("game-install", snapshot);
 }
 fn start_install(app: AppHandle, game: Game, _source: cobble_minecraft::DownloadSource) {
-    let request = tasks::TaskRequest::GameInstall {
-        game_id: game.id.clone(),
-    };
-    match tasks::register(&app, request, "安装游戏") {
-        Ok(id) => {
-            tauri::async_runtime::spawn(async move {
-                let _ = tasks::execute(app, id).await;
-            });
-        }
-        Err(error) => update_game(
+    if let Err(error) = schedule_install(app.clone(), &game, None) {
+        update_game(
             &app,
             &game.id,
             |game| {
@@ -689,8 +943,38 @@ fn start_install(app: AppHandle, game: Game, _source: cobble_minecraft::Download
                 game.error = Some(error);
             },
             true,
-        ),
+        );
     }
+}
+
+fn schedule_install(
+    app: AppHandle,
+    game: &Game,
+    initial_mod_plan: Option<cobble_content::ModrinthPlan>,
+) -> Result<(), String> {
+    let id = register_install(&app, game, initial_mod_plan, None, Vec::new(), None)?;
+    tauri::async_runtime::spawn(async move {
+        let _ = tasks::execute(app, id).await;
+    });
+    Ok(())
+}
+
+fn register_install(
+    app: &AppHandle,
+    game: &Game,
+    initial_mod_plan: Option<cobble_content::ModrinthPlan>,
+    initial_environment_plan: Option<cobble_content::EnvironmentPlan>,
+    initial_shared_configs: Vec<cobble_core::environment_install::SharedConfig>,
+    initial_personal_options: Option<cobble_core::personal_options::PersonalOptions>,
+) -> Result<String, String> {
+    let request = tasks::TaskRequest::GameInstall {
+        game_id: game.id.clone(),
+        initial_mod_plan,
+        initial_environment_plan,
+        initial_shared_configs,
+        initial_personal_options,
+    };
+    tasks::register(app, request, "安装游戏")
 }
 
 #[tauri::command]

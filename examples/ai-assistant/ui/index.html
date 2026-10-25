@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body>
+<main class="assistant workbench" id="app">
+  <header class="page-heading"><h1 id="title">AI Assistant</h1><button id="settings-toggle" type="button" hidden>Connection</button></header>
+  <p id="error" class="error" role="alert" hidden></p>
+  <section id="setup" class="setup" hidden>
+    <form id="setup-form" autocomplete="off">
+      <label><span id="endpoint-label">Chat completions URL</span><input id="endpoint" type="url" placeholder="https://api.example.com/v1/chat/completions" required spellcheck="false" maxlength="2048"></label>
+      <label><span id="model-label">Model</span><input id="model" type="text" required spellcheck="false" maxlength="128"></label>
+      <label><span id="key-label">API key</span><input id="key" type="password" autocomplete="new-password" maxlength="4096"><small id="key-hint" hidden></small></label>
+      <div class="setup-actions"><button id="save" class="primary" type="submit">Save connection</button><button id="setup-cancel" type="button" hidden>Cancel</button><button id="clear" type="button" hidden>Remove connection</button></div>
+    </form>
+  </section>
+  <section id="chat" class="chat" hidden>
+    <div class="connection"><span id="connection-summary"></span><span class="permission-badge" id="permission-badge">AI chat</span></div>
+    <ol id="messages" class="messages" aria-label="Conversation"></ol>
+    <p id="empty" class="empty-chat">Ask about your game or a launch problem.</p>
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+    <div id="retry-row" class="retry-row" hidden><button id="retry" type="button">Retry</button></div>
+    <details id="diagnostic-panel" class="diagnostic-panel">
+      <summary><span id="diagnostic-heading">Attach game diagnostic</span><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></summary>
+      <div class="diagnostic-body">
+        <label id="game-field"><span id="game-label">Game</span><select id="game"></select></label>
+        <label><span id="file-label">Diagnostic file</span><select id="file"></select></label>
+        <button id="load-file" type="button">Preview redacted file</button>
+        <p id="diagnostic-status" class="status" role="status" aria-live="polite"></p>
+        <div id="preview-wrap" hidden><strong id="preview-name"></strong><pre id="preview" tabindex="0"></pre><label class="attach-choice"><input id="attach" type="checkbox"><span id="attach-label">Attach to next message</span></label></div>
+      </div>
+    </details>
+    <form id="composer" class="composer"><label for="prompt" id="prompt-label">Message</label><textarea id="prompt" rows="3" maxlength="16000" placeholder="Ask a question…"></textarea><div class="composer-actions"><span id="attachment-chip" class="attachment-chip" hidden></span><button id="cancel" type="button" hidden>Cancel</button><button id="send" class="primary" type="submit">Send</button></div></form>
+  </section>
+</main>
+<script type="module" src="./src/main.ts"></script>
+</body></html>

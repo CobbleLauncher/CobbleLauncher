@@ -355,6 +355,7 @@ mod tests {
             api_version: cobble_plugin_api::REPORT_API_VERSION.into(),
             publisher: "Original fixture".into(),
             capabilities: vec!["report".into()],
+            tool_form: None,
             composer_permissions: Default::default(),
             interfaces: Default::default(),
             file_extensions: vec!["log".into(), "txt".into(), "json".into(), "mrpack".into()],

@@ -23,6 +23,23 @@ it('shows native installed signature status and never asks pending approval for 
   wrapper.unmount();
 });
 
+it('shows concrete access immediately and loads recent access only when expanded', async () => {
+  const data = snapshot();
+  data.plugin.manifest = { ...manifest, permissions: [{ permission: 'launcher:resource/selected/read', extensions: ['schem'] }] };
+  vi.mocked(invoke).mockImplementation(async command => command === 'get_plugin_details' ? data : []);
+  const wrapper = mount(PluginDetails, { attachTo: document.body, props: { pluginId: manifest.id } });
+  await flushPromises();
+  expect(wrapper.get('.plugin-details-permissions').text()).toContain('Read selected .schem files');
+  expect(wrapper.get('.plugin-details-permissions').isVisible()).toBe(true);
+  expect(wrapper.get('.plugin-manifest').isVisible()).toBe(false);
+  expect(invoke).not.toHaveBeenCalledWith('plugin_access_log', expect.anything());
+  await wrapper.findAll('button').find(button => button.text() === 'Recent access')!.trigger('click');
+  await flushPromises();
+  expect(invoke).toHaveBeenCalledWith('plugin_access_log', { pluginId: manifest.id });
+  expect(wrapper.get('.plugin-access-log').isVisible()).toBe(true);
+  wrapper.unmount();
+});
+
 it('keeps unavailable extensions inspectable and removable without exposing raw failure codes', async () => {
   vi.mocked(invoke).mockImplementation(async command => command === 'get_plugin_details' ? snapshot() : []);
   const wrapper = mount(PluginDetails, { props: { pluginId: manifest.id } }); await flushPromises();
@@ -31,12 +48,13 @@ it('keeps unavailable extensions inspectable and removable without exposing raw 
   expect(wrapper.text()).not.toContain('PLUGIN_MISSING_INTERFACE');
   const overview = wrapper.get('.plugin-details-overview');
   expect(overview.text()).toContain('Example · 1');
-  expect(overview.findAll('button').map(button => button.text())).toEqual(['Enable', 'Uninstall']);
-  expect(overview.findAll('button svg')).toHaveLength(2);
+  expect(overview.get('[role=switch]').attributes('aria-checked')).toBe('false');
+  expect(overview.get('[role=switch]').attributes('disabled')).toBeDefined();
+  expect(overview.findAll('button').some(button => button.text() === 'Uninstall')).toBe(true);
   expect(wrapper.get('.plugin-manifest').text()).toContain('"id": "detail-viewer"');
   expect(wrapper.find('.extension-settings-panel').exists()).toBe(false);
   const remove = wrapper.findAll('button').find(button => button.text() === 'Uninstall')!;
-  await remove.trigger('click'); await flushPromises();
+  await remove.trigger('click'); await flushPromises(); expect(invoke).not.toHaveBeenCalledWith('uninstall_plugin',expect.anything()); document.querySelector<HTMLButtonElement>('.confirmation-confirm')!.click(); await flushPromises();
   expect(invoke).toHaveBeenCalledWith('uninstall_plugin', { id: manifest.id });
   expect(wrapper.emitted('removed')).toEqual([[]]);
   wrapper.unmount();

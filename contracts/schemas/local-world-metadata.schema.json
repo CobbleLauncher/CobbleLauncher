@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.launcher.invalid/worlds/v1/saved-metadata.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "worldId", "source", "seed", "seedSource", "version", "dataVersion", "generator", "spawn", "unavailable"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "worldId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "source": { "const": "saved_metadata" },
+    "seed": { "type": ["string", "null"], "pattern": "^-?[0-9]{1,19}$" },
+    "seedSource": { "enum": ["world_gen_settings", "random_seed", null] },
+    "version": { "type": ["string", "null"], "maxLength": 256 },
+    "dataVersion": { "type": ["integer", "null"], "minimum": -2147483648, "maximum": 2147483647 },
+    "generator": {
+      "type": "object", "additionalProperties": false, "required": ["preset", "custom", "hints"],
+      "properties": {
+        "preset": { "type": ["string", "null"], "maxLength": 256 },
+        "custom": { "type": ["boolean", "null"] },
+        "hints": { "type": "array", "maxItems": 32, "items": { "type": "string", "maxLength": 540 } }
+      }
+    },
+    "spawn": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "object", "additionalProperties": false, "required": ["x", "y", "z"], "properties": {
+          "x": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 },
+          "y": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 },
+          "z": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 }
+        } }
+      ]
+    },
+    "unavailable": { "enum": ["metadata_unavailable", "metadata_invalid", "metadata_too_large", "metadata_changed", "seed_missing", null] }
+  }
+}

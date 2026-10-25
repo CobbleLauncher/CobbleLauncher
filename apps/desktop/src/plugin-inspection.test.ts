@@ -21,3 +21,22 @@ it('requires a new acknowledgement only for the added inspection scopes',()=>{
  expect(permissionConsentKey({permission:'launcher:game-inspection/read',scopes:['mods','packs']})).not.toBe(permissionConsentKey({permission:'launcher:game-inspection/read',scopes:['mods']}));
  expect(addedPermissionNodes(previous,reviewed)).toEqual([]);
 });
+it('reviews world snapshot history and host restore requests separately',()=>{
+ const base:CatalogManifest={...fixture(),permissions:[{permission:'launcher:ui/webview'},{permission:'launcher:game-inspection/read',scopes:['worlds']}]};
+ const read:CatalogManifest={...base,permissions:[...base.permissions!,{permission:'launcher:world-snapshots/read'}]};
+ const restore:CatalogManifest={...read,permissions:[...read.permissions!,{permission:'launcher:world-snapshots/restore-request'}]};
+ expect(isSupportedCatalogPlugin({manifest:base,description:''})).toBe(true);
+ expect(isSupportedCatalogPlugin({manifest:read,description:''})).toBe(true);
+ expect(isSupportedCatalogPlugin({manifest:restore,description:''})).toBe(true);
+ expect(isSupportedCatalogPlugin({manifest:{...base,permissions:[...base.permissions!,{permission:'launcher:world-snapshots/restore-request'}]},description:''})).toBe(false);
+ expect(addedPermissionNodes(restore,read)).toEqual([{permission:'launcher:world-snapshots/restore-request'}]);
+ expect(requiresSensitiveConsent({permission:'launcher:world-snapshots/read'})).toBe(true);
+ expect(requiresSensitiveConsent({permission:'launcher:world-snapshots/restore-request'})).toBe(true);
+});
+it('allows only explicit mixed MRPACK file and installed-mod inspection access',()=>{
+ const base=fixture();
+ const mixed:CatalogManifest={...base,file_extensions:['json','mrpack'],report_protocols:['cobble.mrpack-page@1'],permissions:[...base.permissions!,{permission:'launcher:resource/selected/read',extensions:['json','mrpack']}]};
+ expect(isSupportedCatalogPlugin({manifest:mixed,description:''})).toBe(true);
+ expect(isSupportedCatalogPlugin({manifest:{...mixed,permissions:base.permissions},description:''})).toBe(false);
+ expect(isSupportedCatalogPlugin({manifest:{...mixed,report_protocols:[]},description:''})).toBe(false);
+});

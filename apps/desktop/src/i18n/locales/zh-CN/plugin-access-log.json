@@ -4,6 +4,12 @@
   "empty": "暂无访问记录。",
   "failed": "无法加载访问记录。",
   "actions": {
+    "ai_status": "读取 AI 连接状态",
+    "ai_configure": "配置 AI 连接",
+    "ai_clear": "移除 AI 连接",
+    "ai_chat": "发送 AI 聊天请求",
+    "ai_chat_attachDiagnostic": "附加已审阅的游戏诊断",
+    "ai_cancel": "取消 AI 聊天请求",
     "https_get": "网络请求",
     "configs_list": "列出游戏配置",
     "configs_read": "读取游戏配置",
@@ -17,7 +23,10 @@
     "diagnostics_check": "检查诊断文件",
     "diagnostics_pick": "读取所选诊断文件",
     "inspection_snapshot": "读取游戏检查数据",
-    "inspection_check": "分析游戏检查数据"
+    "inspection_check": "分析游戏检查数据",
+    "worldSnapshots_list": "读取世界快照历史",
+    "worldSnapshots_compare": "比较世界快照",
+    "worldSnapshots_openRestore": "请求打开恢复确认界面"
   },
   "outcomes": {
     "allowed": "已允许",

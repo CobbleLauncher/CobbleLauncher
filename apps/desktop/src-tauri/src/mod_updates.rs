@@ -1,5 +1,51 @@
 // SPDX-License-Identifier: MIT
 use super::*;
+#[path = "recent_maintenance.rs"]
+mod maintenance;
+pub use maintenance::MaintenanceOverview;
+
+#[tauri::command]
+pub async fn list_game_maintenance(
+    app: AppHandle,
+    id: String,
+) -> Result<MaintenanceOverview, String> {
+    maintenance::list(app, id).await
+}
+
+#[tauri::command]
+pub async fn get_game_mod_update_policy(
+    app: AppHandle,
+    id: String,
+) -> Result<cobble_core::ModUpdatePolicy, String> {
+    let directory = game_directory(&app, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        cobble_core::read_mod_update_policy(&directory).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn set_game_mod_update_policy(
+    app: AppHandle,
+    id: String,
+    policy: cobble_core::ModUpdatePolicy,
+) -> Result<(), String> {
+    let (game, operation) = management::begin(&app, &id, true)?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let _operation = operation;
+        cobble_core::set_mod_update_policy(&game.directory, &policy)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    let state = app.state::<GameLibrary>();
+    let mut library = state.0.lock().map_err(|error| error.to_string())?;
+    library.update_plans.remove(&id);
+    library.curseforge_plans.remove(&id);
+    library.curseforge_preview_ids.remove(&id);
+    result
+}
 
 #[tauri::command]
 pub async fn preview_game_mod_operation_undo(
@@ -119,6 +165,38 @@ pub struct ManagedGameMod {
 }
 
 #[tauri::command]
+pub async fn set_game_mod_pinned(
+    app: AppHandle,
+    id: String,
+    project_id: String,
+    pinned: bool,
+    source: Option<String>,
+) -> Result<(), String> {
+    let (game, operation) = management::begin(&app, &id, true)?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let _operation = operation;
+        match source.as_deref().unwrap_or("modrinth") {
+            "modrinth" => {
+                cobble_core::set_modrinth_mod_pinned(&game.directory, &project_id, pinned)
+            }
+            "curseforge" => {
+                cobble_core::set_curseforge_mod_pinned(&game.directory, &project_id, pinned)
+            }
+            _ => return Err("Unknown Mod provider".into()),
+        }
+        .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    let state = app.state::<GameLibrary>();
+    let mut library = state.0.lock().map_err(|error| error.to_string())?;
+    library.update_plans.remove(&id);
+    library.curseforge_plans.remove(&id);
+    library.curseforge_preview_ids.remove(&id);
+    result
+}
+
+#[tauri::command]
 pub async fn preview_game_mod_version_changes(
     app: AppHandle,
     id: String,
@@ -205,7 +283,17 @@ pub async fn check_game_mod_updates(app: AppHandle, id: String) -> Result<Update
         .await
         .map_err(|e| e.to_string())?
         .into_iter()
-        .map(|item| {
+        .map(|mut item| {
+            if let Some(local) = installed.iter().find(|local| {
+                local
+                    .item
+                    .file_name
+                    .strip_suffix(".disabled")
+                    .unwrap_or(&local.item.file_name)
+                    == item.filename
+            }) {
+                item.name = local.item.name.clone();
+            }
             let pack_owned = installed.iter().any(|local| {
                 local.pack_owned
                     && local

@@ -33,6 +33,11 @@ pub struct SnapshotComparison {
     pub offset: usize,
     pub rows: Vec<SnapshotChange>,
 }
+pub struct SnapshotComparePage<'a> {
+    pub offset: usize,
+    pub limit: usize,
+    pub query: &'a str,
+}
 impl WorldRepository {
     /// Physical bytes include repository overhead and all worlds; logical bytes sum
     /// all complete snapshot versions and deliberately count reused files again.
@@ -71,8 +76,38 @@ impl WorldRepository {
         limit: usize,
         control: &BackupControl,
     ) -> Result<SnapshotComparison, BackupError> {
+        self.compare_snapshots_filtered(
+            world_id,
+            before,
+            after,
+            SnapshotComparePage {
+                offset,
+                limit,
+                query: "",
+            },
+            control,
+        )
+    }
+    pub fn compare_snapshots_filtered(
+        &self,
+        world_id: &str,
+        before: &str,
+        after: &str,
+        page: SnapshotComparePage<'_>,
+        control: &BackupControl,
+    ) -> Result<SnapshotComparison, BackupError> {
+        let SnapshotComparePage {
+            offset,
+            limit,
+            query,
+        } = page;
         identity(world_id)?;
-        if limit == 0 || limit > 100 || offset > 200_000 {
+        if limit == 0
+            || limit > 100
+            || offset > 200_000
+            || query.chars().count() > 120
+            || query.chars().any(char::is_control)
+        {
             return Err(BackupError::InvalidInput);
         }
         let repo = self
@@ -162,6 +197,10 @@ impl WorldRepository {
             }
         }
         rows.sort_by(|a, b| a.path.cmp(&b.path));
+        if !query.is_empty() {
+            let needle = query.to_lowercase();
+            rows.retain(|row| row.path.to_lowercase().contains(&needle));
+        }
         let total = rows.len();
         let rows = rows.into_iter().skip(offset).take(limit).collect();
         Ok(SnapshotComparison {

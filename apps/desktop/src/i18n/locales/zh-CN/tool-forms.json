@@ -1,0 +1,14 @@
+{
+  "generate": "生成",
+  "generating": "正在生成…",
+  "cancel": "取消",
+  "cancelling": "正在取消…",
+  "copy": "复制",
+  "copied": "已复制",
+  "copyBlock": "复制{label}",
+  "failed": "生成失败，请重试。",
+  "invalidInput": "请检查填写的内容后重试。",
+  "unavailable": "此工具不可用，请在扩展中启用。",
+  "invalidForm": "暂不支持此表单。",
+  "copyFailed": "复制失败，请选中文本后复制。"
+}

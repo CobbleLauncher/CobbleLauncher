@@ -85,6 +85,27 @@ fn config_backup_restore_keeps_replaced_content() {
     );
 }
 #[test]
+fn config_backup_preview_and_recovery_metadata_are_bounded_and_scoped() {
+    let (temp, root) = fixture();
+    let id = listing(&root).unwrap().remove(0).id;
+    let before = document(&root, &id).unwrap();
+    let after = replace(&root, &id, "second", &before.revision).unwrap();
+    let backup_id = after.backups[0].id.clone();
+    assert_eq!(
+        backup_document(&root, &id, &backup_id).unwrap().text,
+        before.text
+    );
+    assert!(
+        matches!(backup_document(&root, "f".repeat(64).as_str(), &backup_id), Err(error) if error == "CONFIG_NOT_FOUND")
+    );
+    let metadata = recovery_metadata(temp.path()).unwrap();
+    assert_eq!(metadata.files.len(), 1);
+    assert_eq!(metadata.files[0].id, id);
+    assert_eq!(metadata.files[0].name, "example.toml");
+    assert_eq!(metadata.files[0].backups[0].id, backup_id);
+    assert!(!metadata.truncated);
+}
+#[test]
 fn config_restore_rejects_corrupt_backup_without_overwrite() {
     let (temp, root) = fixture();
     let id = listing(&root).unwrap().remove(0).id;

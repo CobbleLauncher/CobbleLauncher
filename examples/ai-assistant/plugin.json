@@ -1,0 +1,45 @@
+{
+  "id": "ai-assistant",
+  "name": "AI Assistant",
+  "version": "0.1.0",
+  "api_version": "0.1.0",
+  "publisher": "CobbleLauncher",
+  "capabilities": ["report"],
+  "interfaces": {
+    "provides": [
+      {"id": "launcher:report", "version": "0.1.0"},
+      {"id": "launcher:web-frontend", "version": "0.1.0"}
+    ]
+  },
+  "file_extensions": ["log", "txt"],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": {
+    "en": "Ask questions using a configured AI service, with optional reviewed game diagnostics",
+    "zh-CN": "连接自选 AI 服务提问，可按需附加已预览的游戏诊断"
+  },
+  "tags": ["assistant", "diagnostics", "utilities"],
+  "permissions": [
+    {"permission": "launcher:ui/webview"},
+    {"permission": "launcher:ai/chat"},
+    {"permission": "launcher:ai/configure"},
+    {"permission": "launcher:game-diagnostics/read"},
+    {"permission": "launcher:resource/selected/read", "extensions": ["log", "txt"]}
+  ],
+  "frontend": {
+    "entry": "ui/index.html",
+    "api_version": "0.1.0",
+    "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "contributions": {
+    "schema_version": 1,
+    "commands": [{
+      "id": "ai-assistant.open",
+      "label": {"en": "AI Assistant", "zh-CN": "AI 助手"},
+      "menus": [
+        {"position": "tools", "when": "always"},
+        {"position": "instance", "when": "instance_selected"}
+      ],
+      "workflow": "report"
+    }]
+  }
+}

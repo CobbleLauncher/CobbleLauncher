@@ -19,9 +19,13 @@ unicode-normalization.workspace = true
 caseless.workspace = true
 fastnbt = "=2.6.3"
 flate2.workspace = true
+cap-std.workspace = true
+cap-fs-ext.workspace = true
+resolvo = "=0.12.2"
+tokio.workspace = true
 
 [dev-dependencies]
-tokio.workspace = true
+tempfile = "=3.27.0"
 
 [lints]
 workspace = true

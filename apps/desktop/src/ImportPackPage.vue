@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
+import CompatibilityNotice from './CompatibilityNotice.vue';
 import { onMounted, onUnmounted, ref } from 'vue';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { RadioGroupItem, RadioGroupRoot } from 'reka-ui';
@@ -128,6 +129,11 @@ onUnmounted(() => { disposed = true; });
         >
           {{ preview.summary }}
         </p>
+        <CompatibilityNotice
+          :minecraft-version="preview.minecraft_version"
+          :loader-kind="preview.loader_kind"
+          :loader-version="preview.loader_version"
+        />
         <div class="compatibility-tags">
           <span>Minecraft {{ preview.minecraft_version }}</span><span>{{ preview.loader_version ? `${loaderLabel(preview.loader_kind ?? 'fabric')} ${preview.loader_version}` : t('importPack.vanilla') }}</span>
         </div>

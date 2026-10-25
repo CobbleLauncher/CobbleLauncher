@@ -77,6 +77,7 @@ pub struct DownloadRequest {
     partition: Option<CredentialPartition>,
     mirror_redirects: bool,
     curseforge_redirects: bool,
+    adoptium_redirects: bool,
 }
 impl DownloadRequest {
     pub(crate) fn progress_labels(&self) -> (String, String, u64) {
@@ -107,6 +108,7 @@ impl DownloadRequest {
             || self.partition.is_some()
             || self.mirror_redirects
             || self.curseforge_redirects
+            || self.adoptium_redirects
         {
             return Err(DownloadError::InvalidRequest);
         }
@@ -145,6 +147,7 @@ impl DownloadRequest {
             || self.partition.is_some()
             || self.mirror_redirects
             || self.curseforge_redirects
+            || self.adoptium_redirects
             || !matches!(
                 self.endpoint.url.host_str(),
                 Some(
@@ -227,6 +230,7 @@ impl DownloadRequest {
             partition: authority.partition,
             mirror_redirects: false,
             curseforge_redirects: false,
+            adoptium_redirects: false,
         })
     }
     /// Exact API-provided CurseForge files may redirect between the finite
@@ -234,6 +238,7 @@ impl DownloadRequest {
     pub fn with_curseforge_redirects(mut self) -> Result<Self, DownloadError> {
         if self.mirror_redirects
             || self.curseforge_redirects
+            || self.adoptium_redirects
             || self.source_label != "curseforge"
             || self.expectation.digests.sha1.is_none()
             || !crate::artifact::curseforge_endpoint(&self.endpoint)
@@ -245,6 +250,26 @@ impl DownloadRequest {
         hash.update(self.identity.request_key);
         self.identity.request_key = hash.finalize().into();
         self.curseforge_redirects = true;
+        Ok(self)
+    }
+    /// Public GA Temurin release packages may use GitHub's finite release CDN.
+    /// No credential or general-purpose mirror delegation is permitted.
+    pub fn with_adoptium_redirects(mut self) -> Result<Self, DownloadError> {
+        if self.credential.is_some()
+            || self.partition.is_some()
+            || self.mirror_redirects
+            || self.curseforge_redirects
+            || self.source_label != "adoptium"
+            || self.expectation.digests.sha256.is_none()
+            || !crate::artifact::adoptium_release_endpoint(&self.endpoint)
+        {
+            return Err(DownloadError::InvalidRequest);
+        }
+        let mut hash = Sha256::new();
+        hash.update(b"CobbleLauncher verified Temurin official GitHub release redirects v1\0");
+        hash.update(self.identity.request_key);
+        self.identity.request_key = hash.finalize().into();
+        self.adoptium_redirects = true;
         Ok(self)
     }
 }
@@ -476,7 +501,8 @@ impl ArtifactDownloader {
                     cancel.clone(),
                     SameOriginGrant::new(&request.endpoint)
                         .with_mirror(request.mirror_redirects)
-                        .with_curseforge(request.curseforge_redirects),
+                        .with_curseforge(request.curseforge_redirects)
+                        .with_adoptium(request.adoptium_redirects, &request.endpoint),
                 )
                 .await;
             if let Some(error) = status.lock().map_err(|_| DownloadError::Worker)?.take() {

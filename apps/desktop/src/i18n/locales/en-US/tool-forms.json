@@ -1,0 +1,14 @@
+{
+  "generate": "Generate",
+  "generating": "Generating…",
+  "cancel": "Cancel",
+  "cancelling": "Cancelling…",
+  "copy": "Copy",
+  "copied": "Copied",
+  "copyBlock": "Copy {label}",
+  "failed": "Could not generate. Try again.",
+  "invalidInput": "Check the values and try again.",
+  "unavailable": "This tool is unavailable. Enable it in Extensions.",
+  "invalidForm": "This form is not supported.",
+  "copyFailed": "Could not copy. Select and copy the text."
+}

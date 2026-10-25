@@ -1,0 +1,106 @@
+name: Prepare signed Windows updater
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Update channel
+        type: choice
+        options: [preview, stable]
+        default: preview
+      publish:
+        description: Publish this version and advance its update channel
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signed-updater-windows
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    environment: updater-release
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      COBBLE_UPDATER_PUBLIC_KEY: ${{ vars.COBBLE_UPDATER_PUBLIC_KEY }}
+      COBBLE_UPDATER_STABLE_URL: ${{ vars.COBBLE_UPDATER_STABLE_URL }}
+      COBBLE_UPDATER_PREVIEW_URL: ${{ vars.COBBLE_UPDATER_PREVIEW_URL }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - name: Validate owner configuration
+        shell: pwsh
+        run: |
+          if (!$env:COBBLE_UPDATER_PUBLIC_KEY) { throw 'Updater public key is required' }
+          foreach ($value in @($env:COBBLE_UPDATER_STABLE_URL, $env:COBBLE_UPDATER_PREVIEW_URL)) {
+            if (!$value -or ([uri]$value).Scheme -ne 'https') { throw 'Stable and preview HTTPS feeds are required' }
+          }
+      - name: Install pinned tools
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          cargo install wasm-tools --version 1.262.0 --locked
+      - run: pnpm install --frozen-lockfile
+      - run: cargo fetch --locked
+      - run: node --test scripts/prepare-updater-release.test.mjs scripts/publish-updater-release.test.mjs
+      - name: Stage complete application and retained licenses
+        env:
+          COURSE_FORGE_API: ${{ secrets.COURSE_FORGE_API }}
+        run: pnpm package:windows --embedded-curseforge-key
+      - name: Prepare NSIS resource overlay
+        shell: pwsh
+        run: |
+          $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          node scripts/prepare-updater-release.mjs config "${{ github.workspace }}/target/test-release/$version-windows-x64" "${{ github.workspace }}/target/updater-config.json"
+      - name: Build signed NSIS updater
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          COURSE_FORGE_API: ${{ secrets.COURSE_FORGE_API }}
+        shell: pwsh
+        run: |
+          if (!$env:TAURI_SIGNING_PRIVATE_KEY) { throw 'Updater signing private key is required' }
+          pnpm --filter @cobble/desktop tauri build --bundles nsis --features updater-distribution,embedded-curseforge-key --config "${{ github.workspace }}/target/updater-config.json" -- --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload signed installer for owner review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cobble-signed-updater-windows-${{ github.sha }}
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/nsis/*.exe.sig
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    if: inputs.publish
+    needs: prepare
+    environment: updater-release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: cobble-signed-updater-windows-${{ github.sha }}
+          path: target/signed-updater
+      - name: Publish signed version, then update channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COBBLE_RELEASE_CHANNEL: ${{ inputs.channel }}
+        run: node scripts/publish-updater-release.mjs target/signed-updater
+

@@ -1,0 +1,1 @@
+{"name":"seed-compass-example","private":true,"type":"module","scripts":{"build":"node ../../../packages/plugin-workbench/build.mjs seed-compass","test":"node --test src/model.test.ts"}}

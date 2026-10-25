@@ -1,7 +1,7 @@
 {
   "id": "schematic-viewer",
   "name": "Schematic Viewer",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "api_version": "1.0.0",
   "publisher": "CobbleLauncher",
   "capabilities": [
@@ -12,6 +12,12 @@
       {
         "id": "launcher:viewer",
         "version": "1.0.0"
+      }
+    ],
+    "optional": [
+      {
+        "id": "launcher:materials-import",
+        "version": "0.1.0"
       }
     ]
   },

@@ -1,0 +1,22 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { flushPromises, mount } from '@vue/test-utils';
+import { defineComponent } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
+import MeshNodeSettings from './MeshNodeSettings.vue';
+import { setLocale } from '../i18n';
+vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn()}));
+vi.mock('@tauri-apps/plugin-clipboard-manager',()=>({writeText:vi.fn()}));
+afterEach(()=>{vi.clearAllMocks();setLocale('zh-CN');});
+it('keeps node configuration folded and starts only with explicit access and native budgets',async()=>{
+  setLocale('en-US');
+  vi.mocked(invoke).mockResolvedValue({node:null});
+  const wrapper=mount(MeshNodeSettings,{global:{stubs:{SelectField:defineComponent({props:{modelValue:{type:String,default:'private'}},emits:['update:modelValue'],template:'<select :value="modelValue" @change="$emit(\'update:modelValue\',$event.target.value)"><option value="private">Private</option><option value="community">Community</option></select>'})}}});
+  expect(wrapper.find('form').exists()).toBe(false);expect(invoke).not.toHaveBeenCalled();
+  await wrapper.findAll('button').find(button=>button.text()==='Contribute a node')!.trigger('click');await flushPromises();
+  expect(invoke).toHaveBeenCalledWith('mesh_node_status');
+  await wrapper.get('select').setValue('community');
+  const inputs=wrapper.findAll('input');await inputs[0]!.setValue('8.1.1.1');
+  await wrapper.get('form').trigger('submit');await flushPromises();
+  expect(invoke).toHaveBeenCalledWith('mesh_node_start',{config:{advertise_ipv4:'8.1.1.1',port:4001,policy:{role:'community_relay'},limits:{bandwidth_bytes_per_second:1048576,max_bytes:1073741824,max_connections:8,duration_seconds:3600}}});
+  wrapper.unmount();
+});

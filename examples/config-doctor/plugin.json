@@ -1,7 +1,7 @@
 {
   "id": "config-doctor",
   "name": "Config Doctor",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "api_version": "0.2.0",
   "publisher": "CobbleLauncher",
   "capabilities": [
@@ -161,6 +161,9 @@
     },
     {
       "permission": "launcher:game-config/read"
+    },
+    {
+      "permission": "launcher:game-config/write"
     },
     {
       "permission": "launcher:game-keybindings/read"

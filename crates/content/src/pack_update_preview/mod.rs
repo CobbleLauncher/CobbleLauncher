@@ -2,7 +2,12 @@
 //! Pure whole-pack comparison plus a bounded read-only archive snapshot helper.
 //! No downloads, extraction, instance mutation or apply plan.
 //! Unchanged means declared metadata matches, not that installed bytes were verified.
+mod json_merge;
 mod models;
+pub use json_merge::{
+    JsonConfigPreview, JsonFieldChoice, JsonFieldValue, JsonMergeDocument, JsonMergeField,
+    JsonMergeSide, MAX_JSON_MERGE_BYTES, merge_json_document, preview_json_merge,
+};
 mod snapshot;
 use cobble_store::SafeRelativePath;
 pub use models::*;

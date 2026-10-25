@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-import { mount } from '@vue/test-utils';
-import { defineComponent, h } from 'vue';
+import { flushPromises, mount } from '@vue/test-utils';
+import { defineComponent, h, ref } from 'vue';
 import { describe, expect, it } from 'vitest';
 import SettingsRow from './SettingsRow.vue';
 import SettingsSection from './SettingsSection.vue';
@@ -35,18 +35,53 @@ describe('shared settings layout', () => {
   });
 
   it('uses the existing accessible disclosure button and preserves collapsed content', async () => {
-    const wrapper = mount(SettingsDisclosure, { props: { title: 'Advanced', bordered: true }, slots: { default: '<input aria-label="Arguments" value="retained">' } });
+    const draft = ref('retained');
+    const wrapper = mount(SettingsDisclosure, { attachTo: document.body, props: { title: 'Advanced', bordered: true }, slots: { default: () => h('input', { 'aria-label': 'Arguments', value: draft.value, onInput: (event: Event) => draft.value = (event.target as HTMLInputElement).value }) } });
+    await flushPromises();
     const trigger = wrapper.get('button');
     expect(trigger.attributes('type')).toBe('button');
     expect(trigger.attributes('aria-expanded')).toBe('false');
+    const region = wrapper.get('.settings-disclosure-region');
+    expect(region.attributes('id')).toBe(trigger.attributes('aria-controls'));
+    expect(region.attributes('inert')).toBeDefined();
+    expect(wrapper.get('input').isVisible()).toBe(false);
     expect(wrapper.find('summary').exists()).toBe(false);
+    expect(wrapper.find('.settings-disclosure-leading').exists()).toBe(false);
+    expect(wrapper.find('.settings-disclosure-meta').exists()).toBe(false);
     await trigger.trigger('click');
+    await flushPromises();
     expect(trigger.attributes('aria-expanded')).toBe('true');
+    expect(wrapper.get('input').isVisible()).toBe(true);
     expect(wrapper.get('input').element.value).toBe('retained');
+    const input = wrapper.get('input').element;
+    await wrapper.get('input').setValue('edited draft');
+    wrapper.get('input').element.focus();
     await trigger.trigger('click');
+    await flushPromises();
     expect(trigger.attributes('aria-expanded')).toBe('false');
-    expect(wrapper.get('input').element.value).toBe('retained');
-    expect(wrapper.emitted('update:open')).toEqual([[true], [false]]);
+    expect(wrapper.get('input').isVisible()).toBe(false);
+    expect(wrapper.get('input').element.value).toBe('edited draft');
+    expect(wrapper.get('input').element).toBe(input);
+    expect(document.activeElement).toBe(trigger.element);
+    expect(region.attributes('inert')).toBeDefined();
+    await trigger.trigger('click');
+    await flushPromises();
+    expect(region.attributes('inert')).toBeUndefined();
+    expect(wrapper.get('input').element.value).toBe('edited draft');
+    expect(wrapper.emitted('update:open')).toEqual([[true], [false], [true]]);
+    wrapper.unmount();
+  });
+
+  it('keeps optional icon and state metadata inside one accessible disclosure trigger', async () => {
+    const wrapper = mount(SettingsDisclosure, { attachTo: document.body, props: { title: 'Downloads', icon: 'download', value: '12 / 4' }, slots: { meta: '<span>12 active</span>', default: '<input aria-label="Limit" value="12">' } });
+    const trigger = wrapper.get('button');
+    expect(trigger.text()).toContain('Downloads');
+    expect(wrapper.get('.settings-disclosure-leading').attributes('aria-hidden')).toBe('true');
+    expect(wrapper.get('.settings-disclosure-meta').text()).toBe('12 active');
+    expect(wrapper.findAll('button')).toHaveLength(1);
+    await trigger.trigger('click'); await flushPromises();
+    expect(trigger.attributes('aria-expanded')).toBe('true');
+    expect(wrapper.get('input').isVisible()).toBe(true);
     wrapper.unmount();
   });
 

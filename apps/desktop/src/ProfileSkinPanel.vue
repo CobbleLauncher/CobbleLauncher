@@ -6,6 +6,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { PlayerProfile } from './games';
 import type { SkinViewer } from 'skinview3d';
+import LoadingIndicator from './ui/LoadingIndicator.vue';
 type Skin = { image: string; avatar: string; model: 'classic' | 'slim' };
 type Appearance = { skin: Skin | null; localOnly: boolean };
 const props = defineProps<{ profile: PlayerProfile }>();
@@ -56,13 +57,26 @@ onMounted(() => { void load(); });
 onUnmounted(() => { disposed = true; viewer?.dispose(); });
 </script>
 <template>
-  <div class="profile-skin-panel">
+  <div
+    class="profile-skin-panel"
+    :aria-busy="busy"
+  >
     <canvas
       v-show="skin"
       ref="canvas"
       :aria-label="t('skin.preview')"
     />
     <div class="skin-controls">
+      <LoadingIndicator
+        v-if="busy"
+        :label="t('skin.working')"
+      />
+      <p
+        v-else-if="!skin && !error"
+        class="setting-hint"
+      >
+        {{ t('skin.empty') }}
+      </p>
       <p
         v-if="profile.kind === 'offline'"
         class="setting-hint"
@@ -70,7 +84,7 @@ onUnmounted(() => { disposed = true; viewer?.dispose(); });
         {{ t('skin.localOnly') }}
       </p>
       <button
-        class="secondary-button"
+        :class="skin ? 'secondary-button' : 'primary-button'"
         :disabled="busy"
         @click="choose"
       >
@@ -126,5 +140,5 @@ onUnmounted(() => { disposed = true; viewer?.dispose(); });
   </div>
 </template>
 <style scoped>
-.profile-skin-panel{display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:16px 0}.skin-controls{display:flex;flex:1;min-width:160px;flex-direction:column;align-items:flex-start;gap:12px}canvas{max-width:100%;touch-action:none}
+.profile-skin-panel{display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:16px 0;font-size:var(--ui-text-body,14px);line-height:calc(var(--font-size-base,14px)*22/14)}.skin-controls{display:flex;flex:1;min-width:160px;flex-direction:column;align-items:flex-start;gap:12px}.skin-controls button,.skin-controls label,.skin-controls select{font-size:var(--ui-text-body,14px);line-height:calc(var(--font-size-base,14px)*22/14)}.skin-controls .setting-hint{font-size:var(--ui-text-caption,12px);line-height:calc(var(--font-size-base,14px)*18/14)}canvas{max-width:100%;touch-action:none}
 </style>

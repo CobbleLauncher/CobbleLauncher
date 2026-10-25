@@ -1,7 +1,7 @@
 {
   "id": "modpack-inspector",
   "name": "Modpack Inspector",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "api_version": "0.2.0",
   "publisher": "CobbleLauncher",
   "capabilities": [
@@ -12,6 +12,10 @@
       {
         "id": "launcher:report",
         "version": "0.2.0"
+      },
+      {
+        "id": "launcher:web-frontend",
+        "version": "0.1.0"
       }
     ]
   },
@@ -28,14 +32,18 @@
       {
         "id": "modpack-inspector.inspect-pack",
         "label": {
-          "en": "Inspect pack",
-          "zh-CN": "检查整合包"
+          "en": "Modpack Inspector",
+          "zh-CN": "整合包检查器"
         },
         "workflow": "report",
         "menus": [
           {
             "position": "tools",
             "when": "always"
+          },
+          {
+            "position": "instance",
+            "when": "instance_selected"
           }
         ]
       }
@@ -96,8 +104,8 @@
   },
   "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "description": {
-    "en": "Inspect and compare modpack contents",
-    "zh-CN": "查看和比较整合包内容"
+    "en": "Explore installed Mods and declared dependencies; inspect local modpack files",
+    "zh-CN": "查看已安装模组及声明依赖，检查本地整合包文件"
   },
   "tags": [
     "modpacks",
@@ -121,6 +129,18 @@
         "global:page_size",
         "global:show_dependencies"
       ]
+    },
+    {
+      "permission": "launcher:game-inspection/read",
+      "scopes": ["mods"]
+    },
+    {
+      "permission": "launcher:ui/webview"
     }
-  ]
+  ],
+  "frontend": {
+    "api_version": "0.1.0",
+    "entry": "ui/index.html",
+    "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
 }

@@ -1,7 +1,25 @@
 {
   "repairGame": "Repair game files",
+  "javaRuntime": "Prepare Java runtime",
   "snapshotSave": "Save world version",
   "snapshotRestore": "Restore world version",
+  "trialCopy": "Create trial copy",
+  "gameCopy": "Copy game",
+  "errorDetails": "Technical details",
+  "failureRetry": "The task did not finish. Retry when you are ready.",
+  "failureReview": "The task did not finish. Review the details before continuing.",
+  "personalOptionsConflict": "The new game's personal settings changed. Move options.txt outside its game folder as a backup, then retry. If it still fails, prepare a new game from the invitation.",
+  "personalOptionsChanged": "The personal settings plan changed. Prepare a new game from the invitation.",
+  "personalOptionsFailed": "Personal settings could not be saved. Check the new game's folder, then retry.",
+  "updateManualFiles": "A required manual download is no longer available. Open the game and review the Mod update again to add the file.",
+  "copyErrors": {
+    "space": "There is not enough space. Free some space, then retry.",
+    "changed": "The source game changed during copying. Retry to copy its current files.",
+    "target": "The copy destination changed. Start a new copy to choose an available destination.",
+    "link": "The game contains linked files. Review them before creating a copy."
+  },
+  "storageMove": "Move game",
+  "packUpdateCopy": "Create update copy",
   "cancel": "Cancel task",
   "cancelling": "Cancelling…",
   "processed": "Processed {size}",
@@ -28,6 +46,7 @@
   "actionError": "Action failed: {cause}",
   "sources": { "official": "Official", "custom": "Custom source" },
   "states": {
+    "queued": "Waiting",
     "running": "Running",
     "cancelling": "Cancelling",
     "succeeded": "Completed",
@@ -36,6 +55,10 @@
     "interrupted": "Interrupted"
   },
   "phases": {
+    "java-metadata": "Checking Java runtime",
+    "java-download": "Downloading Java runtime",
+    "java-install": "Installing Java runtime",
+    "java-verify": "Verifying Java runtime",
     "metadata": "Reading metadata",
     "files": "Downloading files",
     "assets": "Downloading game assets",
@@ -48,6 +71,8 @@
     "mod-download": "Downloading Mod",
     "mod-install": "Installing Mod",
     "import-copy": "Copying game files",
+    "copying": "Copying game files",
+    "personal-options": "Applying your controls and graphics settings",
     "complete": "Installation complete",
     "pack-base-complete": "Preparing pack files",
     "processing": "Working",

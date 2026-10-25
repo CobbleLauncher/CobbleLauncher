@@ -5,6 +5,7 @@ type LaunchIntentOptions = {
   peek: () => Promise<PendingLaunchIntent | null>;
   acknowledge: (queueId: string) => Promise<boolean>;
   hasGame: (gameId: string) => boolean;
+  isVerifying?: (gameId: string) => boolean;
   confirmWorkspaceLeave: () => Promise<boolean>;
   openGame: (gameId: string) => void | Promise<void>;
   startGame: (gameId: string) => void | Promise<void>;
@@ -27,6 +28,8 @@ export function createPendingLaunchIntentConsumer(options: LaunchIntentOptions) 
       await options.acknowledge(intent.queue_id);
       return;
     }
+    // Keep a cold quick-launch request pending until this game's PID is checked.
+    if (intent.play && options.isVerifying?.(intent.game_id)) return;
     if (!await options.confirmWorkspaceLeave() || disposed) return;
 
     // A second-instance request may replace the queue while the leave prompt is open.

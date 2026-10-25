@@ -126,6 +126,9 @@ impl PluginManifest {
             (crate::IMAGE_LAYOUT_API_VERSION, [capability]) if capability == "image-layout" => {
                 crate::IMAGE_LAYOUT_INTERFACE
             }
+            (crate::TOOL_FORM_API_VERSION, [capability]) if capability == "tool-form" => {
+                crate::TOOL_FORM_INTERFACE
+            }
             _ => return None,
         };
         Some(ProvidedInterface {
@@ -188,6 +191,7 @@ impl PluginManifest {
                     | BLUEPRINT_PROVIDER_INTERFACE
                     | MESSAGE_COMPOSER_INTERFACE
                     | crate::IMAGE_LAYOUT_INTERFACE
+                    | crate::TOOL_FORM_INTERFACE
             ) && implemented.as_ref() != Some(provided)
         }) {
             return Err(PluginError::new(

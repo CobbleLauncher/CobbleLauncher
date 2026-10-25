@@ -1,0 +1,82 @@
+/* SPDX-License-Identifier: MIT */
+.page-header{max-width:1240px;margin:auto;padding:24px 36px;display:flex;align-items:center;justify-content:space-between;gap:24px;border-bottom:1px solid var(--line)}
+.page-header .brand{font-size:22px;font-weight:700;letter-spacing:-1px}
+.page-nav{display:flex;gap:22px;align-items:center;font-size:14px}
+.page-nav a:hover,.page-footer a:hover{color:var(--green);text-decoration:underline}
+.page-nav .current{border-bottom:2px solid var(--green)}
+.page-actions{display:flex;align-items:center;gap:6px}
+.page-main{max-width:1168px;margin:0 auto;padding:76px 36px 100px}
+.page-lead{max-width:800px;margin-bottom:56px}
+.page-lead h1{font-size:clamp(40px,6vw,72px);letter-spacing:-.055em}
+.page-lead>p{font-size:19px;color:var(--muted);margin-top:22px;line-height:1.8}
+.page-lead .page-meta{font:12px var(--mono);margin-top:24px}
+.legal-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:70px;align-items:start}
+.page-toc{position:sticky;top:28px;display:grid;gap:12px;border-left:1px solid var(--line);padding-left:20px;font-size:14px;color:var(--muted)}
+.page-toc a:hover{color:var(--ink)}
+.legal-body{max-width:720px}
+.legal-body section{padding-bottom:32px;margin-bottom:32px;border-bottom:1px solid var(--line)}
+.legal-body h2{font-size:23px;letter-spacing:-.02em;margin-bottom:18px}
+.legal-body p{margin-top:14px;line-height:1.9}
+.legal-body a,.mesh-prose a{color:var(--green);text-decoration:underline;text-underline-offset:3px}
+.page-footer{max-width:1168px;margin:0 auto;padding:28px 36px 40px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:20px;font-size:13px;color:var(--muted)}
+.page-footer nav{display:flex;flex-wrap:wrap;gap:18px}
+.mesh-lead{display:grid;grid-template-columns:1.5fr 1fr;gap:50px;align-items:end}
+.mesh-lead .page-lead{margin-bottom:35px}
+.mesh-index{display:flex;flex-wrap:wrap;gap:16px 24px;padding:22px 0;border-block:1px solid var(--line);font-size:13px}
+.mesh-index span{color:var(--muted);font:12px var(--mono);margin-right:6px}
+.mesh-section{padding-top:76px;scroll-margin-top:20px}
+.mesh-heading{display:grid;grid-template-columns:70px minmax(0,1fr);gap:18px;align-items:baseline;margin-bottom:28px}
+.mesh-heading .number{font:14px var(--mono);color:var(--green)}
+.mesh-heading h2{font-size:clamp(26px,3.7vw,40px);letter-spacing:-.04em}
+.mesh-prose{max-width:760px;color:var(--muted);font-size:16px;line-height:1.85}
+.mesh-prose p+p{margin-top:15px}.tech-grid+.mesh-prose{margin-top:24px}
+.mesh-prose strong{color:var(--ink);font-weight:600}
+.figure{margin:30px 0 20px;background:var(--surface);border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.figure figcaption{font-size:13px;color:var(--muted);padding:16px 24px;border-top:1px solid var(--line);line-height:1.8}
+.diagram{padding:20px;overflow-x:auto}
+.diagram-hint{display:none;font:12px var(--font);color:var(--muted);padding:12px 16px 0;text-align:right}
+.diagram svg{width:100%;min-width:850px;height:auto}
+.diagram .node{fill:var(--paper);stroke:var(--line);stroke-width:1.5}
+.diagram .active-node{fill:var(--soft);stroke:var(--green)}
+.diagram text{fill:var(--ink);font-family:var(--font);font-size:15px}
+.diagram .small{font-size:12px;fill:var(--muted);font-family:var(--mono)}
+.diagram .wire{fill:none;stroke:var(--green);stroke-width:2}
+.diagram .discovery-wire{fill:none;stroke:#a78b57;stroke-width:2;stroke-dasharray:6 5}
+.diagram .muted-wire{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 5}
+.diagram .step{fill:var(--green)}
+.diagram .step-text{fill:var(--paper);font-size:12px;font-weight:600}
+.diagram .arrow{fill:var(--green)}
+.layer-controls{display:flex;flex-wrap:wrap;gap:8px;padding:18px 24px 0}
+.layer-controls button{border:1px solid var(--line);border-radius:4px;padding:6px 13px;font-size:13px}
+.layer-controls button[aria-pressed=true]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+#topology[data-view=control] .data-plane,#topology[data-view=data] .control-plane{opacity:.17}
+#topology .data-plane,#topology .control-plane{transition:opacity .2s}
+.tech-grid{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:28px}
+.tech-item{border-top:2px solid var(--line);padding-top:18px}
+.tech-item h3{font-size:18px;margin-bottom:9px}
+.tech-item p{font-size:14px;color:var(--muted)}
+.protocol-table{width:100%;border-collapse:collapse;font-size:14px;margin-top:30px}
+.protocol-table th{text-align:left;color:var(--muted);font-weight:500}
+.protocol-table td,.protocol-table th{padding:15px 14px 15px 0;border-bottom:1px solid var(--line);vertical-align:top}
+code{font:12px var(--mono);overflow-wrap:anywhere}
+.protocol-table code{color:var(--green)}
+.code-window{background:var(--forest);color:#d5e3cc;border-radius:6px;padding:24px;overflow:auto;line-height:1.9}
+.code-window pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.9 var(--mono)}
+.status-list{padding:0;list-style:none;margin:24px 0;display:grid;gap:0}
+.status-list li{display:grid;grid-template-columns:150px minmax(0,1fr);gap:20px;padding:17px 0;border-bottom:1px solid var(--line);font-size:14px}
+.status-list b{font-weight:550}
+.status-list span{color:var(--muted)}
+.mesh-end{display:flex;justify-content:space-between;align-items:center;margin-top:65px;padding-top:30px;border-top:1px solid var(--line);gap:20px}
+@media(max-width:760px){
+ .diagram-hint{display:block}
+ .page-header{padding:18px 20px;flex-wrap:wrap;gap:15px}.page-header>.page-nav{order:3;width:100%;gap:24px}
+ .page-main{padding:45px 20px 70px}.page-lead>p{font-size:17px}.page-lead{margin-bottom:35px}
+ .legal-layout{grid-template-columns:1fr;gap:32px}.page-toc{position:static;grid-template-columns:1fr 1fr;gap:10px;font-size:13px}
+ .page-footer{padding:24px 20px;flex-direction:column}.mesh-lead{grid-template-columns:1fr;gap:0}
+ .mesh-lead>.mesh-prose{margin-bottom:30px}.mesh-section{padding-top:48px}
+ .mesh-heading{grid-template-columns:35px minmax(0,1fr);gap:10px}.tech-grid{grid-template-columns:1fr;gap:22px}
+ .diagram{padding:12px}.figure figcaption{padding:14px 16px}.layer-controls{padding:14px 16px 0}
+ .status-list li{grid-template-columns:1fr;gap:5px}.mesh-end{align-items:flex-start;flex-direction:column}
+ .protocol-table td,.protocol-table th{padding-right:10px;font-size:13px}
+}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}

@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: MIT
 //! Local mod files and their optional descriptive metadata.
 
+mod compatibility;
+pub mod dependency_solver;
+pub mod environment;
+pub use environment::{EnvironmentSource, EnvironmentProject, EnvironmentRoot, EnvironmentSelection,
+    EnvironmentPlan, EnvironmentDependencyEdge, EnvironmentConflict, ReverseEnvironmentChoice,
+    ReverseEnvironmentConfiguration, reverse_configure_environment, resolve_environment_selected};
+pub use compatibility::{Compatibility, CompatibilityStatus, query_compatibility};
 pub mod curseforge;
 mod curseforge_pack;
 mod local_mods;
@@ -16,6 +23,8 @@ mod mrpack_inspection;
 pub mod pack_update_preview;
 mod world_archives;
 mod worlds;
+mod world_seed;
+pub use world_seed::{LocalWorldMetadata, WorldGeneratorMetadata, WorldSpawn, local_world_metadata, read_saved_world_metadata};
 
 pub use curseforge_pack::{
     CurseForgePack, CurseForgePackFile, CurseForgePackLoader, read_curseforge_pack,
@@ -40,7 +49,9 @@ pub use modrinth::{
     ModrinthPlan, ModrinthUpdate, ResolvedMod, SearchResults, find_modrinth_update,
     identify_modrinth_file, identify_modrinth_file_with_broker, list_modrinth_versions,
     modrinth_version_details, modrinth_version_number, resolve_modrinth, resolve_modrinth_many,
-    resolve_modrinth_selected, search_modrinth,
+    resolve_modrinth_selected, search_modrinth, search_modrinth_unfiltered,
+    ReverseConfiguration, ReverseConfigurationChoice, ReverseConfigurationConflict,
+    ReverseConfigurationStats, reverse_configure_modrinth,
 };
 pub use modrinth_content_packs::{
     ContentPackVersion, ModrinthContentPackDownload, list_modrinth_content_pack_versions,

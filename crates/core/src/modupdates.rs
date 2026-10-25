@@ -14,8 +14,8 @@ use crate::{
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::fs::{Dir, OpenOptions};
 use cobble_content::{
-    ModVersionSelection, ModrinthPlan, ResolvedMod, find_modrinth_update, modrinth_version_number,
-    resolve_modrinth_many, resolve_modrinth_selected,
+    ModVersionSelection, ModrinthPlan, ResolvedMod, modrinth_version_number,
+    resolve_modrinth_selected,
 };
 use cobble_store::SafeRelativePath;
 use serde::{Deserialize, Serialize};
@@ -30,9 +30,14 @@ use std::{
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 pub(crate) mod history;
+mod policy;
 pub use history::{
     ModOperationFile, ModOperationHistory, list_mod_operation_history, preview_mod_operation_undo,
     undo_mod_operation,
+};
+pub use policy::{
+    ModProjectPolicy, ModUpdateChannel, ModUpdatePolicy, read_mod_update_policy,
+    set_mod_update_policy,
 };
 
 #[derive(Clone, Debug, Serialize)]
@@ -52,6 +57,89 @@ pub struct ManagedModSummary {
     pub version_id: String,
     pub filename: String,
     pub enabled: bool,
+    pub pinned: bool,
+}
+
+const PINS: &str = ".cobble-mod-pins.json";
+type ModPins = BTreeMap<String, String>;
+fn pin_key(provider: ModProvider, project: &str) -> String {
+    match provider {
+        ModProvider::Modrinth => project.into(),
+        ModProvider::CurseForge => format!("curseforge:{project}"),
+    }
+}
+
+fn read_pins(root: &Dir) -> Result<ModPins, Error> {
+    let mut options = OpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
+    match root.open_with(PINS, &options) {
+        Ok(file) => Ok(serde_json::from_reader(file.take(1024 * 1024))?),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(ModPins::new()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Pin the exact installed Modrinth version for one game. Old games have no pins.
+pub fn set_modrinth_mod_pinned(
+    directory: &Path,
+    project_id: &str,
+    pinned: bool,
+) -> Result<(), Error> {
+    set_provider_mod_pinned(directory, project_id, pinned, ModProvider::Modrinth)
+}
+pub fn set_curseforge_mod_pinned(
+    directory: &Path,
+    project_id: &str,
+    pinned: bool,
+) -> Result<(), Error> {
+    set_provider_mod_pinned(directory, project_id, pinned, ModProvider::CurseForge)
+}
+fn set_provider_mod_pinned(
+    directory: &Path,
+    project_id: &str,
+    pinned: bool,
+    provider: ModProvider,
+) -> Result<(), Error> {
+    let root = open_root(directory)?;
+    let present = present_mods(&root, &read_provider_provenance(&root, provider)?)?;
+    let installed = present
+        .get(project_id)
+        .ok_or("Only present managed Mods can be pinned")?;
+    let mut pins = read_pins(&root)?;
+    if pinned {
+        pins.insert(
+            pin_key(provider, project_id),
+            installed.recorded.version_id.clone(),
+        );
+    } else {
+        pins.remove(&pin_key(provider, project_id));
+    }
+    let mut options = OpenOptions::new();
+    options
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .follow(FollowSymlinks::No);
+    let mut file = root.open_with(".cobble-mod-pins.json.tmp", &options)?;
+    serde_json::to_writer_pretty(&mut file, &pins)?;
+    file.write_all(b"\n")?;
+    file.sync_all()?;
+    drop(file);
+    root.rename(".cobble-mod-pins.json.tmp", &root, PINS)?;
+    Ok(())
+}
+
+fn reject_pinned_replacements(root: &Dir, plan: &ModUpdatePlan) -> Result<(), Error> {
+    let pins = read_pins(root)?;
+    for change in &plan.changes {
+        if let Some(old) = plan.originals.get(&change.project_id)
+            && pins.get(&pin_key(plan.provider, &change.project_id))
+                == Some(&old.recorded.version_id)
+        {
+            return Err(format!("Unpin {} before changing its version", change.name).into());
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -73,9 +161,19 @@ pub struct ModUpdatePlan {
     provenance: Provenance,
     originals: BTreeMap<String, PresentMod>,
     graph: ModrinthPlan,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    automatic_policy: Option<ModUpdatePolicy>,
 }
 
 impl ModUpdatePlan {
+    pub fn is_curseforge(&self) -> bool {
+        self.provider == ModProvider::CurseForge
+    }
+    pub(crate) fn automatic_with_policy(mut self, policy: ModUpdatePolicy) -> Result<Self, Error> {
+        self.automatic_policy = Some(policy);
+        policy::validate_plan(&open_root(&self.directory)?, &self)?;
+        Ok(self)
+    }
     pub fn version_selections(&self) -> Vec<ModVersionSelection> {
         self.graph
             .mods
@@ -182,9 +280,11 @@ pub fn managed_mod_count(directory: &Path) -> Result<usize, Error> {
 
 pub fn list_managed_modrinth_mods(directory: &Path) -> Result<Vec<ManagedModSummary>, Error> {
     let root = open_root(directory)?;
+    let pins = read_pins(&root)?;
     Ok(present_mods(&root, &read_provenance(&root)?)?
         .into_iter()
         .map(|(project_id, present)| ManagedModSummary {
+            pinned: pins.get(&project_id) == Some(&present.recorded.version_id),
             project_id,
             version_id: present.recorded.version_id,
             filename: present.recorded.filename,
@@ -237,6 +337,7 @@ pub async fn prepare_modrinth_version_changes(
                 version_id: selections[0].version_id.clone(),
                 mods: Vec::new(),
             },
+            automatic_policy: None,
         });
     }
     let mut graph = resolve_modrinth_selected(selections, mc, loader).await?;
@@ -267,16 +368,20 @@ pub async fn check_modrinth_updates(
 ) -> Result<Vec<ModUpdateCandidate>, Error> {
     let root = open_root(directory)?;
     let present = present_mods(&root, &read_provenance(&root)?)?;
+    let pins = read_pins(&root)?;
+    let policy = policy::read(&root)?;
     let mut candidates = Vec::new();
     for (project, current) in present {
-        if let Some(update) =
-            find_modrinth_update(&project, &current.recorded.version_id, mc, loader).await?
+        if pins.get(&project) == Some(&current.recorded.version_id) {
+            continue;
+        }
+        if let Some((installed, selected)) =
+            find_policy_update(&policy, &project, &current.recorded.version_id, mc, loader).await?
         {
-            let selected = update.selected;
             candidates.push(ModUpdateCandidate {
                 project_id: project,
                 name: selected.name,
-                current_version: update.current_version,
+                current_version: installed.version_number,
                 version_number: selected.version_number,
                 version_id: selected.version_id,
                 filename: current.recorded.filename,
@@ -299,31 +404,45 @@ pub async fn prepare_modrinth_updates(
     let root = open_root(directory)?;
     let provenance = read_provenance(&root)?;
     let present = present_mods(&root, &provenance)?;
+    let policy = policy::read(&root)?;
+    let pins = read_pins(&root)?;
     let mut selected = BTreeMap::new();
     for project in selected_projects {
         let current = present
             .get(project)
             .ok_or("Only present managed Modrinth Mods can be updated")?;
-        let update = find_modrinth_update(project, &current.recorded.version_id, mc, loader)
+        if pins.get(project) == Some(&current.recorded.version_id) {
+            return Err("Unpin the selected Mod before changing its version".into());
+        }
+        let update = find_policy_update(&policy, project, &current.recorded.version_id, mc, loader)
             .await?
             .ok_or("Selected Mod has no newer compatible release; check updates again")?;
         if selected.insert(project.clone(), update).is_some() {
             return Err("Duplicate selected Mod".into());
         }
     }
-    let graph = resolve_modrinth_many(selected_projects, mc, loader).await?;
+    let selections: Vec<_> = selected
+        .iter()
+        .map(|(project, (_, next))| ModVersionSelection {
+            project_id: project.clone(),
+            version_id: next.version_id.clone(),
+        })
+        .collect();
+    let graph = resolve_modrinth_selected(&selections, mc, loader).await?;
     // Metadata may change while resolving. Never silently substitute a different
     // root version or turn an update into an older required pin.
-    for (project, update) in &selected {
-        if !graph.mods.iter().any(|item| {
-            item.project_id == *project && item.version_id == update.selected.version_id
-        }) {
+    for (project, (_, update)) in &selected {
+        if !graph
+            .mods
+            .iter()
+            .any(|item| item.project_id == *project && item.version_id == update.version_id)
+        {
             return Err("Modrinth releases changed during preview; check updates again".into());
         }
     }
     let mut labels: BTreeMap<_, _> = selected
         .into_iter()
-        .map(|(id, update)| (id, update.current_version))
+        .map(|(id, (installed, _))| (id, installed.version_number))
         .collect();
     for item in &graph.mods {
         if let Some(old) = present.get(&item.project_id)
@@ -338,7 +457,31 @@ pub async fn prepare_modrinth_updates(
             );
         }
     }
-    build_plan(directory, provenance, present, graph, &labels)
+    let mut plan = build_plan(directory, provenance, present, graph, &labels)?;
+    plan.automatic_policy = Some(policy);
+    policy::validate_plan(&root, &plan)?;
+    Ok(plan)
+}
+
+async fn find_policy_update(
+    policy: &ModUpdatePolicy,
+    project: &str,
+    current_version: &str,
+    mc: &str,
+    loader: &str,
+) -> Result<
+    Option<(
+        cobble_content::ModVersionDetails,
+        cobble_content::ModVersion,
+    )>,
+    Error,
+> {
+    let current =
+        cobble_content::modrinth_version_details(project, current_version, mc, loader).await?;
+    let versions = cobble_content::list_modrinth_versions(project, mc, loader).await?;
+    Ok(policy::select(policy, project, &current, &versions)
+        .cloned()
+        .map(|next| (current, next)))
 }
 
 fn build_plan(
@@ -383,18 +526,42 @@ pub fn prepare_curseforge_update(
 }
 pub fn list_managed_curseforge_mods(directory: &Path) -> Result<Vec<ManagedModSummary>, Error> {
     let root = open_root(directory)?;
+    let pins = read_pins(&root)?;
     Ok(present_mods(
         &root,
         &read_provider_provenance(&root, ModProvider::CurseForge)?,
     )?
     .into_iter()
     .map(|(project_id, item)| ManagedModSummary {
+        pinned: pins.get(&pin_key(ModProvider::CurseForge, &project_id))
+            == Some(&item.recorded.version_id),
         project_id,
         version_id: item.recorded.version_id,
         filename: item.recorded.filename,
         enabled: item.enabled,
     })
     .collect())
+}
+/// Also covers a new root whose required graph would replace an existing pinned Mod.
+pub fn validate_curseforge_mod_pins(directory: &Path, graph: &ModrinthPlan) -> Result<(), Error> {
+    let root = open_root(directory)?;
+    let pins = read_pins(&root)?;
+    let present = present_mods(
+        &root,
+        &read_provider_provenance(&root, ModProvider::CurseForge)?,
+    )?;
+    for selected in &graph.mods {
+        if let Some(old) = present.get(&selected.project_id)
+            && pins.get(&pin_key(ModProvider::CurseForge, &selected.project_id))
+                == Some(&old.recorded.version_id)
+            && (old.recorded.version_id != selected.version_id
+                || old.recorded.filename != selected.file.filename
+                || !old.recorded.sha1.eq_ignore_ascii_case(&selected.file.sha1))
+        {
+            return Err(format!("Unpin {} before changing its version", selected.name).into());
+        }
+    }
+    Ok(())
 }
 fn build_provider_plan(
     directory: &Path,
@@ -448,8 +615,11 @@ fn build_provider_plan(
         provenance,
         originals,
         graph,
+        automatic_policy: None,
     };
-    preflight(&open_root(directory)?, &plan)?;
+    let root = open_root(directory)?;
+    reject_pinned_replacements(&root, &plan)?;
+    preflight(&root, &plan)?;
     Ok(plan)
 }
 
@@ -567,6 +737,8 @@ async fn apply_provider_updates_controlled(
     }
     recover_modrinth_update(directory)?;
     let root = open_root(directory)?;
+    policy::validate_plan(&root, plan)?;
+    reject_pinned_replacements(&root, plan)?;
     if read_provider_provenance(&root, plan.provider)? != plan.provenance
         && already_applied(&root, plan)?
     {
@@ -1090,6 +1262,90 @@ mod tests {
     }
 
     #[test]
+    fn update_policy_round_trips_and_stale_automatic_previews_are_rejected() {
+        let fixture = Fixture::new();
+        assert_eq!(
+            read_mod_update_policy(&fixture.0).unwrap(),
+            ModUpdatePolicy::default()
+        );
+        let mut plan = fixture_plan(&fixture, false);
+        plan.automatic_policy = Some(ModUpdatePolicy::default());
+        let mut policy = ModUpdatePolicy::default();
+        policy.projects.insert(
+            "modrinth:Dep".into(),
+            ModProjectPolicy {
+                channel: Some(ModUpdateChannel::Preview),
+                ignored_versions: BTreeSet::from(["Dep-new".into()]),
+            },
+        );
+        set_mod_update_policy(&fixture.0, &policy).unwrap();
+        assert_eq!(read_mod_update_policy(&fixture.0).unwrap(), policy);
+        assert!(policy::validate_plan(&fixture.root(), &plan).is_err());
+        // Explicit selections keep the exact graph, including required ignored dependencies.
+        plan.automatic_policy = None;
+        assert!(policy::validate_plan(&fixture.root(), &plan).is_ok());
+        assert!(plan.changes.iter().any(|change| change.project_id == "Dep"));
+        publish_updates(&fixture.root(), &plan, stage).unwrap();
+        assert!(fixture.root().try_exists("mods/dep.jar").unwrap());
+    }
+
+    #[test]
+    fn ignored_root_can_be_manually_selected_but_cannot_bypass_a_pin() {
+        let fixture = Fixture::new();
+        let plan = fixture_plan(&fixture, false);
+        let mut policy = ModUpdatePolicy::default();
+        policy.projects.insert(
+            "modrinth:Root".into(),
+            ModProjectPolicy {
+                channel: None,
+                ignored_versions: BTreeSet::from(["Root-new".into()]),
+            },
+        );
+        set_mod_update_policy(&fixture.0, &policy).unwrap();
+        assert!(policy::validate_plan(&fixture.root(), &plan).is_ok());
+        set_modrinth_mod_pinned(&fixture.0, "Root", true).unwrap();
+        assert!(reject_pinned_replacements(&fixture.root(), &plan).is_err());
+        set_modrinth_mod_pinned(&fixture.0, "Root", false).unwrap();
+        assert!(reject_pinned_replacements(&fixture.root(), &plan).is_ok());
+    }
+
+    #[test]
+    fn pins_default_off_and_block_root_or_dependency_replacement() {
+        let fixture = Fixture::new();
+        let plan = fixture_plan(&fixture, false);
+        assert!(!list_managed_modrinth_mods(&fixture.0).unwrap()[0].pinned);
+        set_modrinth_mod_pinned(&fixture.0, "Root", true).unwrap();
+        assert!(list_managed_modrinth_mods(&fixture.0).unwrap()[0].pinned);
+        assert!(reject_pinned_replacements(&fixture.root(), &plan).is_err());
+        set_modrinth_mod_pinned(&fixture.0, "Root", false).unwrap();
+        assert!(reject_pinned_replacements(&fixture.root(), &plan).is_ok());
+
+        let root = fixture.root();
+        root.write("mods/dep-old.jar", b"old-dep").unwrap();
+        let mut provenance = read_provenance(&root).unwrap();
+        provenance.insert(
+            "Dep".into(),
+            ManagedMod {
+                version_id: "Dep-old".into(),
+                filename: "dep-old.jar".into(),
+                sha1: format!("{:x}", Sha1::digest(b"old-dep")),
+            },
+        );
+        write_provenance(&root, &provenance).unwrap();
+        set_modrinth_mod_pinned(&fixture.0, "Dep", true).unwrap();
+        let present = present_mods(&root, &provenance).unwrap();
+        let graph = plan.graph.clone();
+        let error = build_plan(
+            &fixture.0,
+            provenance,
+            present,
+            graph,
+            &BTreeMap::from([("Root".into(), "1.0".into()), ("Dep".into(), "1.0".into())]),
+        );
+        assert!(error.unwrap_err().to_string().contains("Unpin Dep"));
+    }
+
+    #[test]
     fn history_undo_restores_disabled_root_and_removes_only_added_dependency() {
         let fixture = Fixture::new();
         let plan = fixture_plan(&fixture, true);
@@ -1231,6 +1487,123 @@ mod tests {
         assert!(!root.exists("mods/dep.jar.disabled"));
         assert_eq!(read_provenance(&root).unwrap(), plan.provenance);
         ensure_update_complete(&fixture.0).unwrap();
+    }
+
+    #[test]
+    fn cf_policy_ignored_required_dependencies_are_preserved_in_publication() {
+        let fixture = Fixture::new();
+        let mut original = fixture_plan(&fixture, false);
+        original.provider = ModProvider::CurseForge;
+        for selected in &mut original.graph.mods {
+            selected.file.url.clear();
+        }
+        write_provider_provenance(
+            &fixture.root(),
+            &original.provenance,
+            ModProvider::CurseForge,
+        )
+        .unwrap();
+        let mut policy = ModUpdatePolicy::default();
+        policy.projects.insert(
+            "curseforge:Dep".into(),
+            ModProjectPolicy {
+                channel: None,
+                ignored_versions: BTreeSet::from(["Dep-new".into()]),
+            },
+        );
+        set_mod_update_policy(&fixture.0, &policy).unwrap();
+        let source = cobble_content::curseforge::InstallPlan {
+            graph: original.graph,
+            restricted: Vec::new(),
+            incompatible: Vec::new(),
+        };
+        let plan = prepare_curseforge_update(&fixture.0, &source)
+            .unwrap()
+            .automatic_with_policy(policy)
+            .unwrap();
+        assert!(plan.changes.iter().any(|change| change.project_id == "Dep"));
+        publish_updates(&fixture.root(), &plan, stage).unwrap();
+        assert!(fixture.root().try_exists("mods/dep.jar").unwrap());
+    }
+
+    #[test]
+    fn cf_policy_pins_are_provider_scoped_and_block_roots_and_required_replacements() {
+        let fixture = Fixture::new();
+        let mut original = fixture_plan(&fixture, false);
+        for selected in &mut original.graph.mods {
+            selected.file.url.clear();
+        }
+        write_provider_provenance(
+            &fixture.root(),
+            &original.provenance,
+            ModProvider::CurseForge,
+        )
+        .unwrap();
+        let source = cobble_content::curseforge::InstallPlan {
+            graph: original.graph,
+            restricted: Vec::new(),
+            incompatible: Vec::new(),
+        };
+        set_modrinth_mod_pinned(&fixture.0, "Root", true).unwrap();
+        assert!(prepare_curseforge_update(&fixture.0, &source).is_ok());
+        set_curseforge_mod_pinned(&fixture.0, "Root", true).unwrap();
+        assert!(list_managed_curseforge_mods(&fixture.0).unwrap()[0].pinned);
+        assert!(prepare_curseforge_update(&fixture.0, &source).is_err());
+        assert!(validate_curseforge_mod_pins(&fixture.0, &source.graph).is_err());
+        set_curseforge_mod_pinned(&fixture.0, "Root", false).unwrap();
+        let root = fixture.root();
+        root.write("mods/dep-old.jar", b"old-dep").unwrap();
+        let mut provenance = read_provider_provenance(&root, ModProvider::CurseForge).unwrap();
+        provenance.insert(
+            "Dep".into(),
+            ManagedMod {
+                version_id: "Dep-old".into(),
+                filename: "dep-old.jar".into(),
+                sha1: format!("{:x}", Sha1::digest(b"old-dep")),
+            },
+        );
+        write_provider_provenance(&root, &provenance, ModProvider::CurseForge).unwrap();
+        set_curseforge_mod_pinned(&fixture.0, "Dep", true).unwrap();
+        assert!(prepare_curseforge_update(&fixture.0, &source).is_err());
+        assert!(validate_curseforge_mod_pins(&fixture.0, &source.graph).is_err());
+    }
+
+    #[test]
+    fn cf_policy_stale_automatic_preview_is_rejected_but_manual_exact_still_checks_pins() {
+        let fixture = Fixture::new();
+        let mut original = fixture_plan(&fixture, false);
+        for selected in &mut original.graph.mods {
+            selected.file.url.clear();
+        }
+        write_provider_provenance(
+            &fixture.root(),
+            &original.provenance,
+            ModProvider::CurseForge,
+        )
+        .unwrap();
+        let source = cobble_content::curseforge::InstallPlan {
+            graph: original.graph,
+            restricted: Vec::new(),
+            incompatible: Vec::new(),
+        };
+        let automatic = prepare_curseforge_update(&fixture.0, &source)
+            .unwrap()
+            .automatic_with_policy(ModUpdatePolicy::default())
+            .unwrap();
+        let mut changed = ModUpdatePolicy::default();
+        changed.projects.insert(
+            "curseforge:Root".into(),
+            ModProjectPolicy {
+                channel: Some(ModUpdateChannel::Preview),
+                ignored_versions: BTreeSet::from(["Root-new".into()]),
+            },
+        );
+        set_mod_update_policy(&fixture.0, &changed).unwrap();
+        assert!(policy::validate_plan(&fixture.root(), &automatic).is_err());
+        let manual = prepare_curseforge_update(&fixture.0, &source).unwrap();
+        assert!(policy::validate_plan(&fixture.root(), &manual).is_ok());
+        set_curseforge_mod_pinned(&fixture.0, "Root", true).unwrap();
+        assert!(reject_pinned_replacements(&fixture.root(), &manual).is_err());
     }
 
     #[test]

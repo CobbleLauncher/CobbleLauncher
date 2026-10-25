@@ -1,0 +1,12 @@
+{
+  "id": "lang-doctor", "name": "Language Doctor", "version": "0.1.0", "api_version": "0.2.0",
+  "publisher": "CobbleLauncher", "capabilities": ["report"],
+  "interfaces": { "provides": [{ "id": "launcher:report", "version": "0.2.0" }, { "id": "launcher:web-frontend", "version": "0.1.0" }] },
+  "file_extensions": ["json", "zip"], "report_protocols": ["cobble.lang-package@1"],
+  "component_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "description": { "en": "Compare resource-pack translations and check language JSON", "zh-CN": "对比资源包翻译并检查语言 JSON" },
+  "tags": ["translation", "resource-packs"],
+  "permissions": [{ "permission": "launcher:resource/selected/read", "extensions": ["json", "zip"] }, { "permission": "launcher:ui/webview" }, { "permission": "launcher:exports/text" }],
+  "contributions": { "schema_version": 1, "commands": [{ "id": "lang-doctor.inspect", "label": { "en": "Check translations", "zh-CN": "检查翻译" }, "workflow": "report", "menus": [{ "position": "tools" }] }] },
+  "frontend": { "api_version": "0.1.0", "entry": "ui/index.html", "assets_sha256": "0000000000000000000000000000000000000000000000000000000000000000" }
+}
