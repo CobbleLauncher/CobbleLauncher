@@ -37,9 +37,16 @@ jobs:
           node --version
           test "$(node -p process.arch)" = "${{ matrix.arch }}"
           if [ "${{ matrix.arch }}" = arm64 ]; then test "$(uname -m)" = arm64; else test "$(uname -m)" = x86_64; fi
-      - name: Install pinned Rust and Wasm tools
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.99.0 --profile minimal
+      - name: Reuse dependency and tool builds
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          shared-key: macos-preview-${{ matrix.arch }}
+          cache-on-failure: true
+          cache-workspace-crates: false
+      - name: Install pinned Wasm tools
         run: |
-          rustup toolchain install 1.99.0 --profile minimal
           cargo install wasm-tools --version 1.262.0 --locked
       - run: pnpm install --frozen-lockfile
       - run: cargo fetch --locked

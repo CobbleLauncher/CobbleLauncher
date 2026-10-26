@@ -645,5 +645,596 @@
     "retrieved": "2026-10-26",
     "sha256": "39fa265207450e77c62e90c5594a06c085b655d8374c7ced4bf7894b6bd95dd2",
     "note": "Original repository license omitted from published crate; retained from its .cargo_vcs_info.json repository revision."
+  },
+  {
+    "package": "block2-0.6.2",
+    "file": "rust/block2-0.6.2/LICENSE.md",
+    "source": "https://raw.githubusercontent.com/madsmtm/objc2/b4167b582b2f75f9a1be75495c41b765344fd03c/LICENSE.md",
+    "retrieved": "2026-10-26",
+    "note": "Original upstream license mapping and Xcode SDK distribution notice from the exact published crate VCS revision; the published crate archive omits this file."
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/block2-0.6.2/LICENSE-MIT",
+    "package": "block2-0.6.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/b4167b582b2f75f9a1be75495c41b765344fd03c/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/b4167b582b2f75f9a1be75495c41b765344fd03c/crates/block2/Cargo.toml"
+    ]
+  },
+  {
+    "package": "dispatch2-0.3.1",
+    "file": "rust/dispatch2-0.3.1/LICENSE.md",
+    "source": "https://raw.githubusercontent.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md",
+    "retrieved": "2026-10-26",
+    "note": "Original upstream license mapping and Xcode SDK distribution notice from the exact published crate VCS revision; the published crate archive omits this file."
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/dispatch2-0.3.1/LICENSE-MIT",
+    "package": "dispatch2-0.3.1",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/crates/dispatch2/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Apache-2.0",
+    "note": "Canonical Apache-2.0 text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/dispatch2-0.3.1/LICENSE-APACHE-2.0",
+    "package": "dispatch2-0.3.1",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Apache-2.0.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/crates/dispatch2/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Zlib",
+    "note": "Canonical Zlib text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/dispatch2-0.3.1/LICENSE-ZLIB",
+    "package": "dispatch2-0.3.1",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Zlib.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/crates/dispatch2/Cargo.toml"
+    ]
+  },
+  {
+    "package": "objc2-0.6.5",
+    "file": "rust/objc2-0.6.5/LICENSE.md",
+    "source": "https://raw.githubusercontent.com/madsmtm/objc2/d7d2fa23ceaa5e6096c923b081040e5d81b3b9df/LICENSE.md",
+    "retrieved": "2026-10-26",
+    "note": "Original upstream license mapping and Xcode SDK distribution notice from the exact published crate VCS revision; the published crate archive omits this file."
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-0.6.5/LICENSE-MIT",
+    "package": "objc2-0.6.5",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/d7d2fa23ceaa5e6096c923b081040e5d81b3b9df/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/d7d2fa23ceaa5e6096c923b081040e5d81b3b9df/crates/objc2/Cargo.toml"
+    ]
+  },
+  {
+    "package": "objc2-app-kit-0.3.2",
+    "file": "rust/objc2-app-kit-0.3.2/LICENSE.md",
+    "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    "retrieved": "2026-10-26",
+    "note": "Original upstream license mapping and Xcode SDK distribution notice from the exact published crate VCS revision; the published crate archive omits this file."
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-app-kit-0.3.2/LICENSE-MIT",
+    "package": "objc2-app-kit-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-app-kit/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Apache-2.0",
+    "note": "Canonical Apache-2.0 text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-app-kit-0.3.2/LICENSE-APACHE-2.0",
+    "package": "objc2-app-kit-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Apache-2.0.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-app-kit/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Zlib",
+    "note": "Canonical Zlib text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-app-kit-0.3.2/LICENSE-ZLIB",
+    "package": "objc2-app-kit-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Zlib.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-app-kit/Cargo.toml"
+    ]
+  },
+  {
+    "package": "objc2-core-foundation-0.3.2",
+    "file": "rust/objc2-core-foundation-0.3.2/LICENSE.md",
+    "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    "retrieved": "2026-10-26",
+    "note": "Original upstream license mapping and Xcode SDK distribution notice from the exact published crate VCS revision; the published crate archive omits this file."
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-core-foundation-0.3.2/LICENSE-MIT",
+    "package": "objc2-core-foundation-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-core-foundation/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Apache-2.0",
+    "note": "Canonical Apache-2.0 text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-core-foundation-0.3.2/LICENSE-APACHE-2.0",
+    "package": "objc2-core-foundation-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Apache-2.0.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-core-foundation/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Zlib",
+    "note": "Canonical Zlib text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-core-foundation-0.3.2/LICENSE-ZLIB",
+    "package": "objc2-core-foundation-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Zlib.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-core-foundation/Cargo.toml"
+    ]
+  },
+  {
+    "package": "objc2-core-graphics-0.3.2",
+    "file": "rust/objc2-core-graphics-0.3.2/LICENSE.md",
+    "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    "retrieved": "2026-10-26",
+    "note": "Original upstream license mapping and Xcode SDK distribution notice from the exact published crate VCS revision; the published crate archive omits this file."
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-core-graphics-0.3.2/LICENSE-MIT",
+    "package": "objc2-core-graphics-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-core-graphics/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Apache-2.0",
+    "note": "Canonical Apache-2.0 text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-core-graphics-0.3.2/LICENSE-APACHE-2.0",
+    "package": "objc2-core-graphics-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Apache-2.0.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-core-graphics/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Zlib",
+    "note": "Canonical Zlib text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-core-graphics-0.3.2/LICENSE-ZLIB",
+    "package": "objc2-core-graphics-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Zlib.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-core-graphics/Cargo.toml"
+    ]
+  },
+  {
+    "package": "objc2-io-kit-0.3.2",
+    "file": "rust/objc2-io-kit-0.3.2/LICENSE.md",
+    "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    "retrieved": "2026-10-26",
+    "note": "Original upstream license mapping and Xcode SDK distribution notice from the exact published crate VCS revision; the published crate archive omits this file."
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-io-kit-0.3.2/LICENSE-MIT",
+    "package": "objc2-io-kit-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-io-kit/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Apache-2.0",
+    "note": "Canonical Apache-2.0 text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-io-kit-0.3.2/LICENSE-APACHE-2.0",
+    "package": "objc2-io-kit-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Apache-2.0.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-io-kit/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Zlib",
+    "note": "Canonical Zlib text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-io-kit-0.3.2/LICENSE-ZLIB",
+    "package": "objc2-io-kit-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Zlib.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-io-kit/Cargo.toml"
+    ]
+  },
+  {
+    "package": "objc2-osa-kit-0.3.2",
+    "file": "rust/objc2-osa-kit-0.3.2/LICENSE.md",
+    "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    "retrieved": "2026-10-26",
+    "note": "Original upstream license mapping and Xcode SDK distribution notice from the exact published crate VCS revision; the published crate archive omits this file."
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-osa-kit-0.3.2/LICENSE-MIT",
+    "package": "objc2-osa-kit-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-osa-kit/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Apache-2.0",
+    "note": "Canonical Apache-2.0 text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-osa-kit-0.3.2/LICENSE-APACHE-2.0",
+    "package": "objc2-osa-kit-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Apache-2.0.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-osa-kit/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Zlib",
+    "note": "Canonical Zlib text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-osa-kit-0.3.2/LICENSE-ZLIB",
+    "package": "objc2-osa-kit-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Zlib.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-osa-kit/Cargo.toml"
+    ]
+  },
+  {
+    "package": "objc2-quartz-core-0.3.2",
+    "file": "rust/objc2-quartz-core-0.3.2/LICENSE.md",
+    "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    "retrieved": "2026-10-26",
+    "note": "Original upstream license mapping and Xcode SDK distribution notice from the exact published crate VCS revision; the published crate archive omits this file."
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-quartz-core-0.3.2/LICENSE-MIT",
+    "package": "objc2-quartz-core-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-quartz-core/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Apache-2.0",
+    "note": "Canonical Apache-2.0 text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-quartz-core-0.3.2/LICENSE-APACHE-2.0",
+    "package": "objc2-quartz-core-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Apache-2.0.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-quartz-core/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Zlib",
+    "note": "Canonical Zlib text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-quartz-core-0.3.2/LICENSE-ZLIB",
+    "package": "objc2-quartz-core-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Zlib.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-quartz-core/Cargo.toml"
+    ]
+  },
+  {
+    "package": "objc2-web-kit-0.3.2",
+    "file": "rust/objc2-web-kit-0.3.2/LICENSE.md",
+    "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    "retrieved": "2026-10-26",
+    "note": "Original upstream license mapping and Xcode SDK distribution notice from the exact published crate VCS revision; the published crate archive omits this file."
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-web-kit-0.3.2/LICENSE-MIT",
+    "package": "objc2-web-kit-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-web-kit/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Apache-2.0",
+    "note": "Canonical Apache-2.0 text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-web-kit-0.3.2/LICENSE-APACHE-2.0",
+    "package": "objc2-web-kit-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Apache-2.0.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-web-kit/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Zlib",
+    "note": "Canonical Zlib text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-web-kit-0.3.2/LICENSE-ZLIB",
+    "package": "objc2-web-kit-0.3.2",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Zlib.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-web-kit/Cargo.toml"
+    ]
+  },
+  {
+    "package": "objc2-encode-4.1.0",
+    "file": "rust/objc2-encode-4.1.0/LICENSE.md",
+    "source": "https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md",
+    "retrieved": "2026-10-26",
+    "note": "Original upstream license mapping and Xcode SDK distribution notice from the exact published crate VCS revision; the published crate archive omits this file."
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-encode-4.1.0/LICENSE-MIT",
+    "package": "objc2-encode-4.1.0",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/crates/objc2-encode/Cargo.toml"
+    ]
+  },
+  {
+    "package": "objc2-exception-helper-0.1.1",
+    "file": "rust/objc2-exception-helper-0.1.1/LICENSE.md",
+    "source": "https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md",
+    "retrieved": "2026-10-26",
+    "note": "Original upstream license mapping and Xcode SDK distribution notice from the exact published crate VCS revision; the published crate archive omits this file."
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-exception-helper-0.1.1/LICENSE-MIT",
+    "package": "objc2-exception-helper-0.1.1",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/crates/objc2-exception-helper/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Apache-2.0",
+    "note": "Canonical Apache-2.0 text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-exception-helper-0.1.1/LICENSE-APACHE-2.0",
+    "package": "objc2-exception-helper-0.1.1",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Apache-2.0.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/crates/objc2-exception-helper/Cargo.toml"
+    ]
+  },
+  {
+    "license": "Zlib",
+    "note": "Canonical Zlib text selected under the package license declaration at its published crate VCS revision; the source revision contains no standalone license text.",
+    "file": "rust/objc2-exception-helper-0.1.1/LICENSE-ZLIB",
+    "package": "objc2-exception-helper-0.1.1",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Zlib.txt",
+    "grant_sources": [
+      "https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md",
+      "https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/crates/objc2-exception-helper/Cargo.toml"
+    ]
+  },
+  {
+    "license": "MIT",
+    "note": "Canonical MIT text selected under the published crate archive declaration MIT/Apache-2.0 and README grant. Upstream repository URL in Cargo metadata is unavailable; Cargo VCS metadata pins commit 011e602282e771a0fa11fbe959c133bc5576ea3f.",
+    "file": "rust/interfaces-0.0.8/LICENSE-MIT",
+    "package": "interfaces-0.0.8",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/MIT.txt",
+    "grant_sources": [
+      "https://crates.io/api/v1/crates/interfaces/0.0.8/download#Cargo.toml",
+      "https://crates.io/api/v1/crates/interfaces/0.0.8/download#README.md"
+    ]
+  },
+  {
+    "license": "Apache-2.0",
+    "note": "Canonical Apache-2.0 text selected under the published crate archive declaration MIT/Apache-2.0 and README grant. Upstream repository URL in Cargo metadata is unavailable; Cargo VCS metadata pins commit 011e602282e771a0fa11fbe959c133bc5576ea3f.",
+    "file": "rust/interfaces-0.0.8/LICENSE-APACHE-2.0",
+    "package": "interfaces-0.0.8",
+    "provenance": "canonical-license",
+    "retrieved": "2026-10-26",
+    "source": "https://spdx.org/licenses/Apache-2.0.txt",
+    "grant_sources": [
+      "https://crates.io/api/v1/crates/interfaces/0.0.8/download#Cargo.toml",
+      "https://crates.io/api/v1/crates/interfaces/0.0.8/download#README.md"
+    ]
+  },
+  {
+    "package": "block2-0.6.2",
+    "file": "rust/block2-0.6.2/UPSTREAM-NOTICE.txt",
+    "source": "https://github.com/madsmtm/objc2/b4167b582b2f75f9a1be75495c41b765344fd03c/crates/block2/Cargo.toml",
+    "retrieved": "2026-10-26",
+    "note": "Package metadata and VCS revision transcribed from the published crate archive; Cargo.toml at the pinned upstream commit is the source for the metadata fields."
+  },
+  {
+    "package": "dispatch2-0.3.1",
+    "file": "rust/dispatch2-0.3.1/UPSTREAM-NOTICE.txt",
+    "source": "https://github.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/crates/dispatch2/Cargo.toml",
+    "retrieved": "2026-10-26",
+    "note": "Package metadata and VCS revision transcribed from the published crate archive; Cargo.toml at the pinned upstream commit is the source for the metadata fields."
+  },
+  {
+    "package": "interfaces-0.0.8",
+    "file": "rust/interfaces-0.0.8/UPSTREAM-NOTICE.txt",
+    "source": "https://crates.io/api/v1/crates/interfaces/0.0.8/download#Cargo.toml",
+    "retrieved": "2026-10-26",
+    "note": "Package metadata and the original license grant are transcribed from the published crate archive; its Cargo VCS metadata records commit 011e602282e771a0fa11fbe959c133bc5576ea3f and repository metadata points to an unavailable upstream URL."
+  },
+  {
+    "package": "objc2-0.6.5",
+    "file": "rust/objc2-0.6.5/UPSTREAM-NOTICE.txt",
+    "source": "https://github.com/madsmtm/objc2/d7d2fa23ceaa5e6096c923b081040e5d81b3b9df/crates/objc2/Cargo.toml",
+    "retrieved": "2026-10-26",
+    "note": "Package metadata and VCS revision transcribed from the published crate archive; Cargo.toml at the pinned upstream commit is the source for the metadata fields."
+  },
+  {
+    "package": "objc2-app-kit-0.3.2",
+    "file": "rust/objc2-app-kit-0.3.2/UPSTREAM-NOTICE.txt",
+    "source": "https://github.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560bde560b/framework-crates/objc2-app-kit/Cargo.toml",
+    "retrieved": "2026-10-26",
+    "note": "Package metadata and VCS revision transcribed from the published crate archive; Cargo.toml at the pinned upstream commit is the source for the metadata fields."
+  },
+  {
+    "package": "objc2-core-foundation-0.3.2",
+    "file": "rust/objc2-core-foundation-0.3.2/UPSTREAM-NOTICE.txt",
+    "source": "https://github.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560bde560b/framework-crates/objc2-core-foundation/Cargo.toml",
+    "retrieved": "2026-10-26",
+    "note": "Package metadata and VCS revision transcribed from the published crate archive; Cargo.toml at the pinned upstream commit is the source for the metadata fields."
+  },
+  {
+    "package": "objc2-core-graphics-0.3.2",
+    "file": "rust/objc2-core-graphics-0.3.2/UPSTREAM-NOTICE.txt",
+    "source": "https://github.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560bde560b/framework-crates/objc2-core-graphics/Cargo.toml",
+    "retrieved": "2026-10-26",
+    "note": "Package metadata and VCS revision transcribed from the published crate archive; Cargo.toml at the pinned upstream commit is the source for the metadata fields."
+  },
+  {
+    "package": "objc2-io-kit-0.3.2",
+    "file": "rust/objc2-io-kit-0.3.2/UPSTREAM-NOTICE.txt",
+    "source": "https://github.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-io-kit/Cargo.toml",
+    "retrieved": "2026-10-26",
+    "note": "Package metadata and VCS revision transcribed from the published crate archive; Cargo.toml at the pinned upstream commit is the source for the metadata fields."
+  },
+  {
+    "package": "objc2-osa-kit-0.3.2",
+    "file": "rust/objc2-osa-kit-0.3.2/UPSTREAM-NOTICE.txt",
+    "source": "https://github.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-osa-kit/Cargo.toml",
+    "retrieved": "2026-10-26",
+    "note": "Package metadata and VCS revision transcribed from the published crate archive; Cargo.toml at the pinned upstream commit is the source for the metadata fields."
+  },
+  {
+    "package": "objc2-quartz-core-0.3.2",
+    "file": "rust/objc2-quartz-core-0.3.2/UPSTREAM-NOTICE.txt",
+    "source": "https://github.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-quartz-core/Cargo.toml",
+    "retrieved": "2026-10-26",
+    "note": "Package metadata and VCS revision transcribed from the published crate archive; Cargo.toml at the pinned upstream commit is the source for the metadata fields."
+  },
+  {
+    "package": "objc2-web-kit-0.3.2",
+    "file": "rust/objc2-web-kit-0.3.2/UPSTREAM-NOTICE.txt",
+    "source": "https://github.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/framework-crates/objc2-web-kit/Cargo.toml",
+    "retrieved": "2026-10-26",
+    "note": "Package metadata and VCS revision transcribed from the published crate archive; Cargo.toml at the pinned upstream commit is the source for the metadata fields."
+  },
+  {
+    "package": "objc2-encode-4.1.0",
+    "file": "rust/objc2-encode-4.1.0/UPSTREAM-NOTICE.txt",
+    "source": "https://github.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/crates/objc2-encode/Cargo.toml",
+    "retrieved": "2026-10-26",
+    "note": "Package metadata and VCS revision transcribed from the published crate archive; Cargo.toml at the pinned upstream commit is the source for the metadata fields."
+  },
+  {
+    "package": "objc2-exception-helper-0.1.1",
+    "file": "rust/objc2-exception-helper-0.1.1/UPSTREAM-NOTICE.txt",
+    "source": "https://github.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/crates/objc2-exception-helper/Cargo.toml",
+    "retrieved": "2026-10-26",
+    "note": "Package metadata and VCS revision transcribed from the published crate archive; Cargo.toml at the pinned upstream commit is the source for the metadata fields."
   }
 ]

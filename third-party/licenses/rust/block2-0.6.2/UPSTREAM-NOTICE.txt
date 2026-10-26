@@ -1,0 +1,6 @@
+Published crate: block2-0.6.2
+Version: 0.6.2
+Authors: Mads Marquart <mads@marquart.dk>
+License: MIT
+Repository: https://github.com/madsmtm/objc2
+Published VCS commit: b4167b582b2f75f9a1be75495c41b765344fd03c

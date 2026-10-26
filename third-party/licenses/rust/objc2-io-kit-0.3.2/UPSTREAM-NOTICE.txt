@@ -1,0 +1,6 @@
+Published crate: objc2-io-kit-0.3.2
+Version: 0.3.2
+Authors: (not declared in Cargo.toml)
+License: Zlib OR Apache-2.0 OR MIT
+Repository: https://github.com/madsmtm/objc2
+Published VCS commit: 7b1abfd750a2cacaea71d6a56ecfb83cb7de560b

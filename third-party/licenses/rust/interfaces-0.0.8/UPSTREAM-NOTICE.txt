@@ -1,0 +1,9 @@
+Published crate: interfaces-0.0.8
+Version: 0.0.8
+Authors: Naoya Hatta <dalance@gmail.com>, Arvid E Picciani <aep@exys.org>, Andrew Dunham <andrew@du.nham.ca>
+License: MIT/Apache-2.0
+Repository: https://github.com/andrew-d/interfaces-rs
+Published VCS commit: 011e602282e771a0fa11fbe959c133bc5576ea3f
+
+License grant from the published README:
+MIT or Apache 2.0

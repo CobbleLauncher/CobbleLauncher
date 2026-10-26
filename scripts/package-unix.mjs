@@ -118,7 +118,7 @@ Keep the entire package together. Settings and credentials use the operating-sys
 `);
   if (adhocSign) {
     if (platform !== 'darwin' || process.platform !== 'darwin' && !codeSign) throw new Error('Ad-hoc signing requires a native macOS package job.');
-    const sign = codeSign ?? (args => execFileSync('codesign', args, { stdio: 'inherit' }));
+    const sign = codeSign ?? (args => execFileSync('codesign', args, { stdio: 'inherit', env: withoutProviderCredentials(process.env) }));
     for (const name of executableNames) {
       const identifier = name === 'cobble-desktop' ? 'dev.cobble-launcher.internal' : `dev.cobble-launcher.internal.${name}`;
       sign(['--force', '--sign', '-', '--timestamp=none', '--identifier', identifier, path.join(executables, name)]);
@@ -141,6 +141,11 @@ export function main(argv = process.argv.slice(2)) {
   if (process.platform !== options.platform || process.arch !== options.arch) throw new Error('Package on the matching native OS and architecture to collect its actual dependency graph.');
   const providerKey = options.embeddedCurseforgeKey ? embeddedCredential(process.env) : null;
   const target = unixTarget(options.platform, options.arch);
+  // Check the complete target license inventory before spending time compiling.
+  const inventory = collectDependencies(options.meshProject ? path.resolve(options.meshProject) : null, target, true);
+  const desktop = inventory.metadata.packages.find(item => item.name === 'cobble-desktop' && item.source === null);
+  const config = JSON.parse(readFileSync(path.join(root, 'apps/desktop/src-tauri/tauri.conf.json'), 'utf8'));
+  if (!desktop || desktop.version !== config.version) throw new Error('Tauri/Cargo application versions must agree.');
   if (!options.skipBuild) {
     pnpm(['plugins:build']); run('cargo', ['build', '--locked', '--release', '-p', 'cobble-plugin-host']);
     if (options.embeddedCurseforgeKey) pnpm(['build']);
@@ -149,10 +154,6 @@ export function main(argv = process.argv.slice(2)) {
     });
     if (options.meshProject) run('cargo', ['build', '--locked', '--release', '--manifest-path', path.join(path.resolve(options.meshProject), 'Cargo.toml'), '--bin', 'cobble-mesh-companion']);
   }
-  const inventory = collectDependencies(options.meshProject ? path.resolve(options.meshProject) : null, target, true);
-  const desktop = inventory.metadata.packages.find(item => item.name === 'cobble-desktop' && item.source === null);
-  const config = JSON.parse(readFileSync(path.join(root, 'apps/desktop/src-tauri/tauri.conf.json'), 'utf8'));
-  if (!desktop || desktop.version !== config.version) throw new Error('Tauri/Cargo application versions must agree.');
   const output = path.resolve(options.outputDir ?? path.join(root, 'target/test-release'));
   mkdirSync(output, { recursive: true });
   const name = `${desktop.version}-${options.platform}-${options.arch}-${options.adhocSign ? 'preview' : 'internal'}`;
