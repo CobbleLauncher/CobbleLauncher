@@ -12,10 +12,11 @@ import EnvironmentTaskFiles from './readiness/EnvironmentTaskFiles.vue';
 import { readinessTaskNeedsFiles } from './readiness';
 import { isActiveTask, taskProgressUsesBytes, taskTitleLabel, taskFailureMessage, taskHasKnownTotal, taskPhaseLabel, taskStateLabel, type TaskSnapshot } from './tasks';
 const props = defineProps<{ tasks: TaskSnapshot[]; loading: boolean; error: string; continueDisabled?: boolean }>();
-const emit = defineEmits<{ updated: [task: TaskSnapshot]; reload: []; locate: [gameId: string]; continuing: [value: boolean]; selectedPack: [preview: PackPreview]; selectedCfPack: [preview: CurseForgePackPreview]; 'open-migration': [taskId: string] }>();
+const emit = defineEmits<{ updated: [task: TaskSnapshot]; reload: []; locate: [gameId: string]; continuing: [value: boolean]; selectedPack: [preview: PackPreview]; selectedCfPack: [preview: CurseForgePackPreview]; 'open-migration': [taskId: string]; 'open-transfer': [taskId: string] }>();
 const pending = ref<Record<string, 'cancel' | 'retry' | 'continue'>>({});
 const actionErrors = ref<Record<string, string>>({});
 function taskIcon(task: TaskSnapshot): AppIconName {
+  if (task.kind === 'game_transfer') return 'monitor';
   if (task.kind === 'directory_migration') return 'folder';
   if (task.kind === 'game_java') return 'cpu';
   if (task.kind.startsWith('world_') || task.kind === 'storage_move') return 'hard-drive';
@@ -246,6 +247,14 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
           >{{ timestamp(task.updated_at) }}</time>
           <div class="task-actions">
             <button
+              v-if="task.kind === 'game_transfer'"
+              type="button"
+              class="secondary-button"
+              @click="emit('open-transfer', task.id)"
+            >
+              <AppIcon name="monitor" />{{ t('tasks.openTransfer') }}
+            </button>
+            <button
               v-if="task.kind === 'directory_migration'"
               type="button"
               class="secondary-button"
@@ -254,7 +263,7 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
               <AppIcon name="folder" />{{ locale === 'zh-CN' ? '查看搬迁' : 'View move' }}
             </button>
             <button
-              v-if="task.game_id && (task.state === 'succeeded' || (task.state === 'failed' && ['mod_update', 'game_install'].includes(task.kind)))"
+              v-if="task.game_id && (task.state === 'succeeded' || (task.state === 'failed' && ['mod_update', 'game_install', 'change_share', 'game_transfer'].includes(task.kind)))"
               class="secondary-button"
               @click="emit('locate', task.game_id)"
             >

@@ -84,7 +84,7 @@ pub async fn managed_java_space_artifacts(
     if available {
         return Ok(Vec::new());
     }
-    if !cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+    if !crate::managed_java::supported_target() {
         return Err("JAVA_MANAGED_ACQUISITION_UNSUPPORTED_PLATFORM".into());
     }
     let broker = Broker::new(BrokerConfig::default())?;
@@ -335,7 +335,7 @@ pub async fn environment_space_artifacts(
     control.check_cancelled()?;
     if !java_available
         && matches!(java, JavaOverride::Automatic)
-        && cfg!(all(target_os = "windows", target_arch = "x86_64"))
+        && crate::managed_java::supported_target()
     {
         artifacts.push(
             java_archive_artifact(

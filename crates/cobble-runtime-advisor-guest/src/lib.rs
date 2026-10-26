@@ -128,10 +128,19 @@ fn analyze_bytes(bytes: &[u8], locale: &str) -> Result<Report, Failure> {
             });
         }
     } else {
-        findings.push(Finding { code: "java_major_unknown".into(), severity: Severity::Info,
+        findings.push(Finding {
+            code: "java_major_unknown".into(),
+            severity: Severity::Info,
             title: text(is_zh, "Java version not verified", "Java 版本尚未验证").into(),
-            message: text(is_zh, "Java version information is incomplete.", "Java 版本信息尚不完整。" ).into(),
-            evidence: vec![], suggestions: vec![], });
+            message: text(
+                is_zh,
+                "Java version information is incomplete.",
+                "Java 版本信息尚不完整。",
+            )
+            .into(),
+            evidence: vec![],
+            suggestions: vec![],
+        });
     }
     if let Some(memory) = number(&values, "memoryMb") {
         if !(MIN_MEMORY_MB..=MAX_MEMORY_MB).contains(&memory) {

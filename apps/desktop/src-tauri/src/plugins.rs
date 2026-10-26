@@ -90,11 +90,7 @@ fn root(name: &str) -> Result<PathBuf, String> {
 fn registry() -> Result<PluginRegistry, String> {
     let registry = PluginRegistry::new(root("plugins")?)
         .with_trusted_roots(plugin_signatures::trusted_roots()?);
-    let bundled = std::env::current_exe()
-        .map_err(|error| error.to_string())?
-        .parent()
-        .ok_or("无法找到插件目录")?
-        .join("plugins/schematic-viewer");
+    let bundled = super::runtime_resources::bundled_plugins()?.join("schematic-viewer");
     #[cfg(debug_assertions)]
     let bundled = if bundled.exists() {
         bundled
@@ -660,13 +656,7 @@ fn open_with_cancel(
     cancel: Arc<AtomicBool>,
 ) -> Result<OpenViewer, String> {
     let registry = registry()?;
-    let host = std::env::current_exe()
-        .map_err(|error| error.to_string())?
-        .with_file_name(if cfg!(windows) {
-            "cobble-plugin-host.exe"
-        } else {
-            "cobble-plugin-host"
-        });
+    let host = super::runtime_resources::plugin_host()?;
     open_in_registry(
         &registry,
         &host,

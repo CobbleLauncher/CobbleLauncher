@@ -8,6 +8,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use cap_std::{ambient_authority, fs::Dir};
+#[cfg(target_os = "linux")]
+use cobble_store::PublicationDurability;
 use cobble_store::{
     ArtifactExpectation, CasError, ContentStore, ExpectedDigests, IntegrityBasis, SafeRelativePath,
 };
@@ -102,6 +104,27 @@ fn store002_all_hashes_verified_dedup_and_restart_reopen() {
         .open_verified(first.artifact.sha256(), abc())
         .unwrap();
     assert_eq!(reopened, first.artifact);
+    assert_eq!(
+        std::fs::read(cas_path(&root, &reopened.sha256_hex())).unwrap(),
+        b"abc"
+    );
+    root.assert_no_parts();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_cas_publication_syncs_directories_and_reopens() {
+    let root = Temp::new();
+    let published = root.store().ingest(&b"abc"[..], abc()).unwrap();
+    assert_eq!(
+        published.durability,
+        PublicationDurability::FileAndDirectoriesSynced
+    );
+    let reopened = root
+        .store()
+        .open_verified(published.artifact.sha256(), abc())
+        .unwrap();
+    assert_eq!(reopened, published.artifact);
     assert_eq!(
         std::fs::read(cas_path(&root, &reopened.sha256_hex())).unwrap(),
         b"abc"

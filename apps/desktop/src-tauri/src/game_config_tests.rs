@@ -191,3 +191,33 @@ fn report_snapshot_is_revision_bound_immutable_and_read_only() {
     );
     assert_eq!(bytes, b"enabled = true\n");
 }
+
+#[test]
+fn shared_config_adoption_backs_up_existing_and_removes_only_unchanged_new_file() {
+    let (temp, root) = fixture();
+    let path = "config/example.toml";
+    let (id, original, revision) = inspect_shared_config(temp.path(), path).unwrap().unwrap();
+    let (_, backup, changed) =
+        adopt_shared_config(temp.path(), path, "enabled = false\n", Some(&revision)).unwrap();
+    let backup = backup.unwrap();
+    assert_eq!(backup_document(&root, &id, &backup).unwrap().text, original);
+    assert_eq!(
+        inspect_shared_config(temp.path(), path).unwrap().unwrap().2,
+        changed
+    );
+    assert_eq!(
+        adopt_shared_config(temp.path(), path, "stale", Some(&revision)).unwrap_err(),
+        "CHANGE_SHARE_CONFIG_CHANGED"
+    );
+    let fresh = "config/new/sub.json";
+    let (_, none, new_revision) = adopt_shared_config(temp.path(), fresh, "{}", None).unwrap();
+    assert!(none.is_none());
+    fs::write(temp.path().join(fresh), b"later edit").unwrap();
+    assert_eq!(
+        remove_shared_created_config(temp.path(), fresh, &new_revision).unwrap_err(),
+        "CHANGE_SHARE_CONFIG_CHANGED"
+    );
+    fs::write(temp.path().join(fresh), b"{}").unwrap();
+    remove_shared_created_config(temp.path(), fresh, &new_revision).unwrap();
+    assert!(!temp.path().join(fresh).exists());
+}

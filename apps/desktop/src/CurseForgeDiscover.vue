@@ -6,7 +6,7 @@ import { marketReturn } from './market-return';
 import MarketGallery from "./MarketGallery.vue";
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { t } from './i18n';
+import { locale, t } from './i18n';
 import CurseForgePackPreparation from './CurseForgePackPreparation.vue';
 import CurseForgeInstallPlan from './CurseForgeInstallPlan.vue';
 import VersionSelector from './VersionSelector.vue';
@@ -15,7 +15,8 @@ import { mergeFiles, mergeProjects, type CurseForgePackPreview, type CurseForgeH
 import LoadingIndicator from './ui/LoadingIndicator.vue';
 import { isMarketSaved, toggleMarketSaved, type SavedMarketItem } from './market-saved';
 import { marketWorkstate, rememberMarketWorkstate, restoreMarketScroll } from './market-workstate';
-const props = defineProps<{kind: 'mod' | 'modpack'; game?: Game; locked?: boolean; initialQuery?: string; sharedMode?: boolean; sharedRequest?: { serial: number; query: string; minecraftVersion?: string; loader?: string }; savedRequest?: { serial: number; item: SavedMarketItem }}>();
+import { findLinkedProject, linkedVersionId, type FileInboxMarketLink } from './file-inbox-market';
+const props = defineProps<{kind: 'mod' | 'modpack'; game?: Game; locked?: boolean; initialQuery?: string; sharedMode?: boolean; sharedRequest?: { serial: number; query: string; minecraftVersion?: string; loader?: string }; savedRequest?: { serial: number; item: SavedMarketItem }; linkRequest?: FileInboxMarketLink}>();
 const emit = defineEmits<{busy: [value: boolean]; selectedCfPack: [preview: CurseForgePackPreview]; installed: []; availability: [value: boolean]}>();
 const root = ref<HTMLElement>();
 const detailReturn = marketReturn(root);
@@ -25,6 +26,7 @@ const loader = ref(props.sharedMode ? props.sharedRequest?.loader ?? '' : '');
 const available = ref<boolean | null>(null);
 const busy = ref(false);
 const error = ref('');
+const linkProjectMissing = ref(false);
 const searched = ref(false);
 const hits = ref<CurseForgeHit[]>([]);
 const total = ref(0);
@@ -64,14 +66,17 @@ async function search(offset = 0, force = false) {
     submitted = {query: query.value.trim(), minecraftVersion: version || null, loader: selectedLoader || null};
   }
   const current = ++revision;
+  let linked: CurseForgeHit | undefined;
+  if (!offset) linkProjectMissing.value = false;
   busy.value = true; error.value = ''; searched.value = true;
   try {
     const page = await invoke<CurseForgeSearchPage>('search_curseforge', {...submitted, kind: props.kind, offset});
     if (current !== revision) return;
     hits.value = offset ? mergeProjects(hits.value, page.hits) : page.hits;
+    if (!offset && props.linkRequest) { linked = findLinkedProject(hits.value, props.linkRequest); linkProjectMissing.value = !linked; }
     total.value = page.total_hits; next.value = page.offset + page.hits.length;
   } catch { if (current === revision) error.value = t('curseforge.searchFailed'); }
-  finally { if (current === revision) busy.value = false; }
+  finally { if (current === revision) { busy.value = false; if (linked) select(linked); } }
 }
 async function loadFiles(offset = 0) {
   failedOffset = offset;
@@ -83,7 +88,9 @@ async function loadFiles(offset = 0) {
     if (current !== revision) return;
     files.value = offset ? mergeFiles(files.value, page.files) : page.files;
     fileTotal.value = page.total_hits; fileNext.value = page.offset + page.files.length;
-    if (!offset) fileId.value = files.value[0]?.file_id ?? '';
+    if (props.linkRequest?.version) {
+      if (!fileId.value) fileId.value = linkedVersionId(files.value, props.linkRequest.version);
+    } else if (!offset) fileId.value = files.value[0]?.file_id ?? '';
   } catch { if (current === revision) error.value = t('curseforge.filesFailed'); }
   finally { if (current === revision) busy.value = false; }
 }
@@ -116,7 +123,7 @@ function remember() {
   rememberMarketWorkstate(workKey(), { query: query.value, minecraftVersion: minecraftVersion.value, loader: loader.value, submitted, hits: hits.value, total: total.value, next: next.value, searched: searched.value, available: available.value }, root.value);
 }
 onMounted(() => {
-  if (props.savedRequest) return;
+  if (props.savedRequest || props.linkRequest) return;
   const state = marketWorkstate<{ query: string; minecraftVersion: string; loader: string; submitted: typeof submitted; hits: CurseForgeHit[]; total: number; next: number; searched: boolean; available: boolean | null }>(workKey());
   if (state && (!props.sharedMode || (state.query === (props.sharedRequest?.query ?? props.initialQuery ?? '') && (!props.sharedRequest || (state.minecraftVersion === (props.sharedRequest.minecraftVersion ?? '') && state.loader === (props.sharedRequest.loader ?? '')))))) { query.value = state.query; minecraftVersion.value = state.minecraftVersion; loader.value = state.loader; submitted = state.submitted; hits.value = state.hits; total.value = state.total; next.value = state.next; searched.value = state.searched; restoreMarketScroll(workKey(), root.value); }
 });
@@ -129,6 +136,8 @@ onUnmounted(() => { remember(); ++revision; });
     ref="root"
     class="curseforge-discover"
   >
+    <p v-if="linkProjectMissing && !selected" role="status" class="setting-hint">{{ locale === 'zh-CN' ? '未在当前结果中找到该项目。可调整搜索或筛选。' : 'Project not found in these results. Try another search or filter.' }}</p>
+    <p v-if="selected && linkRequest?.version && !busy && !fileId && !error" role="status" class="setting-hint">{{ locale === 'zh-CN' ? '链接中的文件未在已加载列表中找到，可加载更多或手动选择。' : 'Linked file was not found in the loaded list. Load more or choose one manually.' }}</p>
     <div v-if="packPreview">
       <button
         class="text-button"

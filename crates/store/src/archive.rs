@@ -556,9 +556,10 @@ mod tests {
                 assert!(matches!(error.raw_os_error(), Some(5 | 32)), "{error}");
                 #[cfg(not(windows))]
                 panic!("unexpected rename failure: {error}");
-                assert!(!outside.0.join("escaped").exists());
+                #[cfg(windows)]
                 assert!(staging.0.join("mods").is_dir());
             }
         }
+        assert!(!outside.0.join("escaped").exists());
     }
 }

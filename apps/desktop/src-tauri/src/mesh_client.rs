@@ -15,7 +15,9 @@ use std::{
     time::Duration,
 };
 
-pub(super) const MAX_FRAME: usize = 8192;
+// Private host-companion frames include bounded file inventories and encoded chunks.
+// Peer application events retain their separate 1 KiB payload limit.
+pub(super) const MAX_FRAME: usize = 4 * 1024 * 1024;
 #[derive(Clone)]
 pub(super) struct Client(Arc<Inner>);
 type Pending = Arc<Mutex<std::collections::HashMap<u64, mpsc::Sender<Result<Value, ()>>>>>;

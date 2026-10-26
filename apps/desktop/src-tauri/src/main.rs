@@ -3,6 +3,7 @@
 mod appearance;
 mod cache;
 mod catalog_install;
+mod change_share;
 mod compatibility;
 mod curseforge;
 mod games;
@@ -16,6 +17,7 @@ mod onboarding;
 mod plugin_catalogs;
 mod plugins;
 mod preferences;
+mod runtime_resources;
 mod seed_map;
 mod startup_metrics;
 mod window_geometry;
@@ -116,6 +118,22 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            change_share::preview_game_change_export,
+            change_share::export_game_change,
+            change_share::import_game_change,
+            change_share::preview_game_change_apply,
+            change_share::apply_game_change,
+            change_share::undo_game_change_new_config,
+            games::game_transfer::game_transfer_context,
+            games::game_transfer::game_transfer_prepare,
+            games::game_transfer::game_transfer_send,
+            games::game_transfer::game_transfer_cancel,
+            games::game_transfer::game_transfer_offers,
+            games::game_transfer::game_transfer_list_outgoing,
+            games::game_transfer::game_transfer_status,
+            games::game_transfer::game_transfer_accept,
+            games::game_transfer::game_transfer_reject,
+            games::game_transfer::game_transfer_discard,
             startup_metrics::report_home_ready,
             onboarding::get_onboarding_state,
             onboarding::save_onboarding_state,

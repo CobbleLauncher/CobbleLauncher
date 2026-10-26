@@ -411,7 +411,10 @@ mod tests {
     }
     #[cfg(any(unix, windows))]
     #[test]
-    #[cfg_attr(windows, ignore = "requires Windows Developer Mode or file-symlink privilege")]
+    #[cfg_attr(
+        windows,
+        ignore = "requires Windows Developer Mode or file-symlink privilege"
+    )]
     fn linked_level_metadata_does_not_reveal_an_outside_seed() {
         let root = tempfile::tempdir().unwrap();
         let world = root.path().join("saves/World");

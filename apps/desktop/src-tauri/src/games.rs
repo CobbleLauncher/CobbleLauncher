@@ -21,6 +21,8 @@ pub mod game_diagnostics;
 pub mod game_inspection;
 #[path = "game_servers.rs"]
 pub mod game_servers;
+#[path = "game_transfer_native.rs"]
+pub mod game_transfer;
 #[path = "launch_recovery.rs"]
 pub mod launch_recovery;
 #[path = "launcher_import.rs"]
@@ -462,7 +464,10 @@ pub struct GameVersion {
 }
 
 #[tauri::command]
-pub async fn list_game_versions(source: DownloadSettings) -> Result<Vec<GameVersion>, String> {
+pub async fn list_game_versions(
+    source: DownloadSettings,
+    include_all: Option<bool>,
+) -> Result<Vec<GameVersion>, String> {
     let source = source.download_source().map_err(|e| e.to_string())?;
     let broker =
         cobble_net::Broker::new(cobble_net::BrokerConfig::default()).map_err(|e| e.to_string())?;
@@ -481,12 +486,41 @@ pub async fn list_game_versions(source: DownloadSettings) -> Result<Vec<GameVers
     Ok(catalog
         .versions
         .into_iter()
-        .filter(|v| v.kind == VersionKind::Release && modern_version(&v.id))
+        .filter(|v| visible_catalog_version(&v.id, v.kind, include_all.unwrap_or(false)))
         .map(|v| GameVersion {
             id: v.id,
-            kind: "release".into(),
+            kind: v.kind.as_str().into(),
         })
         .collect())
+}
+fn visible_catalog_version(id: &str, kind: VersionKind, include_all: bool) -> bool {
+    if include_all {
+        kind != VersionKind::Other
+    } else {
+        kind == VersionKind::Release && modern_version(id)
+    }
+}
+#[test]
+fn market_catalog_keeps_history_without_expanding_installer_defaults() {
+    for (id, kind) in [
+        ("1.12.2", VersionKind::Release),
+        ("26w01a", VersionKind::Snapshot),
+        ("b1.7.3", VersionKind::OldBeta),
+        ("a1.2.6", VersionKind::OldAlpha),
+    ] {
+        assert!(visible_catalog_version(id, kind, true));
+        assert!(!visible_catalog_version(id, kind, false));
+    }
+    assert!(visible_catalog_version(
+        "1.20.1",
+        VersionKind::Release,
+        false
+    ));
+    assert!(!visible_catalog_version(
+        "unknown",
+        VersionKind::Other,
+        true
+    ));
 }
 fn modern_version(id: &str) -> bool {
     let mut parts = id.split('.').filter_map(|p| p.parse::<u32>().ok());
@@ -876,6 +910,7 @@ pub fn retry_game(
     if game.status != "failed" {
         return Err("这个游戏无需重试".into());
     }
+    game_transfer::ensure_install_retry_allowed(game)?;
     if let Some(task_id) = install_task {
         drop(library);
         tasks::retry_task(app.clone(), task_id)?;

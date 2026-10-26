@@ -39,12 +39,7 @@ fn package_path(id: &str) -> Result<PathBuf, String> {
     if !BUNDLED_IDS.contains(&id) {
         return Err("未知的内置插件".into());
     }
-    let path = std::env::current_exe()
-        .map_err(|error| error.to_string())?
-        .parent()
-        .ok_or("无法找到插件目录")?
-        .join("plugins")
-        .join(id);
+    let path = crate::runtime_resources::bundled_plugins()?.join(id);
     #[cfg(debug_assertions)]
     let path = if path.exists() {
         path

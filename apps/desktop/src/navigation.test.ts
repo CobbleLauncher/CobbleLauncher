@@ -44,6 +44,41 @@ describe('workspace page hierarchy', () => {
     expect(goToParent(state).current.view).toBe('library');
   });
 
+  it('keeps game exchange modes distinct and returns each route to the original game', () => {
+    let state = enterPage(initialNavigation(), { view: 'details', gameId: 'game-a' });
+    const details = state.current;
+    state = enterPage(state, { view: 'share-changes', gameId: 'game-a', mode: 'export' });
+    const exported = state.current;
+    state = enterPage(state, { view: 'share-changes', gameId: 'game-a', mode: 'import' });
+    expect(state.current).toEqual({ view: 'share-changes', gameId: 'game-a', mode: 'import' });
+    expect(backPage(state)).toEqual(exported);
+    state = goToParent(state);
+    expect(state.current).toEqual(exported);
+    state = goToParent(state);
+    expect(state.current).toEqual(details);
+    expect(state.current).toEqual({ view: 'details', gameId: 'game-a' });
+
+    const transfer = enterPage(state, { view: 'game-transfer', gameId: 'game-a', taskId: 'task-17', offerId: 'offer-29' });
+    expect(transfer.current).toEqual({ view: 'game-transfer', gameId: 'game-a', taskId: 'task-17', offerId: 'offer-29' });
+    expect(goToParent(transfer).current).toEqual(details);
+  });
+
+  it('retains an exact provider project and version link while visiting an exchange route', () => {
+    const market = {
+      view: 'discover-packs' as const,
+      kind: 'mod' as const,
+      gameId: 'game-a',
+      query: 'wooden tools',
+      link: { provider: 'curseforge' as const, kind: 'mod' as const, project: '248632', version: '5130472', gameId: 'game-a' },
+    };
+    let state = enterPage(initialNavigation(), market, 'root');
+    state = enterPage(state, { view: 'share-changes', gameId: 'game-a', mode: 'import' });
+    expect(state.market).toEqual(market);
+    state = goToParent(state);
+    expect(state.current).toEqual(market);
+    expect(state.market.link).toEqual({ provider: 'curseforge', kind: 'mod', project: '248632', version: '5130472', gameId: 'game-a' });
+  });
+
   it('has one viewer parent and treats blueprint tabs and title updates as replacements', () => {
     let state = enterPage(initialNavigation(), { view: 'tools' }, 'root');
     state = toolPage(state, { pluginId: BLUEPRINTS_TOOL_ID, blueprintView: 'library' });

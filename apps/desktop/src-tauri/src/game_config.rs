@@ -433,6 +433,126 @@ fn save(root: &Dir, id: &str, text: &str, revision: &str) -> Result<ConfigDocume
     }
     replace(root, id, &text, revision)
 }
+
+/// File-level adoption for a reviewed change share while the caller holds the
+/// existing stopped-game lease. Uses this editor's normal backup-before-write.
+pub(crate) fn inspect_shared_config(
+    directory: &Path,
+    path: &str,
+) -> Result<Option<(String, String, String)>, String> {
+    let relative = path
+        .strip_prefix("config/")
+        .ok_or("CHANGE_SHARE_CONFIG_INVALID")?;
+    let root = root(directory)?;
+    let Some(file) = listing(&root)?
+        .into_iter()
+        .find(|file| file.name.replace('\\', "/") == relative)
+    else {
+        return Ok(None);
+    };
+    let current = document(&root, &file.id)?;
+    Ok(Some((current.id, current.text, current.revision)))
+}
+
+pub(crate) fn adopt_shared_config(
+    directory: &Path,
+    path: &str,
+    text: &str,
+    expected_revision: Option<&str>,
+) -> Result<(String, Option<String>, String), String> {
+    let root = root(directory)?;
+    if let Some((id, _, revision)) = inspect_shared_config(directory, path)? {
+        if Some(revision.as_str()) != expected_revision {
+            return Err("CHANGE_SHARE_CONFIG_CHANGED".into());
+        }
+        let before = backups(&root, &id)?;
+        let after = replace(&root, &id, text, &revision)?;
+        let backup = after
+            .backups
+            .iter()
+            .find(|item| !before.iter().any(|old| old.id == item.id))
+            .or_else(|| after.backups.first())
+            .ok_or("CHANGE_SHARE_CONFIG_BACKUP_MISSING")?;
+        return Ok((id, Some(backup.id.clone()), after.revision));
+    }
+    if expected_revision.is_some() {
+        return Err("CHANGE_SHARE_CONFIG_CHANGED".into());
+    }
+    let safe =
+        cobble_store::SafeRelativePath::parse(path).map_err(|_| "CHANGE_SHARE_CONFIG_INVALID")?;
+    if !safe.as_str().starts_with("config/") || !supported(path) {
+        return Err("CHANGE_SHARE_CONFIG_INVALID".into());
+    }
+    use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
+    let parts: Vec<_> = safe.as_str().split('/').collect();
+    let mut parent = root;
+    for part in &parts[..parts.len() - 1] {
+        parent = match parent.open_dir_nofollow(part) {
+            Ok(next) => next,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                parent
+                    .create_dir(part)
+                    .map_err(|_| "CHANGE_SHARE_CONFIG_IO")?;
+                parent
+                    .open_dir_nofollow(part)
+                    .map_err(|_| "CHANGE_SHARE_CONFIG_IO")?
+            }
+            Err(_) => return Err("CHANGE_SHARE_CONFIG_IO".into()),
+        };
+    }
+    let name = parts[parts.len() - 1];
+    let mut options = OpenOptions::new();
+    options
+        .write(true)
+        .create_new(true)
+        .follow(FollowSymlinks::No);
+    let mut output = parent
+        .open_with(name, &options)
+        .map_err(|_| "CHANGE_SHARE_CONFIG_CHANGED")?;
+    let written = output
+        .write_all(text.as_bytes())
+        .and_then(|_| output.sync_all());
+    drop(output);
+    if written.is_err() {
+        let _ = parent.remove_file(name);
+        return Err("CHANGE_SHARE_CONFIG_IO".into());
+    }
+    let mut native_name = std::path::PathBuf::new();
+    for part in &parts[1..] {
+        native_name.push(part);
+    }
+    let name = native_name.to_str().ok_or("CHANGE_SHARE_CONFIG_INVALID")?;
+    Ok((digest(name.as_bytes()), None, digest(text.as_bytes())))
+}
+
+pub(crate) fn remove_shared_created_config(
+    directory: &Path,
+    path: &str,
+    expected_revision: &str,
+) -> Result<(), String> {
+    let safe =
+        cobble_store::SafeRelativePath::parse(path).map_err(|_| "CHANGE_SHARE_CONFIG_INVALID")?;
+    if !safe.as_str().starts_with("config/") {
+        return Err("CHANGE_SHARE_CONFIG_INVALID".into());
+    }
+    let root = root(directory)?;
+    let (_, _, revision) =
+        inspect_shared_config(directory, path)?.ok_or("CHANGE_SHARE_CONFIG_CHANGED")?;
+    if revision != expected_revision {
+        return Err("CHANGE_SHARE_CONFIG_CHANGED".into());
+    }
+    use cap_fs_ext::DirExt;
+    let parts: Vec<_> = safe.as_str().split('/').collect();
+    let mut parent = root;
+    for part in &parts[..parts.len() - 1] {
+        parent = parent
+            .open_dir_nofollow(part)
+            .map_err(|_| "CHANGE_SHARE_CONFIG_CHANGED")?;
+    }
+    parent
+        .remove_file(parts[parts.len() - 1])
+        .map_err(|_| "CHANGE_SHARE_CONFIG_IO".into())
+}
 #[tauri::command]
 pub async fn list_game_configs(app: AppHandle, game_id: String) -> Result<Vec<ConfigFile>, String> {
     let directory = game_directory(&app, &game_id)?;

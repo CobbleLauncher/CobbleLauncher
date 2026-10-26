@@ -6,7 +6,9 @@ use launcher::resource_report::resources::{self, Failure, Input};
 struct MaterialPlanner;
 impl Guest for MaterialPlanner {
     fn analyze(_input: &Input) -> Result<Report, Failure> {
-        if resources::cancelled() { return Err(Failure::Cancelled); }
+        if resources::cancelled() {
+            return Err(Failure::Cancelled);
+        }
         let zh = launcher::report_context::context::get().locale == "zh-CN";
         Ok(Report { schema_version: 1, findings: vec![Finding {
             code: "material_planner_frontend".into(), severity: Severity::Info,

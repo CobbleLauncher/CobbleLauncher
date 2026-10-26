@@ -6,7 +6,9 @@ use launcher::resource_report::resources::{self, Failure, Input};
 struct TrialCopy;
 impl Guest for TrialCopy {
     fn analyze(_input: &Input) -> Result<Report, Failure> {
-        if resources::cancelled() { return Err(Failure::Cancelled); }
+        if resources::cancelled() {
+            return Err(Failure::Cancelled);
+        }
         let zh = launcher::report_context::context::get().locale == "zh-CN";
         Ok(Report { schema_version: 1, findings: vec![Finding {
             code: "trial_copy_frontend".into(), severity: Severity::Info,
@@ -17,6 +19,3 @@ impl Guest for TrialCopy {
     }
 }
 export!(TrialCopy);
-
-
-

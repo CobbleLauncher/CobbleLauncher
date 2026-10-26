@@ -58,6 +58,7 @@ tauri-plugin-updater = { version = "=2.14.0", default-features = false, features
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+isolated-webview-probe = []
 embedded-curseforge-key = []
 updater-distribution = []
 
@@ -72,4 +73,7 @@ keyring = { version = "=3.6.3", default-features = false, features = ["windows-n
 keyring = { version = "=3.6.3", default-features = false, features = ["apple-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+gtk = "=0.18.2"
 keyring = { version = "=3.6.3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
+webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
+cobble-plugin-webview-linux = { path = "../../../crates/plugin-webview-linux" }

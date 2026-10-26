@@ -603,7 +603,10 @@ fn hex(bytes: &[u8]) -> String {
 
 pub(crate) fn sync_dir(dir: &Dir) -> io::Result<()> {
     #[cfg(unix)]
-    dir.try_clone()?.into_std_file().sync_all()?;
+    // cap-std directory capabilities may use O_PATH on Linux. A clone retains
+    // that flag, and fsync(O_PATH) fails with EBADF. Reopen the same directory
+    // relative to the held capability with a readable descriptor for fsync.
+    dir.open(".")?.into_std().sync_all()?;
     #[cfg(not(unix))]
     let _ = dir;
     Ok(())

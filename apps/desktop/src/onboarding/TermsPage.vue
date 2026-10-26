@@ -56,7 +56,7 @@ const zh = computed(() => locale.value === 'zh-CN');
       </template>
       <template v-else>
         <h2>{{ zh ? '隐私说明' : 'Privacy notice' }}</h2>
-        <p>{{ zh ? '游戏配置、档案资料、下载记录、日志和备份保存在本机。Microsoft 登录会联系 Microsoft、Xbox 和 Minecraft 服务；登录凭证由系统凭证库管理，不能持久保存时仅用于当前会话。' : 'Game settings, profile information, download records, logs and backups are stored locally. Microsoft sign-in contacts Microsoft, Xbox and Minecraft services. Sign-in credentials use the system credential store, or the current session when persistence is unavailable.' }}</p>
+        <p>{{ zh ? '游戏配置、档案资料、下载记录、日志和备份保存在本机。Microsoft 登录会联系 Microsoft、Xbox 和 Minecraft 服务；登录凭证由系统凭证库管理。凭证库不可用时，需恢复后重试登录。' : 'Game settings, profile information, download records, logs and backups are stored locally. Microsoft sign-in contacts Microsoft, Xbox and Minecraft services. Sign-in credentials use the system credential store. If it is unavailable, restore access and retry sign-in.' }}</p>
         <p>{{ zh ? '下载、内容搜索、目录订阅和更新检查会向所选服务发送相应请求；这些服务可见网络地址和请求内容。扩展按批准的权限访问数据。分享日志或配置前请检查其中的私人信息。' : 'Downloads, content searches, catalog subscriptions and update checks send requests to the selected services, which can see network addresses and request contents. Extensions access data through approved permissions. Review logs and settings for private information before sharing.' }}</p>
         <p>{{ zh ? 'Cobble Mesh 为可选功能。开启后会连接入口或中继服务，使用公开身份处理联系人、邀请和联机流量；对端和服务可见连接所需的信息。你可以在设置中关闭。' : 'Cobble Mesh is optional. Enabling it connects to seed or relay services and uses a public identity for contacts, invitations and game traffic. Peers and services can see information needed for those connections. You can turn it off in Settings.' }}</p>
       </template>

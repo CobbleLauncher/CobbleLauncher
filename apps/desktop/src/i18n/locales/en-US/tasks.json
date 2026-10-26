@@ -1,4 +1,7 @@
 {
+  "sharedChanges": "Apply shared changes",
+  "gameTransfer": "Receive game",
+  "openTransfer": "View transfer",
   "repairGame": "Repair game files",
   "javaRuntime": "Prepare Java runtime",
   "snapshotSave": "Save world version",
@@ -55,6 +58,9 @@
     "interrupted": "Interrupted"
   },
   "phases": {
+    "receiving": "Receiving game files",
+    "verifying": "Checking received files",
+    "preparing": "Preparing this computer",
     "java-metadata": "Checking Java runtime",
     "java-download": "Downloading Java runtime",
     "java-install": "Installing Java runtime",

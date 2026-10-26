@@ -147,11 +147,7 @@ fn analyze_bytes(bytes: &[u8], locale: &str) -> Result<Report, Failure> {
                 } else {
                     world.into()
                 },
-                tr(
-                    zh,
-                    "This datapack has no identifier.",
-                    "此数据包缺少标识。",
-                ),
+                tr(zh, "This datapack has no identifier.", "此数据包缺少标识。"),
                 zh,
             ));
         }

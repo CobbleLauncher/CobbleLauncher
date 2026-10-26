@@ -7,7 +7,7 @@ import { t } from './i18n';
 import SearchField from './ui/SearchField.vue';
 import AppIcon from './ui/AppIcon.vue';
 import LoadingIndicator from './ui/LoadingIndicator.vue';
-const props = defineProps<{ id: string; modelValue: string; versions: GameVersion[]; disabled?: boolean; loading?: boolean; labelledBy?: string }>();
+const props = defineProps<{ id: string; modelValue: string; versions: GameVersion[]; disabled?: boolean; loading?: boolean; labelledBy?: string; allowAny?: boolean; preferredVersions?: string[] }>();
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
 type VersionKind = 'release' | 'snapshot' | 'legacy';
 const expanded = ref(false);
@@ -18,7 +18,9 @@ const releases = computed(() => props.versions.filter(version => version.kind ==
 function category(version: GameVersion): VersionKind { return version.kind === 'release' ? 'release' : version.kind === 'old_alpha' || version.kind === 'old_beta' ? 'legacy' : 'snapshot'; }
 const matches = computed(() => props.versions.filter(version => category(version) === kind.value && version.id.toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase())));
 const tiles = computed(() => {
-  const result = expanded.value ? matches.value.slice(0, limit.value) : releases.value.slice(0, 5);
+  const preferred = (props.preferredVersions ?? []).map(id => props.versions.find(version => version.id === id)).filter((version): version is GameVersion => !!version);
+  const quick = [...new Map([...preferred, ...releases.value].map(version => [version.id, version])).values()].slice(0, 5);
+  const result = expanded.value ? matches.value.slice(0, limit.value) : quick;
   const selected = props.versions.find(version => version.id === props.modelValue);
   return selected && !result.some(version => version.id === selected.id) ? [...result, selected] : result;
 });
@@ -72,6 +74,17 @@ function select(value: unknown) { if (typeof value === 'string') emit('update:mo
         class="minecraft-version-grid"
         @update:model-value="select"
       >
+        <RadioGroupItem
+          v-if="allowAny"
+          value=""
+          class="minecraft-version-tile"
+        >
+          <span class="minecraft-version-number">{{ t('market.anyVersion') }}</span>
+          <AppIcon
+            v-if="!modelValue"
+            name="check"
+          />
+        </RadioGroupItem>
         <RadioGroupItem
           v-for="item in tiles"
           :key="item.id"

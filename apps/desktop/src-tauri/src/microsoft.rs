@@ -1,18 +1,29 @@
 // SPDX-License-Identifier: MIT
-use cobble_auth::{DeviceLogin, LoginPoll};
+use cobble_auth::{AuthError, DeviceLogin, LoginPoll};
+
+fn login_error(error: cobble_auth::BoxError) -> String {
+    if matches!(
+        error.downcast_ref::<AuthError>(),
+        Some(AuthError::VaultUnavailable)
+    ) {
+        "AUTH_VAULT_UNAVAILABLE".into()
+    } else {
+        error.to_string()
+    }
+}
 
 #[tauri::command]
 pub async fn begin_microsoft_login() -> Result<DeviceLogin, String> {
     cobble_auth::begin_microsoft_login()
         .await
-        .map_err(|e| e.to_string())
+        .map_err(login_error)
 }
 
 #[tauri::command]
 pub async fn poll_microsoft_login(flow_id: String) -> Result<LoginPoll, String> {
     cobble_auth::poll_microsoft_login(&flow_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(login_error)
 }
 
 #[tauri::command]

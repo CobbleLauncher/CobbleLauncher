@@ -5,6 +5,8 @@ use exports::launcher::resource_report::reports::Report;
 use launcher::resource_report::resources::{Failure, Input};
 struct FileInbox;
 impl exports::launcher::resource_report::reports::Guest for FileInbox {
-    fn analyze(_input: &Input) -> Result<Report, Failure> { Err(Failure::Unsupported) }
+    fn analyze(_input: &Input) -> Result<Report, Failure> {
+        Err(Failure::Unsupported)
+    }
 }
 export!(FileInbox);

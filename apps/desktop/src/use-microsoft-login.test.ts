@@ -72,6 +72,20 @@ it('retains the active flow when host cancellation fails and allows a retry', as
   expect(onAuthBusy.mock.calls).toEqual([[true], [false], [true], [false]]);
 });
 
+it('shows a local recovery action when the credential store is unavailable', async () => {
+  vi.mocked(invoke).mockImplementation(async command => {
+    if (command === 'begin_microsoft_login') return flow;
+    if (command === 'poll_microsoft_login') throw 'AUTH_VAULT_UNAVAILABLE';
+    return null;
+  });
+  const { login } = consumer(); await login.beginLogin(); await vi.advanceTimersByTimeAsync(1000);
+  expect(login.flow.value).toBeNull();
+  expect(login.loginError.value).toBe('Unlock or start your system credential store, then retry sign-in.');
+  setLocale('zh-CN');
+  await login.beginLogin(); await vi.advanceTimersByTimeAsync(1000);
+  expect(login.loginError.value).toBe('请解锁或启动系统凭证库，然后重试登录。');
+});
+
 it('ignores late polling completion after its consumer unmounts', async () => {
   let finishPoll!: (value: MicrosoftLoginPoll) => void;
   vi.mocked(invoke).mockImplementation(async command => command === 'begin_microsoft_login' ? flow : command === 'poll_microsoft_login' ? new Promise<MicrosoftLoginPoll>(resolve => { finishPoll = resolve; }) : null);

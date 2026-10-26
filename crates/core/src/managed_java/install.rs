@@ -39,11 +39,12 @@ pub(super) async fn install_at(
     control: OperationControl,
 ) -> Result<JavaRuntime, Error> {
     control.check_cancelled()?;
+    let platform = super::target::Target::host()?;
     std::fs::create_dir_all(path)?;
     let root = open(path)?;
     let lock = root
         .open_with(
-            format!(".install-{required}-x64.lock"),
+            format!(".install-{required}-{}.lock", platform.key()),
             OpenOptions::new()
                 .read(true)
                 .write(true)
@@ -65,14 +66,13 @@ pub(super) async fn install_at(
     for entry in root.entries()?.take(128) {
         let entry = entry?;
         let name = entry.file_name();
-        if name
-            .to_str()
-            .is_some_and(|name| name.starts_with(&format!("temurin-{required}-x64-")))
-            && root.open_dir_nofollow(&name).is_ok()
+        if name.to_str().is_some_and(|name| {
+            name.starts_with(&format!("temurin-{required}-{}-", platform.key()))
+        }) && root.open_dir_nofollow(&name).is_ok()
             && let Ok(runtime) =
-                cobble_minecraft::probe_java(&path.join(&name).join("bin/java.exe")).await
+                cobble_minecraft::probe_java(&path.join(&name).join(platform.executable)).await
             && runtime.major == required
-            && matches!(runtime.arch.as_str(), "amd64" | "x86_64" | "x64")
+            && platform.matches_arch(&runtime.arch)
         {
             return Ok(runtime);
         }
@@ -115,7 +115,7 @@ pub(super) async fn install_at(
                 DownloadAuthority::same_origin(
                     "adoptium",
                     "managed-java",
-                    "temurin-ga-zip-v1",
+                    "temurin-ga-archive-v1",
                     None,
                 )?,
                 None,
@@ -162,9 +162,9 @@ pub(super) async fn install_at(
     control.check_cancelled()?;
     phase(&control, "java-install", 1, 1);
     phase(&control, "java-verify", 0, 1);
-    let executable = path.join(&stage.name).join(&top).join("bin/java.exe");
+    let executable = path.join(&stage.name).join(&top).join(platform.executable);
     let runtime = cobble_minecraft::probe_java(&executable).await?;
-    if runtime.major != required || !matches!(runtime.arch.as_str(), "amd64" | "x86_64" | "x64") {
+    if runtime.major != required || !platform.matches_arch(&runtime.arch) {
         return Err("JAVA_RUNTIME_PROBE_MISMATCH".into());
     }
     let staged = stage.dir()?.open_dir_nofollow(&top)?;
@@ -189,7 +189,7 @@ pub(super) async fn install_at(
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
-    let base = format!("temurin-{required}-x64-{}", &suffix[..16]);
+    let base = format!("temurin-{required}-{}-{}", platform.key(), &suffix[..16]);
     // Never replace files which may still belong to a running JVM. A damaged
     // managed publication gets a separate verified replacement, bounded here.
     let target = publication_name(&stage.root, &base)?;
@@ -198,7 +198,7 @@ pub(super) async fn install_at(
         .rename(format!("{}/{top}", stage.name), &stage.root, &target)?;
     phase(&control, "java-verify", 1, 1);
     Ok(JavaRuntime {
-        executable: std::fs::canonicalize(path.join(target).join("bin/java.exe"))?,
+        executable: std::fs::canonicalize(path.join(target).join(platform.executable))?,
         ..runtime
     })
 }
@@ -225,7 +225,10 @@ async fn selection(
     broker: &Broker,
     control: &OperationControl,
 ) -> Result<Package, Error> {
-    let name = format!(".selection-{required}-x64.json");
+    let name = format!(
+        ".selection-{required}-{}.json",
+        super::target::Target::host()?.key()
+    );
     if let Some(package) = cached_selection(root, required, &name)? {
         return Ok(package);
     }
@@ -323,6 +326,13 @@ impl<R: Seek> Seek for ControlledRead<R> {
     }
 }
 fn extract(staging: &Dir, control: OperationControl) -> Result<String, Error> {
+    extract_target(staging, control, super::target::Target::host()?)
+}
+fn extract_target(
+    staging: &Dir,
+    control: OperationControl,
+    platform: super::target::Target,
+) -> Result<String, Error> {
     control.check_cancelled()?;
     let file = staging.open_with(
         "runtime.zip",
@@ -332,9 +342,14 @@ fn extract(staging: &Dir, control: OperationControl) -> Result<String, Error> {
         input: file,
         control: control.clone(),
     };
-    let normalized = super::archive::normalize(input, staging, &control);
+    let normalized = match platform.archive {
+        super::target::Archive::Zip => {
+            super::archive::normalize(input, staging, &control).map(|()| Vec::new())
+        }
+        super::target::Archive::TarGz => super::archive::normalize_tar(input, staging, &control),
+    };
     control.check_cancelled()?;
-    normalized?;
+    let executable_files = normalized?;
     let input = ControlledRead {
         input: staging.open_with(
             ".normalized.zip",
@@ -355,6 +370,19 @@ fn extract(staging: &Dir, control: OperationControl) -> Result<String, Error> {
     );
     control.check_cancelled()?;
     result?;
+    #[cfg(unix)]
+    for name in &executable_files {
+        use std::os::unix::fs::PermissionsExt;
+        staging
+            .open_with(
+                name,
+                OpenOptions::new().read(true).follow(FollowSymlinks::No),
+            )?
+            .into_std()
+            .set_permissions(std::fs::Permissions::from_mode(0o755))?;
+    }
+    #[cfg(not(unix))]
+    let _ = executable_files;
     let mut names = vec![];
     for entry in staging.entries()? {
         let entry = entry?;
@@ -368,8 +396,13 @@ fn extract(staging: &Dir, control: OperationControl) -> Result<String, Error> {
     let top = name.to_str().ok_or("JAVA_ARCHIVE_LAYOUT_UNSUPPORTED")?;
     SafeRelativePath::parse(top)?;
     let runtime = staging.open_dir_nofollow(top)?;
-    if !runtime.try_exists("bin/java.exe")?
-        || !(runtime.try_exists("legal")? || runtime.try_exists("LICENSE")?)
+    let home = if platform.home.is_empty() {
+        runtime.try_clone()?
+    } else {
+        runtime.open_dir_nofollow(platform.home)?
+    };
+    if !runtime.try_exists(platform.executable)?
+        || !(home.try_exists("legal")? || home.try_exists("LICENSE")?)
     {
         return Err("JAVA_ARCHIVE_LAYOUT_UNSUPPORTED".into());
     }
@@ -450,7 +483,14 @@ mod tests {
             .unwrap();
         writer.write_all(b"bad").unwrap();
         writer.finish().unwrap();
-        assert!(extract(&root, control()).is_err());
+        assert!(
+            extract_target(
+                &root,
+                control(),
+                super::super::target::Target::for_platform("windows", "x86_64").unwrap()
+            )
+            .is_err()
+        );
         assert!(!temp.0.parent().unwrap().join("escape").exists());
         let cancelled = control();
         cancelled.cancel();
@@ -476,11 +516,171 @@ mod tests {
         writer.start_file("runtime/legal/LICENSE", options).unwrap();
         writer.write_all(b"license retained").unwrap();
         writer.finish().unwrap();
-        assert_eq!(extract(&root, control()).unwrap(), "runtime");
+        assert_eq!(
+            extract_target(
+                &root,
+                control(),
+                super::super::target::Target::for_platform("windows", "x86_64").unwrap()
+            )
+            .unwrap(),
+            "runtime"
+        );
         assert_eq!(
             root.read("runtime/legal/LICENSE").unwrap(),
             b"license retained"
         );
+    }
+    #[test]
+    fn unix_runtime_targets_extract_with_home_layout_and_executable_modes() {
+        for (os, arch) in [
+            ("linux", "x86_64"),
+            ("macos", "x86_64"),
+            ("macos", "aarch64"),
+        ] {
+            let target = super::super::target::Target::for_platform(os, arch).unwrap();
+            let temp = Temp::new();
+            let root = open(&temp.0).unwrap();
+            let gzip = flate2::write::GzEncoder::new(
+                root.create("runtime.zip").unwrap(),
+                flate2::Compression::default(),
+            );
+            let mut archive = tar::Builder::new(gzip);
+            for (name, bytes, mode) in [
+                (
+                    format!("runtime/{}", target.executable),
+                    b"fixture-java".as_slice(),
+                    0o755,
+                ),
+                (
+                    format!("runtime/{}/legal/LICENSE", target.home).replace("//", "/"),
+                    b"license".as_slice(),
+                    0o644,
+                ),
+            ] {
+                let mut header = tar::Header::new_gnu();
+                header.set_size(bytes.len() as u64);
+                header.set_mode(mode);
+                header.set_cksum();
+                archive.append_data(&mut header, name, bytes).unwrap();
+            }
+            let mut header = tar::Header::new_gnu();
+            header.set_size(0);
+            header.set_mode(0o777);
+            header.set_entry_type(tar::EntryType::Symlink);
+            header.set_link_name("LICENSE").unwrap();
+            header.set_cksum();
+            let alias = format!("runtime/{}/legal/COPY", target.home).replace("//", "/");
+            archive
+                .append_data(&mut header, &alias, std::io::empty())
+                .unwrap();
+            archive.into_inner().unwrap().finish().unwrap();
+            assert_eq!(extract_target(&root, control(), target).unwrap(), "runtime");
+            assert_eq!(
+                root.read(format!("runtime/{}", target.executable)).unwrap(),
+                b"fixture-java"
+            );
+            assert_eq!(root.read(&alias).unwrap(), b"license");
+            assert!(
+                !std::fs::symlink_metadata(temp.0.join(&alias))
+                    .unwrap()
+                    .file_type()
+                    .is_symlink()
+            );
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                assert_eq!(
+                    std::fs::metadata(temp.0.join("runtime").join(target.executable))
+                        .unwrap()
+                        .permissions()
+                        .mode()
+                        & 0o777,
+                    0o755
+                );
+            }
+            assert!(target.matches_arch(if arch == "aarch64" { "arm64" } else { "amd64" }));
+            assert!(!target.matches_arch(if arch == "aarch64" { "amd64" } else { "arm64" }));
+        }
+    }
+    #[tokio::test]
+    #[ignore = "requires an independently downloaded official runtime and metadata in COBBLE_JAVA_ARCHIVE_PROBE"]
+    async fn official_local_archive_extract_and_probe() {
+        let source = std::path::PathBuf::from(
+            std::env::var_os("COBBLE_JAVA_ARCHIVE_PROBE").expect("probe directory"),
+        );
+        let metadata_bytes = std::fs::read(source.join("linux-metadata.json")).unwrap();
+        let package = metadata::parse(&metadata_bytes, 21).unwrap();
+        let temp = Temp::new();
+        let root = open(&temp.0).unwrap();
+        let store_path = temp.0.join("cas");
+        std::fs::create_dir(&store_path).unwrap();
+        let store = ContentStore::open(open(&store_path).unwrap()).unwrap();
+        let expectation = ArtifactExpectation {
+            expected_size: Some(package.size),
+            max_bytes: package.size,
+            digests: ExpectedDigests {
+                sha256: Some(package.sha256),
+                ..Default::default()
+            },
+            basis: IntegrityBasis::TrustedMetadata,
+        };
+        let artifact = store
+            .ingest(
+                std::fs::File::open(source.join("runtime.tar.gz")).unwrap(),
+                expectation,
+            )
+            .unwrap();
+        store
+            .copy_to(
+                &artifact.artifact,
+                &root,
+                &SafeRelativePath::parse("runtime.zip").unwrap(),
+            )
+            .unwrap();
+        // CAS is outside extraction staging to retain the single-root layout invariant.
+        drop(store);
+        std::fs::remove_dir_all(store_path).unwrap();
+        let platform = super::super::target::Target::host().unwrap();
+        let top = extract(&root, control()).unwrap();
+        let runtime = cobble_minecraft::probe_java(&temp.0.join(&top).join(platform.executable))
+            .await
+            .unwrap();
+        assert_eq!(runtime.major, 21);
+        assert!(platform.matches_arch(&runtime.arch));
+        println!(
+            "official archive verified and probed: major={} arch={} sha256={:02x?}",
+            runtime.major, runtime.arch, package.sha256
+        );
+    }
+    #[test]
+    fn tar_links_cannot_escape_staging() {
+        for kind in [tar::EntryType::Symlink, tar::EntryType::Link] {
+            let temp = Temp::new();
+            let root = open(&temp.0).unwrap();
+            let gzip = flate2::write::GzEncoder::new(
+                root.create("runtime.zip").unwrap(),
+                flate2::Compression::default(),
+            );
+            let mut archive = tar::Builder::new(gzip);
+            let mut header = tar::Header::new_gnu();
+            header.set_size(0);
+            header.set_mode(0o777);
+            header.set_entry_type(kind);
+            header.set_link_name("../../escape").unwrap();
+            header.set_cksum();
+            archive
+                .append_data(&mut header, "runtime/link", std::io::empty())
+                .unwrap();
+            archive.into_inner().unwrap().finish().unwrap();
+            let target = super::super::target::Target::for_platform("linux", "x86_64").unwrap();
+            assert!(
+                extract_target(&root, control(), target)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("JAVA_ARCHIVE_")
+            );
+            assert!(!root.try_exists("runtime/link").unwrap());
+        }
     }
     #[tokio::test]
     async fn precancelled_managed_install_creates_nothing() {
@@ -502,7 +702,10 @@ mod tests {
         let root = open(&temp.0).unwrap();
         let lock = root
             .open_with(
-                ".install-17-x64.lock",
+                &format!(
+                    ".install-17-{}.lock",
+                    super::super::target::Target::host().unwrap().key()
+                ),
                 OpenOptions::new().read(true).write(true).create_new(true),
             )
             .unwrap()

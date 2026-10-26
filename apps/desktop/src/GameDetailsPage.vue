@@ -35,7 +35,7 @@ import type { ResolvedCommand } from './extensions/contributions';
 import type { RecoveryDetailTarget } from './recovery-navigation';
 
 const props = defineProps<{ tasks?: TaskSnapshot[]; active?: boolean; snapshotRestore?: SnapshotRestoreTarget; recoveryTarget?: RecoveryDetailTarget; game: Game; starting: boolean; profile: PlayerProfile | null; library: ProfileLibrary }>();
-const emit = defineEmits<{ play: [id: string]; openGame: [id: string]; retrySessionRecovery: [id: string]; serverPlay: [id: string, serverId: string]; renamed: [game: Game]; profileChanged: [game: Game]; action: [action: GameAction]; contentBusy: [value: boolean]; market: [kind: MarketKind]; extensions: []; mesh: []; readiness: []; login: []; extensionCommand: [command: ResolvedCommand] }>();
+const emit = defineEmits<{ play: [id: string]; openGame: [id: string]; retrySessionRecovery: [id: string]; serverPlay: [id: string, serverId: string]; renamed: [game: Game]; profileChanged: [game: Game]; action: [action: GameAction]; exchange: [mode: 'export' | 'import' | 'transfer']; contentBusy: [value: boolean]; market: [kind: MarketKind]; extensions: []; mesh: []; readiness: []; login: []; extensionCommand: [command: ResolvedCommand] }>();
 const iconUrl = ref<string | null>(null);
 watch(() => [props.game.id, props.game.icon_ref] as const, async ([id, iconRef], _previous, onCleanup) => {
   let current = true;
@@ -360,6 +360,29 @@ watch(() => [props.game.id, props.recoveryTarget, props.active] as const, async 
                 @select="$emit('action', 'export')"
               >
                 <AppIcon name="download" />{{ t('gameDetails.export') }}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                v-if="supportsMods"
+                class="profile-menu-item"
+                :disabled="locked || modsActivity.busy"
+                @select="$emit('exchange', 'export')"
+              >
+                <AppIcon name="share" />{{ t('gameDetails.shareChanges') }}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                v-if="supportsMods"
+                class="profile-menu-item"
+                :disabled="locked || modsActivity.busy"
+                @select="$emit('exchange', 'import')"
+              >
+                <AppIcon name="download" />{{ t('gameDetails.applyChanges') }}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                class="profile-menu-item"
+                :disabled="locked || modsActivity.busy"
+                @select="$emit('exchange', 'transfer')"
+              >
+                <AppIcon name="monitor" />{{ t('gameDetails.transferGame') }}
               </DropdownMenuItem>
               <DropdownMenuSeparator class="profile-menu-separator" />
               <DropdownMenuItem

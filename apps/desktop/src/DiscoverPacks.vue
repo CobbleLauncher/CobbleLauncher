@@ -8,13 +8,14 @@ import VersionSelector from './VersionSelector.vue';
 import { preferredRelease } from './version-selector';
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { t } from './i18n';
+import { locale, t } from './i18n';
 import LoadingIndicator from './ui/LoadingIndicator.vue';
 import type { ContentPackVersion, LocalPack, LocalPackKind, ModSearchHit, ModSearchPage } from './games';
 import { isMarketSaved, toggleMarketSaved, type SavedMarketItem } from './market-saved';
 import { marketWorkstate, rememberMarketWorkstate, restoreMarketScroll } from './market-workstate';
+import { findLinkedProject, linkedVersionId, type FileInboxMarketLink } from './file-inbox-market';
 
-const props = defineProps<{ gameId: string; kind: LocalPackKind; locked: boolean; revision?: number; browseOnMount?: boolean; initialQuery?: string; sharedMode?: boolean; sharedRequest?: {serial:number;query:string}; savedRequest?: { serial: number; item: SavedMarketItem } }>();
+const props = defineProps<{ gameId: string; kind: LocalPackKind; locked: boolean; revision?: number; browseOnMount?: boolean; initialQuery?: string; sharedMode?: boolean; sharedRequest?: {serial:number;query:string}; savedRequest?: { serial: number; item: SavedMarketItem }; linkRequest?: FileInboxMarketLink }>();
 const emit = defineEmits<{ busy: [value: boolean]; installed: [packs: LocalPack[]] }>();
 const label = computed(() => props.kind === 'resource_pack' ? '资源包' : '光影包');
 const root = ref<HTMLElement>();
@@ -25,6 +26,7 @@ const hits = ref<ModSearchHit[]>([]);
 const searched = ref(false);
 const searching = ref(false);
 const searchError = ref('');
+const linkProjectMissing = ref(false);
 const nextOffset = ref(0);
 const hasMore = ref(false);
 const selected = ref<ModSearchHit | null>(null);
@@ -45,6 +47,8 @@ function downloadCount(value: number): string { return new Intl.NumberFormat('zh
 async function search(offset = 0, retry = false) {
   if (installing.value) return;
   const current = ++searchRequest;
+  let linked: ModSearchHit | undefined;
+  if (!offset) linkProjectMissing.value = false;
   if (!offset && !retry) submitted.value = query.value.trim();
   failedOffset = offset;
   searched.value = true; searching.value = true; searchError.value = '';
@@ -52,10 +56,11 @@ async function search(offset = 0, retry = false) {
     const result = await invoke<ModSearchPage>('search_game_content_packs', { id: props.gameId, kind: props.kind, query: submitted.value, offset });
     if (current !== searchRequest) return;
     hits.value = offset ? [...new Map([...hits.value, ...result.hits].map((hit) => [hit.project_id, hit])).values()] : result.hits;
+    if (!offset && props.linkRequest) { linked = findLinkedProject(hits.value, props.linkRequest); linkProjectMissing.value = !linked; }
     nextOffset.value = result.offset + result.hits.length;
     hasMore.value = result.hits.length > 0 && nextOffset.value < result.total_hits;
   } catch { if (current === searchRequest) searchError.value = `暂时无法获取${label.value}，请重试。`; }
-  finally { if (current === searchRequest) searching.value = false; }
+  finally { if (current === searchRequest) { searching.value = false; if (linked) select(linked); } }
 }
 async function loadVersions() {
   if (!selected.value || installing.value) return;
@@ -64,7 +69,7 @@ async function loadVersions() {
   try {
     const result = await invoke<ContentPackVersion[]>('list_game_content_pack_versions', { id: props.gameId, kind: props.kind, projectId: selected.value.project_id });
     if (current !== versionRequest) return;
-    versions.value = result; versionId.value = preferredRelease(result)?.version_id ?? '';
+    versions.value = result; versionId.value = props.linkRequest?.version ? linkedVersionId(result, props.linkRequest.version) : preferredRelease(result)?.version_id ?? '';
   } catch (cause) { if (current === versionRequest) versionError.value = `无法读取${label.value}版本：${String(cause)}`; }
   finally { if (current === versionRequest) loadingVersions.value = false; }
 }
@@ -110,6 +115,7 @@ watch(() => props.savedRequest?.serial, () => {
 onMounted(() => {
   const item = props.savedRequest?.item;
   if (item?.provider === 'modrinth' && item.kind === props.kind) select(item.hit as ModSearchHit);
+  else if (props.linkRequest) { query.value = props.linkRequest.project; void search(); }
   else {
     const state = marketWorkstate<{ query: string; submitted: string; hits: ModSearchHit[]; searched: boolean; nextOffset: number; hasMore: boolean }>(workKey());
     if (state && (!props.sharedMode || state.query === (props.sharedRequest?.query ?? props.initialQuery ?? ''))) { query.value = state.query; submitted.value = state.submitted; hits.value = state.hits; searched.value = state.searched; nextOffset.value = state.nextOffset; hasMore.value = state.hasMore; restoreMarketScroll(workKey(), root.value); }
@@ -122,6 +128,8 @@ onMounted(() => {
     ref="root"
     class="discover-content discover-local-packs"
   >
+    <p v-if="linkProjectMissing && !selected" role="status" class="setting-hint">{{ locale === 'zh-CN' ? '未在当前结果中找到该项目。可调整搜索或筛选。' : 'Project not found in these results. Try another search or filter.' }}</p>
+    <p v-if="selected && linkRequest?.version && !loadingVersions && !versionId && !versionError" role="status" class="setting-hint">{{ locale === 'zh-CN' ? '链接中的版本未在当前列表中找到，请手动选择版本。' : 'Linked version was not found here. Choose a version manually.' }}</p>
     <template v-if="selected">
       <button
         class="text-button"

@@ -26,7 +26,7 @@ export function embeddedCredential(environment) {
 function command(executable, arguments_, options = {}) {
   return execFileSync(executable, arguments_, { env: withoutProviderCredentials(process.env), cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...options });
 }
-function pnpm(arguments_, options) { return command(process.execPath, [pnpmScript, ...arguments_], options); }
+function pnpm(arguments_, options) { return pnpmScript ? command(process.execPath, [pnpmScript, ...arguments_], options) : command('pnpm', arguments_, options); }
 function json(file) { return JSON.parse(readFileSync(file, 'utf8')); }
 function portable(file) { return file.split(path.sep).join('/'); }
 function packageKey(name, version) { return `${name}@${version}`; }
@@ -102,14 +102,15 @@ function validateMeshProject(value) {
   return projectRoot;
 }
 
-function cargoMetadata(projectRoot) {
-  const args = ['metadata', '--locked', '--offline', '--format-version', '1', '--filter-platform', target];
+function cargoMetadata(projectRoot, platformTarget = target) {
+  const args = ['metadata', '--locked', '--offline', '--format-version', '1', '--filter-platform', platformTarget];
   if (projectRoot !== root) args.push('--manifest-path', path.join(projectRoot, 'Cargo.toml'));
   return JSON.parse(command('cargo', args, { cwd: projectRoot }));
 }
 
-function collectCargoProject(projectRoot, packageName, project, metadata = cargoMetadata(projectRoot)) {
-  const treeArgs = ['tree', '--locked', '--offline', '--target', target, '-p', packageName, '--edges', 'normal,build', '--prefix', 'none', '--format', '{p}'];
+function collectCargoProject(projectRoot, packageName, project, metadata = null, platformTarget = target) {
+  metadata ??= cargoMetadata(projectRoot, platformTarget);
+  const treeArgs = ['tree', '--locked', '--offline', '--target', platformTarget, '-p', packageName, '--edges', 'normal,build', '--prefix', 'none', '--format', '{p}'];
   if (projectRoot !== root) treeArgs.push('--manifest-path', path.join(projectRoot, 'Cargo.toml'));
   const tree = command('cargo', treeArgs, { cwd: projectRoot });
   const selected = new Set(tree.split(/\r?\n/).flatMap((line) => {
@@ -158,11 +159,11 @@ function uniqueCopies(copies) {
   return [...unique.values()];
 }
 
-function collectCompanion(projectRoot) {
-  const metadata = cargoMetadata(projectRoot);
+function collectCompanion(projectRoot, platformTarget = target) {
+  const metadata = cargoMetadata(projectRoot, platformTarget);
   const matches = metadata.packages.filter((item) => item.source === null && item.targets.some((target) => target.name === 'cobble-mesh-companion' && target.kind.includes('bin')));
   if (matches.length !== 1) throw new Error('Mesh project must define exactly one cobble-mesh-companion binary target.');
-  const graph = collectCargoProject(projectRoot, matches[0].name, 'mesh-companion', metadata);
+  const graph = collectCargoProject(projectRoot, matches[0].name, 'mesh-companion', metadata, platformTarget);
   const targetDirectory = metadata.target_directory;
   return {
     ...graph,
@@ -190,14 +191,20 @@ function licenseFiles(directory, inherited = false) {
   return files;
 }
 
-function collectDependencies(meshProject = null) {
-  const launcher = collectCargoProject(root, 'cobble-desktop', 'launcher');
+export function collectDependencies(meshProject = null, platformTarget = target, includePluginHost = false) {
+  const launcher = collectCargoProject(root, 'cobble-desktop', 'launcher', null, platformTarget);
+  if (includePluginHost) {
+    const host = collectCargoProject(root, 'cobble-plugin-host', 'plugin-host', launcher.metadata, platformTarget);
+    launcher.packages = mergeCargoPackages([{ project: 'launcher', packages: launcher.packages }, { project: 'plugin-host', packages: host.packages }]);
+    launcher.copies = uniqueCopies([...launcher.copies, ...host.copies]);
+    launcher.missing = [...new Set([...launcher.missing, ...host.missing])];
+  }
   let cargoPackages = launcher.packages;
   let copies = launcher.copies;
   let missing = launcher.missing;
   let companion = null;
   if (meshProject) {
-    companion = collectCompanion(meshProject);
+    companion = collectCompanion(meshProject, platformTarget);
     cargoPackages = mergeCargoPackages([
       { project: 'launcher', packages: launcher.packages },
       { project: 'mesh-companion', packages: companion.packages },

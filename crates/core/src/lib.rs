@@ -6,6 +6,7 @@
 use cobble_domain::AppInfo;
 
 mod cache;
+pub mod change_share;
 mod content_pack_install;
 mod control;
 mod curseforge;
@@ -13,6 +14,7 @@ pub mod environment_install;
 mod fabric;
 mod foreign_import;
 mod forge;
+pub mod game_transfer;
 mod install;
 mod instances;
 mod launch;
@@ -32,6 +34,7 @@ pub use curseforge::{
     import_curseforge_manual_file, install_curseforge_plan_controlled,
     missing_curseforge_manual_files,
 };
+pub use modupdates::prepare_shared_modrinth_changes;
 mod curseforge_pack;
 mod mrpack;
 pub use curseforge_pack::{

@@ -4,8 +4,9 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { parsePluginHandoffRequest, type PluginHandoffRequest } from './plugin-handoffs';
 import { parseRecoveryNavigation, type RecoveryNavigationRequest } from './recovery-navigation';
 import type { FileInboxHostRequest } from './file-inbox-host';
+import { parseFileInboxMarketEvent, type FileInboxMarketLink } from './file-inbox-market';
 
-type Request = { kind: 'generated-blueprint'; blueprintId: string } | { kind: 'inbox' } | { kind: 'inbox-review'; value: FileInboxHostRequest } | { kind: 'game'; gameId: string }
+type Request = { kind: 'generated-blueprint'; blueprintId: string } | { kind: 'inbox' } | { kind: 'inbox-review'; value: FileInboxHostRequest } | { kind: 'inbox-market'; value: FileInboxMarketLink } | { kind: 'game'; gameId: string }
   | { kind: 'handoff'; value: PluginHandoffRequest } | { kind: 'recovery'; value: RecoveryNavigationRequest };
 interface Options {
   native: boolean;
@@ -17,6 +18,7 @@ interface Options {
   hideTasks: () => void;
   openInbox: () => void;
   openInboxReview: (request: FileInboxHostRequest) => Promise<void>;
+  openInboxMarket: (request: FileInboxMarketLink) => void;
   openGame: (id: string) => void;
   openGeneratedBlueprint: (id: string) => void;
   openHandoff: (request: PluginHandoffRequest) => void;
@@ -35,6 +37,7 @@ export function usePluginNavigation(options: Options) {
       while (pending.length && !disposed && !options.busy.value) {
         const request = pending.shift()!;
         const gameId = request.kind === 'game' ? request.gameId
+          : request.kind === 'inbox-market' ? request.value.gameId ?? null
           : request.kind === 'recovery' ? request.value.game_id
             : request.kind === 'handoff' ? request.value.gameId : null;
         if (request.kind === 'game' && !options.hasGame(request.gameId)) await options.refreshGames();
@@ -45,6 +48,7 @@ export function usePluginNavigation(options: Options) {
         if (request.kind === 'generated-blueprint') options.openGeneratedBlueprint(request.blueprintId);
         else if (request.kind === 'inbox') options.openInbox();
         else if (request.kind === 'inbox-review') await options.openInboxReview(request.value);
+        else if (request.kind === 'inbox-market') options.openInboxMarket(request.value);
         else if (request.kind === 'game') options.openGame(request.gameId);
         else if (request.kind === 'recovery') options.openRecovery(request.value);
         else options.openHandoff(request.value);
@@ -88,6 +92,10 @@ export function usePluginNavigation(options: Options) {
           && typeof item.plugin_id === 'string' && /^[a-z0-9][a-z0-9._-]{0,127}$/u.test(item.plugin_id)) {
           enqueue({ kind: 'inbox-review', value: { handoff_id: item.handoff_id, plugin_id: item.plugin_id } });
         }
+      }),
+      subscribe('plugin-file-inbox-market', payload => {
+        const value = parseFileInboxMarketEvent(payload);
+        if (value) enqueue({ kind: 'inbox-market', value });
       }),
       subscribe('plugin-file-inbox-notice', payload => options.error(payload === 'unavailable' ? 'shell.error.fileInboxUnavailable' : 'shell.error.fileInboxFailed')),
     ];

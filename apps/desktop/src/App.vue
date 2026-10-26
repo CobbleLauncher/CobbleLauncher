@@ -34,6 +34,8 @@ const CfPackInstallPage = lazyPage(() => import('./CfPackInstallPage.vue'));
 import type { CurseForgePackPreview } from './curseforge';
 const ImportLauncherPage = lazyPage(() => import('./ImportLauncherPage.vue'));
 const GameDirectoryMigrationPage = lazyPage(() => import('./settings/GameDirectoryMigrationPage.vue'));
+const ChangeSharePage = lazyPage(() => import('./change-share/ChangeSharePage.vue'));
+const GameTransferPage = lazyPage(() => import('./game-transfer/GameTransferPage.vue'));
 const MarketPage = lazyPage(() => import('./MarketPage.vue'));
 import type { MarketKind } from './market';
 import { incomingBlueprint, pendingBlueprint, type PendingBlueprintRequest } from './blueprints';
@@ -390,6 +392,8 @@ async function openGameGroup() {
 }
 const pluginDetailsPage=ref<{confirmLeave:()=>Promise<boolean>}|null>(null);
 const settingsPage = ref<InstanceType<typeof SettingsPage> | null>(null);
+const changeSharePage = ref<{confirmLeave:()=>Promise<boolean>} | null>(null);
+const gameTransferPage = ref<{confirmLeave:()=>Promise<boolean>} | null>(null);
 async function openDirectoryMigration(taskId?: string) {
   if (navigationBusy.value || !await confirmWorkspaceLeave()) return;
   tasksOpen.value = false;
@@ -409,6 +413,8 @@ async function confirmWorkspaceLeave(): Promise<boolean> {
   if (view.value === 'extension-detail') return await pluginDetailsPage.value?.confirmLeave() ?? true;
   if (view.value === 'settings') return await settingsPage.value?.confirmLeave() ?? true;
   if (view.value === 'details') return await gameDetailsPage.value?.confirmLeave() ?? true;
+  if (view.value === 'share-changes') return await changeSharePage.value?.confirmLeave() ?? true;
+  if (view.value === 'game-transfer') return await gameTransferPage.value?.confirmLeave() ?? true;
   return true;
 }
 const toolLocation = computed(() => page.value.view==='tools' ? page.value.location : undefined);
@@ -555,6 +561,31 @@ async function openGameAction(action: GameAction) {
   if (!game || game.status !== 'installed' || game.content_installing || starting.value.includes(game.id) || (game.launch_state ?? 'idle') !== 'idle') return;
   showPage({view:'game-action',gameId:game.id,action});
 }
+async function openGameExchange(mode: 'export' | 'import' | 'transfer') {
+  if (!await confirmWorkspaceLeave()) return;
+  const game = selectedGame.value;
+  if (!game || game.status !== 'installed' || game.content_installing || starting.value.includes(game.id) || (game.launch_state ?? 'idle') !== 'idle') return;
+  showPage(mode === 'transfer' ? {view:'game-transfer',gameId:game.id} : {view:'share-changes',gameId:game.id,mode});
+}
+async function receiveGameTransfer() {
+  if (navigationBusy.value || !await confirmWorkspaceLeave()) return;
+  showPage({view:'game-transfer',gameId:''});
+}
+async function openTransferTask(taskId: string) {
+  if (!await confirmWorkspaceLeave()) return;
+  tasksOpen.value = false;
+  showPage({view:'game-transfer',gameId:'',taskId});
+}
+async function changesApplied(id: string) {
+  staleContentGames.add(id);
+  await loadGames();
+  navigation.value = returnToGameDetails(navigation.value, id);
+  await refreshReturnedContent();
+}
+async function openTransferredGame(id: string) {
+  await loadGames();
+  if (games.value.some(game => game.id === id)) showPage({view:'details',gameId:id});
+}
 function removeFromLibrary(id: string) {
   games.value = games.value.filter((game) => game.id !== id);
   gameRevisions.delete(id);
@@ -581,6 +612,8 @@ function pageTitle(value:AppPage):string {
     case 'extensions':return t('navigation.extensions');
     case 'discover-packs':return t('shell.page.market');
     case 'game-action':return ({copy:t('shell.action.copy'),export:t('shell.action.export'),remove:t('shell.action.remove')})[value.action];
+    case 'share-changes':return t(value.mode === 'export' ? 'gameDetails.shareChanges' : 'gameDetails.applyChanges');
+    case 'game-transfer':return t(value.gameId ? 'gameDetails.transferGame' : 'home.receiveGame');
     case 'mesh':return t('mesh.title');
     case 'mesh-group':return t('runningGame.share');
     case 'create':return t('shell.page.create');
@@ -716,6 +749,11 @@ usePluginNavigation({
     else openToolLocation({ pluginId: 'file-inbox', instanceId: 'gameId' in current ? current.gameId || undefined : current.view === 'tools' ? current.location?.instanceId : undefined });
   },
   openInboxReview: async request => { await suspendToolView(); inboxReviewRequest.value = request; },
+  openInboxMarket: link => {
+    ++marketRevision.value;
+    discoverPacksVisited.value = true;
+    showPage({view:'discover-packs',kind:link.kind,gameId:link.gameId ?? '',query:link.project,link});
+  },
   openGame: id => manageGame(id, true),
   openGeneratedBlueprint: blueprintId => {
     const current = navigation.value.current;
@@ -918,6 +956,7 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
           @create="showPage({ view: 'create' })"
           @import-pack="openLocalImport"
           @import-launcher="showPage({ view: 'import-launcher' })"
+          @receive-game="receiveGameTransfer"
         />
         <GameRunningPage
           v-if="view === 'running' && selectedGame"
@@ -976,6 +1015,7 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
           @retry-session-recovery="retryGameSessionRecovery"
           @profile-changed="updateGame"
           @action="openGameAction"
+          @exchange="openGameExchange"
           @content-busy="contentBusy = $event"
           @readiness="openReadiness"
           @market="openGameMarket"
@@ -1057,6 +1097,28 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
             @copy-started="showBackgroundCopy"
             @removed="removeFromLibrary"
             @cancel="goBack"
+          />
+          <ChangeSharePage
+            v-else-if="page.view === 'share-changes' && selectedGame"
+            :key="pageKey(page)"
+            ref="changeSharePage"
+            :game="selectedGame"
+            :mode="page.mode"
+            @back="goBack"
+            @applied="changesApplied"
+          />
+          <GameTransferPage
+            v-else-if="page.view === 'game-transfer'"
+            :key="pageKey(page)"
+            ref="gameTransferPage"
+            :game-id="page.gameId || undefined"
+            :initial-task-id="page.taskId"
+            :initial-offer-id="page.offerId"
+            @back="goBack"
+            @open-mesh="navigate('mesh')"
+            @open-game="openTransferredGame"
+            @task="loadTasks"
+            @discarded="loadGames"
           />
           <ProfilesPage
             v-else-if="view === 'profiles'"
@@ -1164,6 +1226,7 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
           :initial-kind="marketKind"
           :initial-game-id="marketGameId"
           :initial-query="navigation.market.query"
+          :initial-link="navigation.market.link"
           @installed="marketInstalled"
           @locate="locateMarketContent"
           @busy="packPreviewBusy = $event"
@@ -1214,6 +1277,7 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
           @selected-cf-pack="continueTaskCfPack"
           @continuing="taskPreviewBusy = $event"
           @open-migration="openDirectoryMigration"
+          @open-transfer="openTransferTask"
         />
       </section>
     </main>
@@ -1229,8 +1293,8 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
 
 <style scoped>
 .titlebar{display:grid;grid-template-columns:minmax(0,1fr) minmax(160px,360px) minmax(0,1fr);gap:12px}
-.titlebar-actions{display:flex;align-items:center;justify-self:end;min-width:0;gap:2px}
+.titlebar-actions{grid-column:3;display:flex;align-items:center;justify-self:end;min-width:0;gap:2px}
 .titlebar .drag-area{min-width:0;align-self:stretch}
-@media(max-width:960px){.titlebar{display:flex;gap:10px}.titlebar .drag-area{flex:0 0 auto;padding-left:14px}.titlebar .brand{display:none}.titlebar .command-status{flex:1}.titlebar-actions{flex-shrink:0}.titlebar .tasks-button{padding:0 8px}.titlebar .tasks-button>span:not(.task-count){display:none}.titlebar .window-controls button{width:34px}}
+@media(max-width:960px){.titlebar{display:flex;gap:10px}.titlebar .drag-area{flex:0 0 auto;padding-left:14px}.titlebar .brand{display:none}.titlebar .command-status{flex:1}.titlebar-actions{flex-shrink:0;margin-left:auto}.titlebar .tasks-button{padding:0 8px}.titlebar .tasks-button>span:not(.task-count){display:none}.titlebar .window-controls button{width:34px}}
 </style>
 

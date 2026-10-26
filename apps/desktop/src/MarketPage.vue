@@ -14,25 +14,28 @@ import SettingsDisclosure from './ui/settings/SettingsDisclosure.vue';
 import { marketTarget, rememberMarketTarget } from './market-preferences';
 import { savedMarketItems, type SavedMarketItem } from './market-saved';
 import { marketWorkstate, rememberMarketWorkstate } from './market-workstate';
+import type { FileInboxMarketLink } from './file-inbox-market';
 
-const props = defineProps<{ games: Game[]; initialKind: MarketKind; initialGameId?: string; initialQuery?: string }>();
+const props = defineProps<{ games: Game[]; initialKind: MarketKind; initialGameId?: string; initialQuery?: string; initialLink?: FileInboxMarketLink | null }>();
+const activeLink = ref(props.initialLink);
 const emit = defineEmits<{ busy: [value: boolean]; selectedPack: [preview: PackPreview]; selectedCfPack: [preview: CurseForgePackPreview]; installed: [gameId: string]; locate: [gameId: string, kind: MarketKind] }>();
 const categories: Exclude<MarketKind, 'blueprint'>[] = ['modpack', 'mod', 'resource_pack', 'shader_pack'];
 const previousSelection = marketWorkstate<{ kind: MarketKind; provider: string; gameId: string; minecraftVersion?: string; loader?: string }>('market:selection');
-const kind = ref<MarketKind>(props.initialQuery || props.initialGameId ? props.initialKind : previousSelection?.kind ?? props.initialKind);
-const gameId = ref(marketTarget(props.games, kind.value, props.initialGameId ?? previousSelection?.gameId));
+const kind = ref<MarketKind>(props.initialLink?.kind ?? (props.initialQuery || props.initialGameId ? props.initialKind : previousSelection?.kind ?? props.initialKind));
+const gameId = ref(marketTarget(props.games, kind.value, props.initialLink?.gameId ?? props.initialGameId ?? previousSelection?.gameId));
 const busy = ref(false);
 const cfAvailable = ref<boolean | null>(null);
 function sharedQueryKey(category: MarketKind, target: string) { return `market:shared-query:${category}:${target || 'global'}`; }
-const sharedQuery = ref(props.initialQuery ?? marketWorkstate<string>(sharedQueryKey(kind.value, gameId.value)) ?? '');
+const sharedQuery = ref(props.initialLink?.project ?? props.initialQuery ?? marketWorkstate<string>(sharedQueryKey(kind.value, gameId.value)) ?? '');
 const sharedInitialQuery = ref(sharedQuery.value);
 let sharedSerial = 0;
-const minecraftVersion = ref(props.initialQuery ? '' : previousSelection?.minecraftVersion ?? '');
-const filterLoader = ref(props.initialQuery ? '' : previousSelection?.loader ?? '');
+const minecraftVersion = ref(props.initialQuery || props.initialLink ? '' : previousSelection?.minecraftVersion ?? '');
+const filterLoader = ref(props.initialQuery || props.initialLink ? '' : previousSelection?.loader ?? '');
 const sharedRequest = ref({ serial: 0, query: sharedQuery.value, minecraftVersion: minecraftVersion.value, loader: filterLoader.value });
 const queryError = ref('');
 function submitSharedSearch() {
   const query = sharedQuery.value.trim();
+  if (activeLink.value && query !== activeLink.value.project) activeLink.value = null;
   queryError.value = '';
   if (kind.value === 'modpack') {
     const version = minecraftVersion.value.trim();
@@ -43,7 +46,7 @@ function submitSharedSearch() {
   sharedRequest.value = { serial: ++sharedSerial, query, minecraftVersion: minecraftVersion.value.trim(), loader: filterLoader.value };
 }
 type MarketProvider = 'all' | 'modrinth' | 'curseforge';
-const provider = ref<MarketProvider>('all');
+const provider = ref<MarketProvider>(props.initialLink?.provider ?? 'all');
 const savedRequest = ref<{ serial: number; item: SavedMarketItem }>();
 const savedCollections = computed(() => ([
   { id: 'favorite', label: t('market.favorites'), items: savedMarketItems.value.filter(item => item.collection === 'favorite') },
@@ -76,14 +79,15 @@ function browseComponent(source: Exclude<MarketProvider, 'all'>) {
 function browseProps(source: Exclude<MarketProvider, 'all'>) {
   const sharedMode = true;
   const initialQuery = sharedMode ? sharedInitialQuery.value : props.initialQuery;
+  const linkRequest = activeLink.value?.provider === source && activeLink.value.kind === kind.value ? activeLink.value : undefined;
   if (kind.value === 'modpack') return source === 'curseforge'
-    ? { kind: 'modpack', initialQuery, sharedMode, sharedRequest: sharedRequest.value }
-    : { initialQuery, sharedMode, sharedRequest: sharedRequest.value };
+    ? { kind: 'modpack', initialQuery, sharedMode, sharedRequest: sharedRequest.value, linkRequest }
+    : { initialQuery, sharedMode, sharedRequest: sharedRequest.value, linkRequest };
   const locked = game.value ? marketGameLocked(game.value) : false;
   if (kind.value === 'mod') return source === 'curseforge'
-    ? { kind: 'mod', game: game.value, locked, initialQuery, sharedMode, sharedRequest: sharedRequest.value }
-    : { game: game.value, locked, initialQuery, sharedMode, sharedRequest: sharedRequest.value };
-  return { gameId: gameId.value, kind: kind.value, locked, browseOnMount: true, initialQuery, sharedMode, sharedRequest: sharedRequest.value };
+    ? { kind: 'mod', game: game.value, locked, initialQuery, sharedMode, sharedRequest: sharedRequest.value, linkRequest }
+    : { game: game.value, locked, initialQuery, sharedMode, sharedRequest: sharedRequest.value, linkRequest };
+  return { gameId: gameId.value, kind: kind.value, locked, browseOnMount: true, initialQuery, sharedMode, sharedRequest: sharedRequest.value, linkRequest };
 }
 function setBusy(value: boolean) { busy.value = value; emit('busy', value); }
 function installed() {
@@ -93,9 +97,16 @@ function installed() {
 }
 function selectKind(value: MarketKind) {
   if (!busy.value && kind.value !== value) {
+    activeLink.value = null;
     savedRequest.value = undefined;
     kind.value = value;
     gameId.value = marketTarget(props.games, value);
+  }
+}
+function selectProvider(value: MarketProvider) {
+  if (value !== provider.value) {
+    provider.value = value;
+    if (activeLink.value && value !== activeLink.value.provider) activeLink.value = null;
   }
 }
 watch([() => props.initialKind, () => props.initialGameId], () => {
@@ -134,7 +145,7 @@ onUnmounted(() => {
       :cf-available="cfAvailable"
       @kind="selectKind"
       @target="selectTarget"
-      @provider="provider = $event as MarketProvider"
+      @provider="selectProvider($event as MarketProvider)"
       @query="sharedQuery = $event"
       @version="minecraftVersion = $event"
       @loader="filterLoader = $event"
@@ -173,6 +184,9 @@ onUnmounted(() => {
         </div>
       </SettingsDisclosure>
       <div class="market-workflow">
+        <p v-if="activeLink" class="setting-hint" role="status">
+          {{ activeLink.provider === 'modrinth' ? 'Modrinth' : 'CurseForge' }} · {{ activeLink.project }}<template v-if="activeLink.version"> · {{ activeLink.version }}</template>
+        </p>
         <p
           v-if="kind !== 'modpack' && !targets.length"
           class="content-empty"

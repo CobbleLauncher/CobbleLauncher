@@ -122,7 +122,8 @@ pub fn record_clean_exit(
 }
 /// Public timing metadata for the native maintenance list; no runtime settings or paths.
 pub(crate) fn last_clean_timing(game_id: &str) -> Result<Option<(u64, u64)>, String> {
-    Ok(receipts::read_at(&receipts::root()?, game_id)?.map(|receipt| (receipt.started_at, receipt.ended_at)))
+    Ok(receipts::read_at(&receipts::root()?, game_id)?
+        .map(|receipt| (receipt.started_at, receipt.ended_at)))
 }
 pub fn record_failed_attempt(
     game_id: &str,

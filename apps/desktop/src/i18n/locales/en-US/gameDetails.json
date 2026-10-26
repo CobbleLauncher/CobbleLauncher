@@ -1,4 +1,7 @@
 {
+  "shareChanges": "Share changes…",
+  "applyChanges": "Apply shared changes…",
+  "transferGame": "Continue on another computer…",
   "identity": "Using {name} · {kind}",
   "chooseProfile": "Choose a player profile",
   "chooseProfileAction": "Choose player profile",

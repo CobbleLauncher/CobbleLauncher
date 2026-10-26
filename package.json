@@ -20,6 +20,7 @@
     "test": "node --test scripts/licenses.test.mjs scripts/official-plugins.test.mjs scripts/desktop-command-registration.test.mjs && pnpm --filter @cobble/desktop test",
     "licenses:check": "node scripts/check_node_licenses.mjs",
     "package:windows": "node scripts/package-windows.mjs",
+    "package:unix": "node scripts/package-unix.mjs",
     "package:local": "node scripts/package-local-windows.mjs",
     "test:e2e": "pnpm --filter @cobble/desktop test:e2e"
   },

@@ -6,15 +6,32 @@ use launcher::resource_report::resources::{self, Failure, Input};
 struct GeometryBuilder;
 impl Guest for GeometryBuilder {
     fn analyze(_input: &Input) -> Result<Report, Failure> {
-        if resources::cancelled() { return Err(Failure::Cancelled); }
+        if resources::cancelled() {
+            return Err(Failure::Cancelled);
+        }
         let zh = launcher::report_context::context::get().locale == "zh-CN";
-        Ok(Report { schema_version: 1, findings: vec![Finding {
-            code: "geometry_builder_frontend".into(), severity: Severity::Info,
-            title: if zh { "几何建筑" } else { "Geometry Builder" }.into(),
-            message: if zh { "打开几何建筑以生成分层形状。" } else { "Open Geometry Builder to create a layered shape." }.into(),
-            evidence: vec![], suggestions: vec![],
-        }], tables: vec![] })
+        Ok(Report {
+            schema_version: 1,
+            findings: vec![Finding {
+                code: "geometry_builder_frontend".into(),
+                severity: Severity::Info,
+                title: if zh {
+                    "几何建筑"
+                } else {
+                    "Geometry Builder"
+                }
+                .into(),
+                message: if zh {
+                    "打开几何建筑以生成分层形状。"
+                } else {
+                    "Open Geometry Builder to create a layered shape."
+                }
+                .into(),
+                evidence: vec![],
+                suggestions: vec![],
+            }],
+            tables: vec![],
+        })
     }
 }
 export!(GeometryBuilder);
-

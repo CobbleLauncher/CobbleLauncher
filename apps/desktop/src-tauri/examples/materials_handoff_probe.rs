@@ -112,7 +112,7 @@ fn get_app_info(app: tauri::AppHandle, proof: Option<Value>) -> Value {
         proof["nativeThousandTaken"] = json!(events.iter().any(|e| e["method"] == "handoffs.take"
             && e["result"]["Ok"]["materials"] == 1000
             && e["result"]["Ok"]["general"] == true
-                    && e["result"]["Ok"]["unknownStacks"] == true));
+            && e["result"]["Ok"]["unknownStacks"] == true));
         proof["allStorageGeneral"] = json!(
             events
                 .iter()

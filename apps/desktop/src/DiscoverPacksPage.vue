@@ -14,7 +14,8 @@ import { locale, t } from './i18n';
 import LoadingIndicator from './ui/LoadingIndicator.vue';
 import { isMarketSaved, toggleMarketSaved, type SavedMarketItem } from './market-saved';
 import { marketWorkstate, rememberMarketWorkstate, restoreMarketScroll } from './market-workstate';
-const props = defineProps<{ initialQuery?: string; sharedMode?: boolean; sharedRequest?: { serial: number; query: string; minecraftVersion?: string; loader?: string }; savedRequest?: { serial: number; item: SavedMarketItem } }>();
+import { findLinkedProject, linkedVersionId, type FileInboxMarketLink } from './file-inbox-market';
+const props = defineProps<{ initialQuery?: string; sharedMode?: boolean; sharedRequest?: { serial: number; query: string; minecraftVersion?: string; loader?: string }; savedRequest?: { serial: number; item: SavedMarketItem }; linkRequest?: FileInboxMarketLink }>();
 const emit = defineEmits<{ selectedPack: [preview: PackPreview]; busy: [value: boolean] }>();
 const root = ref<HTMLElement>();
 const detailReturn = marketReturn(root);
@@ -30,6 +31,7 @@ const hasMore = ref(false);
 const searching = ref(false);
 const searched = ref(false);
 const searchError = ref('');
+const linkProjectMissing = ref(false);
 const selected = ref<ModSearchHit | null>(null);
 const versions = ref<ModrinthPackVersion[]>([]);
 const versionId = ref('');
@@ -54,14 +56,17 @@ async function search(offset = 0, retry = false) {
   }
   if (!isTauri()) { searchError.value = t('market.desktopRequired'); return; }
   const current = ++searchRequest;
+  let linked: ModSearchHit | undefined;
+  if (!offset) linkProjectMissing.value = false;
   failedOffset = offset; searching.value = true; searched.value = true; searchError.value = '';
   try {
     const result = await invoke<ModSearchPage>('search_modrinth_packs', { ...submitted.value, offset });
     if (current !== searchRequest) return;
     hits.value = offset ? [...new Map([...hits.value, ...result.hits].map((hit) => [hit.project_id, hit])).values()] : result.hits;
+    if (!offset && props.linkRequest) { linked = findLinkedProject(hits.value, props.linkRequest); linkProjectMissing.value = !linked; }
     total.value = result.total_hits; nextOffset.value = result.offset + result.hits.length; hasMore.value = result.hits.length > 0 && nextOffset.value < result.total_hits;
   } catch { if (current === searchRequest) searchError.value = t('market.packSearchFailed'); }
-  finally { if (current === searchRequest) searching.value = false; }
+  finally { if (current === searchRequest) { searching.value = false; if (linked) select(linked); } }
 }
 async function loadVersions() {
   if (!selected.value || preparing.value) return;
@@ -70,7 +75,7 @@ async function loadVersions() {
   try {
     const result = await invoke<ModrinthPackVersion[]>('list_modrinth_pack_versions', { projectId: selected.value.project_id, minecraftVersion: submitted.value.minecraftVersion, loader: submitted.value.loader });
     if (current !== versionRequest) return;
-    versions.value = result; versionId.value = preferredRelease(result)?.version_id ?? '';
+    versions.value = result; versionId.value = props.linkRequest?.version ? linkedVersionId(result, props.linkRequest.version) : preferredRelease(result)?.version_id ?? '';
   } catch (cause) { if (current === versionRequest) versionError.value = `无法读取整合包版本：${String(cause)}`; }
   finally { if (current === versionRequest) loadingVersions.value = false; }
 }
@@ -106,6 +111,7 @@ watch(() => props.sharedRequest?.serial, () => {
 onMounted(() => {
   const item = props.savedRequest?.item;
   if (item?.provider === 'modrinth' && item.kind === 'modpack') select(item.hit as ModSearchHit);
+  else if (props.linkRequest) { query.value = props.linkRequest.project; void search(); }
   else {
     const state = marketWorkstate<{ query: string; minecraftVersion: string; loader: string; submitted: typeof submitted.value; hits: ModSearchHit[]; total: number; nextOffset: number; hasMore: boolean }>(workKey);
     if (state && (!props.sharedMode || (state.query === (props.sharedRequest?.query ?? props.initialQuery ?? '') && (!props.sharedRequest || (state.minecraftVersion === (props.sharedRequest.minecraftVersion ?? '') && state.loader === (props.sharedRequest.loader ?? '')))))) { query.value = state.query; minecraftVersion.value = state.minecraftVersion; loader.value = state.loader; submitted.value = state.submitted; hits.value = state.hits; total.value = state.total; nextOffset.value = state.nextOffset; hasMore.value = state.hasMore; restoreMarketScroll(workKey, root.value); }
@@ -118,6 +124,8 @@ onMounted(() => {
     ref="root"
     class="page-content discover-packs-page"
   >
+    <p v-if="linkProjectMissing && !selected" role="status" class="setting-hint">{{ locale === 'zh-CN' ? '未在当前结果中找到该项目。可调整搜索或筛选。' : 'Project not found in these results. Try another search or filter.' }}</p>
+    <p v-if="selected && linkRequest?.version && !loadingVersions && !versionId && !versionError" role="status" class="setting-hint">{{ locale === 'zh-CN' ? '链接中的版本未在当前列表中找到，请手动选择版本。' : 'Linked version was not found here. Choose a version manually.' }}</p>
     <template v-if="selected">
       <button
         class="text-button"

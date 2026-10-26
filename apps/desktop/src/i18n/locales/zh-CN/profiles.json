@@ -73,6 +73,7 @@
     "incomplete": "登录结果不完整，请重试。",
     "notDesktop": "请在桌面应用中登录 Microsoft 账号",
     "expired": "登录已过期，请重试。",
+    "vaultUnavailable": "请解锁或启动系统凭证库，然后重试登录。",
     "poll": "登录未完成：{error}",
     "start": "无法开始 Microsoft 登录：{error}"
   }

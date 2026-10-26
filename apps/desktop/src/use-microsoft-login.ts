@@ -73,7 +73,9 @@ export function useMicrosoftLogin(options: MicrosoftLoginOptions) {
       } else schedulePoll(current);
     } catch (cause) {
       if (current !== generation || disposed) return;
-      if (await cancelLogin()) loginError.value = t('profiles.loginErrors.poll', { error: String(cause) });
+      if (await cancelLogin()) loginError.value = String(cause) === 'AUTH_VAULT_UNAVAILABLE'
+        ? t('profiles.loginErrors.vaultUnavailable')
+        : t('profiles.loginErrors.poll', { error: String(cause) });
     }
   }
   async function beginLogin() {

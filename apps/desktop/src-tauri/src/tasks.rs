@@ -138,6 +138,12 @@ pub(super) enum TaskRequest {
     TrialCopy {
         game_id: String,
     },
+    GameTransfer {
+        game_id: String,
+    },
+    SharedChanges {
+        game_id: String,
+    },
     StorageMove {
         game_id: String,
     },
@@ -167,6 +173,8 @@ impl TaskRequest {
             | Self::WorldSnapshot { game_id, .. }
             | Self::WorldSnapshotRestore { game_id, .. } => Some(game_id),
             Self::TrialCopy { game_id }
+            | Self::GameTransfer { game_id }
+            | Self::SharedChanges { game_id }
             | Self::StorageMove { game_id }
             | Self::PackUpdateCopy { game_id, .. } => Some(game_id),
             Self::ModpackDownload { .. }
@@ -197,6 +205,8 @@ impl TaskRequest {
             Self::WorldSnapshot { .. } => "world_snapshot",
             Self::WorldSnapshotRestore { .. } => "world_snapshot_restore",
             Self::TrialCopy { .. } => "trial_copy",
+            Self::GameTransfer { .. } => "game_transfer",
+            Self::SharedChanges { .. } => "change_share",
             Self::StorageMove { .. } => "storage_move",
             Self::PackUpdateCopy { .. } => "pack_update_copy",
         }
@@ -301,6 +311,8 @@ fn recover_records(records: &mut [StoredTask]) {
             record.snapshot.can_retry = !matches!(
                 record.request,
                 TaskRequest::TrialCopy { .. }
+                    | TaskRequest::GameTransfer { .. }
+                    | TaskRequest::SharedChanges { .. }
                     | TaskRequest::StorageMove { .. }
                     | TaskRequest::PackUpdateCopy { .. }
             );
@@ -655,7 +667,7 @@ pub(super) fn register(
 }
 
 /// Host-owned work can keep running after the requesting view is destroyed.
-pub(super) fn register_external(
+pub(crate) fn register_external(
     app: &AppHandle,
     game_id: &str,
     title: &str,
@@ -664,6 +676,12 @@ pub(super) fn register_external(
 ) -> Result<String, String> {
     let request = match kind {
         "trial_copy" => TaskRequest::TrialCopy {
+            game_id: game_id.into(),
+        },
+        "game_transfer" => TaskRequest::GameTransfer {
+            game_id: game_id.into(),
+        },
+        "change_share" => TaskRequest::SharedChanges {
             game_id: game_id.into(),
         },
         "storage_move" => TaskRequest::StorageMove {
@@ -719,7 +737,7 @@ fn register_external_request(
     Ok(id)
 }
 
-pub(super) fn external_progress(
+pub(crate) fn external_progress(
     app: &AppHandle,
     id: &str,
     phase: &str,
@@ -780,11 +798,11 @@ async fn wait_turn(app: &AppHandle, id: &str) -> Result<(), String> {
     }
 }
 
-pub(super) async fn wait_external_turn(app: &AppHandle, id: &str) -> Result<(), String> {
+pub(crate) async fn wait_external_turn(app: &AppHandle, id: &str) -> Result<(), String> {
     wait_turn(app, id).await
 }
 
-pub(super) fn finish_external(app: &AppHandle, id: &str, result: Result<Option<String>, String>) {
+pub(crate) fn finish_external(app: &AppHandle, id: &str, result: Result<Option<String>, String>) {
     let result_name = result
         .as_ref()
         .ok()
@@ -1276,6 +1294,8 @@ async fn perform(
             Ok(TaskResult::Game)
         }
         TaskRequest::TrialCopy { .. }
+        | TaskRequest::GameTransfer { .. }
+        | TaskRequest::SharedChanges { .. }
         | TaskRequest::StorageMove { .. }
         | TaskRequest::PackUpdateCopy { .. } => Err("请重新发起操作".into()),
         TaskRequest::GameJava { required, .. } => {
@@ -1799,6 +1819,8 @@ pub fn cancel_task(app: AppHandle, task_id: String) -> Result<TaskSnapshot, Stri
     let external = matches!(
         record.request,
         TaskRequest::TrialCopy { .. }
+            | TaskRequest::GameTransfer { .. }
+            | TaskRequest::SharedChanges { .. }
             | TaskRequest::StorageMove { .. }
             | TaskRequest::PackUpdateCopy { .. }
     );
@@ -2458,7 +2480,17 @@ mod tests {
             archive_id: "b".repeat(32),
         };
         pack_copy.snapshot.kind = pack_copy.request.kind().into();
-        let mut records = [copy, move_task, pack_copy];
+        let mut transfer = record(TaskState::Running);
+        transfer.request = TaskRequest::GameTransfer {
+            game_id: "game".into(),
+        };
+        transfer.snapshot.kind = transfer.request.kind().into();
+        let mut changes = record(TaskState::Running);
+        changes.request = TaskRequest::SharedChanges {
+            game_id: "game".into(),
+        };
+        changes.snapshot.kind = changes.request.kind().into();
+        let mut records = [copy, move_task, pack_copy, transfer, changes];
         recover_records(&mut records);
         for record in &records {
             assert_eq!(record.snapshot.state, TaskState::Interrupted);

@@ -1,4 +1,7 @@
 {
+  "shareChanges": "分享改动…",
+  "applyChanges": "应用共享改动…",
+  "transferGame": "换电脑继续玩…",
   "identity": "使用 {name} · {kind}",
   "chooseProfile": "请选择玩家档案",
   "chooseProfileAction": "选择玩家档案",

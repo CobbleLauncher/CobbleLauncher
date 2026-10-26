@@ -17,6 +17,15 @@ pub fn desktop_dir() -> Option<std::path::PathBuf> {
 pub fn cache_dir() -> Option<std::path::PathBuf> {
     data_local_dir().map(|root| root.join("cache"))
 }
+pub fn data_dir() -> Option<std::path::PathBuf> {
+    data_local_dir()
+}
+pub fn document_dir() -> Option<std::path::PathBuf> {
+    data_local_dir().map(|root| root.join("synthetic-documents"))
+}
+pub fn download_dir() -> Option<std::path::PathBuf> {
+    data_local_dir().map(|root| root.join("synthetic-downloads"))
+}
 #[path = "../src/appearance.rs"]
 mod appearance;
 #[path = "../src/cache.rs"]
@@ -43,6 +52,8 @@ mod plugin_catalogs;
 mod plugins;
 #[path = "../src/preferences.rs"]
 mod preferences;
+#[path = "../src/runtime_resources.rs"]
+mod runtime_resources;
 #[path = "../src/seed_map.rs"]
 mod seed_map;
 use serde_json::{Value, json};
@@ -187,7 +198,25 @@ async fn observed_frontend_call(
     result
 }
 #[tauri::command]
-fn get_app_info(app: tauri::AppHandle, proof: Option<Value>) -> Value {
+async fn get_app_info(app: tauri::AppHandle, proof: Option<Value>, view_id: Option<String>) -> Value {
+    if let Some(id) = view_id {
+        use tauri::Manager;
+        let view = app.get_webview(&id).expect("probe child");
+        #[cfg(target_os = "linux")]
+        {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            view.with_webview(move |native| {
+                use gtk::prelude::WidgetExt;
+                let widget = native.inner();
+                let a = widget.allocation();
+                let position = widget.parent().and_then(|parent| widget.translate_coordinates(&parent, 0, 0)).expect("mapped child position");
+                let _ = tx.send(json!({"size":{"width":a.width(),"height":a.height()},"position":{"x":position.0,"y":position.1},"request":widget.size_request()}));
+            }).expect("native allocation");
+            return rx.await.expect("allocation response");
+        }
+        #[cfg(not(target_os = "linux"))]
+        return json!({"size": view.size().expect("native size"), "position":view.position().expect("native position")});
+    }
     if let Some(mut proof) = proof {
         if proof["pluginId"] == "world-dashboard" {
             let unchanged = std::fs::read(
@@ -392,11 +421,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .manage(games::GameLibrary::load()).manage(games::tasks::TaskLibrary::load())
         .register_uri_scheme_protocol("cobble-probe",|_,_|tauri::http::Response::builder().header("Content-Type","text/html; charset=utf-8").body(b"<!doctype html><html><body>Joined Config Doctor native workflow</body></html>".to_vec()).unwrap())
         .register_uri_scheme_protocol("cobble-plugin",plugins::plugin_views::serve_asset)
-        .invoke_handler(tauri::generate_handler![observed_frontend_call,get_app_info,games::list_games,plugins::plugin_views::open_plugin_view,plugins::plugin_views::close_plugin_view,plugins::plugin_views::plugin_view_is_dirty,plugins::plugin_views::set_plugin_view_visible,plugins::extension_settings::get_extension_settings,plugins::extension_settings::declarative::save_extension_settings_form])
+        .invoke_handler(tauri::generate_handler![observed_frontend_call,get_app_info,games::list_games,plugins::plugin_views::open_plugin_view,plugins::plugin_views::resize_plugin_view,plugins::plugin_views::close_plugin_view,plugins::plugin_views::plugin_view_is_dirty,plugins::plugin_views::set_plugin_view_visible,plugins::extension_settings::get_extension_settings,plugins::extension_settings::declarative::save_extension_settings_form])
         .setup(move|app|{
             games::sessions::watch_recovered(app.handle());
             let handle=app.handle().clone();std::thread::spawn(move||{std::thread::sleep(std::time::Duration::from_secs(55));eprintln!("JOINED_TIMEOUT {}",json!(*EVENTS.lock().unwrap()));handle.exit(2);});
-            tauri::WebviewWindowBuilder::new(app,"main",tauri::WebviewUrl::External("http://cobble-probe.localhost/index.html".parse()?))
+            let url=if cfg!(windows){"http://cobble-probe.localhost/index.html"}else{"cobble-probe://localhost/index.html"};
+            tauri::WebviewWindowBuilder::new(app,"main",tauri::WebviewUrl::External(url.parse()?))
                 .title("Cobble joined plugin workflow probe").inner_size(1000.,760.).data_directory(data.join("main-webview"))
                 .initialization_script(parent.clone()).build()?;
             Ok(())
@@ -430,7 +460,12 @@ window.addEventListener('DOMContentLoaded',async()=>{
  const find=m=>s.events.find(e=>e.method===m)?.result;
  proof.preview=find('keybindings.preview');proof.apply=find('keybindings.apply');proof.restore=find('keybindings.restore');proof.report=find('report.check');
  proof.passed=proof.preview?.Ok?.changes.length===2&&!!proof.apply?.Ok?.backupId&&typeof proof.restore?.Ok==='string'&&proof.report?.Ok?.report?.findings?.length>0;
- await invoke('close_plugin_view',{viewId:view});proof.closed=true;
+ await invoke('resize_plugin_view',{viewId:view,bounds:{x:16,y:45,width:650,height:450}});await pause(700);proof.narrowResized=true;proof.narrowGeometry=await invoke('get_app_info',{viewId:view});
+ await invoke('set_plugin_view_visible',{viewId:view,visible:false});await pause(500);proof.hidden=true;
+ await invoke('set_plugin_view_visible',{viewId:view,visible:true});
+ await invoke('resize_plugin_view',{viewId:view,bounds:{x:0,y:35,width:1000,height:720}});await pause(700);proof.wideResized=true;proof.wideGeometry=await invoke('get_app_info',{viewId:view});
+ proof.passed=proof.passed&&proof.narrowGeometry.size.width===650&&proof.narrowGeometry.size.height===450&&proof.narrowGeometry.position.x===16&&proof.narrowGeometry.position.y===45&&proof.wideGeometry.size.width===1000&&proof.wideGeometry.size.height===720;
+ await invoke('close_plugin_view',{viewId:view});proof.closed=true;await pause(500);
  }catch(e){proof.error=String(e);}await invoke('get_app_info',{proof});
 });
 "#;

@@ -12,12 +12,12 @@ pub use image_layout::*;
 pub mod inspection;
 pub use inspection::*;
 pub mod interfaces;
-pub mod message_composer;
 pub mod mesh_events;
+pub mod message_composer;
 pub mod permissions;
 pub use interfaces::*;
-pub use message_composer::*;
 pub use mesh_events::*;
+pub use message_composer::*;
 pub use permissions::*;
 pub mod report;
 pub mod settings_form;
@@ -113,8 +113,14 @@ impl PluginManifest {
             && self.report_protocols.is_empty()
             && self.permissions.as_ref().is_some_and(|nodes| {
                 nodes.contains(&PermissionNode::UiWebview {})
-                    && nodes.iter().all(|node| matches!(node,
-                        PermissionNode::UiWebview {} | PermissionNode::ClipboardWrite {} | PermissionNode::GeneratedBlueprintSave {}))
+                    && nodes.iter().all(|node| {
+                        matches!(
+                            node,
+                            PermissionNode::UiWebview {}
+                                | PermissionNode::ClipboardWrite {}
+                                | PermissionNode::GeneratedBlueprintSave {}
+                        )
+                    })
             })
     }
     /// Closed host workflows do not imply a selected-file read grant.
@@ -714,4 +720,3 @@ mod metadata_tests {
         assert!(manifest.validate().is_err());
     }
 }
-

@@ -14,7 +14,8 @@ import ModVersionPicker from './ModVersionPicker.vue';
 import AppIcon from './ui/AppIcon.vue';
 import { isMarketSaved, toggleMarketSaved, type SavedMarketItem } from './market-saved';
 import { marketWorkstate, rememberMarketWorkstate, restoreMarketScroll } from './market-workstate';
-const props = defineProps<{ game: Game; locked: boolean; initialQuery?: string; sharedMode?: boolean; sharedRequest?: { serial: number; query: string }; savedRequest?: { serial: number; item: SavedMarketItem } }>();
+import { findLinkedProject, type FileInboxMarketLink } from './file-inbox-market';
+const props = defineProps<{ game: Game; locked: boolean; initialQuery?: string; sharedMode?: boolean; sharedRequest?: { serial: number; query: string }; savedRequest?: { serial: number; item: SavedMarketItem }; linkRequest?: FileInboxMarketLink }>();
 const emit = defineEmits<{ installing: [value: boolean]; installed: [] }>();
 const root = ref<HTMLElement>();
 const detailReturn = marketReturn(root);
@@ -25,6 +26,7 @@ const total = ref(0);
 const searching = ref(false);
 const searched = ref(false);
 const searchError = ref('');
+const linkProjectMissing = ref(false);
 const selected = ref<ModSearchHit | null>(null);
 const version = ref<ModVersion | null>(null);
 const preview = ref<ModInstallPreview | null>(null);
@@ -37,6 +39,8 @@ let failedOffset = 0;
 async function search(offset = 0, retry = false) {
   if (!props.game.loader_version || installing.value) return;
   const current = ++searchRequest;
+  let linked: ModSearchHit | undefined;
+  if (!offset) linkProjectMissing.value = false;
   const id = props.game.id;
   if (!offset && !retry) submitted.value = query.value.trim();
   failedOffset = offset;
@@ -47,9 +51,10 @@ async function search(offset = 0, retry = false) {
     const result = await invoke<ModSearchPage>('search_game_mods', { id, query: submitted.value, offset });
     if (current !== searchRequest) return;
     hits.value = offset ? [...hits.value, ...result.hits] : result.hits;
+    if (!offset && props.linkRequest) { linked = findLinkedProject(hits.value, props.linkRequest); linkProjectMissing.value = !linked; }
     total.value = result.total_hits;
   } catch { if (current === searchRequest) searchError.value = t('market.modSearchFailed'); }
-  finally { if (current === searchRequest) searching.value = false; }
+  finally { if (current === searchRequest) { searching.value = false; if (linked) select(linked); } }
 }
 function select(hit: ModSearchHit) {
   if (installing.value || searching.value) return;
@@ -106,7 +111,7 @@ function remember() {
   rememberMarketWorkstate(workKey(), { query: query.value, submitted: submitted.value, hits: hits.value, total: total.value, searched: searched.value }, root.value);
 }
 onMounted(() => {
-  if (props.savedRequest) return;
+  if (props.savedRequest || props.linkRequest) return;
   const state = marketWorkstate<{ query: string; submitted: string; hits: ModSearchHit[]; total: number; searched: boolean }>(workKey());
   if (state && (!props.sharedMode || state.query === (props.sharedRequest?.query ?? props.initialQuery ?? ''))) { ++searchRequest; query.value = state.query; submitted.value = state.submitted; hits.value = state.hits; total.value = state.total; searched.value = state.searched; searching.value = false; restoreMarketScroll(workKey(), root.value); }
 });
@@ -119,6 +124,7 @@ onUnmounted(() => { remember(); ++searchRequest; ++previewRequest; });
     ref="root"
     class="discover-content"
   >
+    <p v-if="linkProjectMissing && !selected" role="status" class="setting-hint">{{ locale === 'zh-CN' ? '未在当前结果中找到该项目。可调整搜索或筛选。' : 'Project not found in these results. Try another search or filter.' }}</p>
     <p
       v-if="!game.loader_version"
       class="content-empty"
@@ -172,6 +178,7 @@ onUnmounted(() => { remember(); ++searchRequest; ++previewRequest; });
           :game-id="game.id"
           :project-id="selected.project_id"
           :disabled="installing"
+          :linked-version="linkRequest?.version"
           @selected="chooseVersion"
         />
         <button

@@ -10,4 +10,3 @@ impl Guest for SeedCompass {
     }
 }
 export!(SeedCompass);
-

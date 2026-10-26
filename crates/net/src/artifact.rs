@@ -228,7 +228,7 @@ pub(crate) fn adoptium_release_endpoint(endpoint: &Endpoint) -> bool {
         && parts[3] == "releases"
         && parts[4] == "download"
         && !parts[5].is_empty()
-        && parts[6].ends_with(".zip")
+        && (parts[6].ends_with(".zip") || parts[6].ends_with(".tar.gz"))
 }
 pub(crate) fn curseforge_endpoint(endpoint: &Endpoint) -> bool {
     endpoint.credential_path_safe

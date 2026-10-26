@@ -361,6 +361,40 @@ pub async fn prepare_modrinth_version_changes(
     build_plan(directory, provenance, present, graph, &labels)
 }
 
+/// Prepare an exact, already resolved set of shared roots for an existing game.
+/// This uses the normal update journal and leaves unrelated local Mods alone.
+pub async fn prepare_shared_modrinth_changes(
+    directory: &Path,
+    mut graph: ModrinthPlan,
+) -> Result<ModUpdatePlan, Error> {
+    let root = open_root(directory)?;
+    let provenance = read_provenance(&root)?;
+    let present = present_mods(&root, &provenance)?;
+    let mut labels = BTreeMap::new();
+    for item in &mut graph.mods {
+        if let Some(old) = present.get(&item.project_id) {
+            if old.recorded.version_id == item.version_id
+                && old.recorded.sha1.eq_ignore_ascii_case(&item.file.sha1)
+            {
+                item.file.filename = old.recorded.filename.clone();
+            } else {
+                labels.insert(
+                    item.project_id.clone(),
+                    modrinth_version_number(&item.project_id, &old.recorded.version_id).await?,
+                );
+            }
+        }
+    }
+    let mut plan = build_plan(directory, provenance, present, graph, &labels)?;
+    for change in &mut plan.changes {
+        if change.from_version.is_none() {
+            change.enabled = true;
+        }
+    }
+    preflight(&root, &plan)?;
+    Ok(plan)
+}
+
 pub async fn check_modrinth_updates(
     directory: &Path,
     mc: &str,
@@ -1735,6 +1769,79 @@ mod tests {
             b"old-one"
         );
         assert_eq!(managed_mod_count(&fixture.0).unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn shared_change_adds_enabled_mod_and_undo_preserves_local_extra() {
+        let fixture = Fixture::new();
+        fixture
+            .root()
+            .write("mods/unmanaged.jar", b"leave-me")
+            .unwrap();
+        let graph = ModrinthPlan {
+            project_id: "Root".into(),
+            version_id: "Root-new".into(),
+            mods: vec![selected("Root", "root-share.jar", b"new-one")],
+        };
+        let plan = prepare_shared_modrinth_changes(&fixture.0, graph)
+            .await
+            .unwrap();
+        assert_eq!(plan.changes.len(), 1);
+        assert!(plan.changes[0].enabled);
+        assert!(plan.changes[0].from_version.is_none());
+        publish_updates(&fixture.root(), &plan, |change, staging| {
+            staging.write(&change.filename, b"new-one")?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            fixture.root().read("mods/root-share.jar").unwrap(),
+            b"new-one"
+        );
+        assert_eq!(
+            fixture.root().read("mods/unmanaged.jar").unwrap(),
+            b"leave-me"
+        );
+        let history = list_mod_operation_history(&fixture.0).unwrap();
+        undo_mod_operation(&fixture.0, &history[0].operation_id).unwrap();
+        assert!(!fixture.root().exists("mods/root-share.jar"));
+        assert_eq!(
+            fixture.root().read("mods/unmanaged.jar").unwrap(),
+            b"leave-me"
+        );
+    }
+
+    #[tokio::test]
+    async fn shared_change_refuses_locally_modified_managed_mod() {
+        let fixture = Fixture::new();
+        let root = fixture.root();
+        root.write("mods/managed.jar", b"local-edit").unwrap();
+        let old_hash = format!("{:x}", Sha1::digest(b"original"));
+        write_provenance(
+            &root,
+            &BTreeMap::from([(
+                "Root".into(),
+                ManagedMod {
+                    version_id: "Root-old".into(),
+                    filename: "managed.jar".into(),
+                    sha1: old_hash,
+                },
+            )]),
+        )
+        .unwrap();
+        let mut selected = selected("Root", "managed.jar", b"original");
+        selected.version_id = "Root-old".into();
+        let graph = ModrinthPlan {
+            project_id: "Root".into(),
+            version_id: "Root-old".into(),
+            mods: vec![selected],
+        };
+        assert!(
+            prepare_shared_modrinth_changes(&fixture.0, graph)
+                .await
+                .is_err()
+        );
+        assert_eq!(root.read("mods/managed.jar").unwrap(), b"local-edit");
     }
 
     #[test]

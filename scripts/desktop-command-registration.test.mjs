@@ -11,6 +11,17 @@ const build = read('build.rs');
 const handlers = read('src/main.rs');
 const main = JSON.parse(read('capabilities/main.json'));
 
+test('shared changes and device handoff are authorized only in the main webview', () => {
+  const commands = ["preview_game_change_export","export_game_change","import_game_change","preview_game_change_apply","apply_game_change","undo_game_change_new_config","game_transfer_context","game_transfer_prepare","game_transfer_send","game_transfer_cancel","game_transfer_offers","game_transfer_list_outgoing","game_transfer_status","game_transfer_accept","game_transfer_reject","game_transfer_discard"];
+  for (const command of commands) {
+    assert(build.includes(`"${command}"`), `missing generated permission: ${command}`);
+    assert.match(handlers, new RegExp(`\\b${command}\\b`), `missing handler: ${command}`);
+    assert(main.permissions.includes(`allow-${command.replaceAll('_', '-')}`), `main webview cannot invoke ${command}`);
+  }
+  assert.deepEqual(main.webviews, ['main']);
+  assert.equal(main.remote, undefined);
+});
+
 test('daily workflow IPC is registered and authorized for the main webview', () => {
   for (const command of ['start_game_pack_update_copy', 'set_game_mod_pinned', 'get_active_task_count', 'cancel_active_tasks', 'get_onboarding_state', 'save_onboarding_state', 'launcher_update_status', 'set_launcher_update_preferences', 'check_launcher_update', 'install_launcher_update']) {
     assert(build.includes(`"${command}"`), `missing generated permission: ${command}`);

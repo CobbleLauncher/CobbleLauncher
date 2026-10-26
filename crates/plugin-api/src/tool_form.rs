@@ -228,8 +228,7 @@ mod tests {
     #[test]
     fn saved_command_form_defaults_and_conditions_match_the_host_contract() {
         let manifest: PluginManifest =
-            serde_json::from_str(include_str!("../fixtures/command-form.json"))
-                .unwrap();
+            serde_json::from_str(include_str!("../fixtures/command-form.json")).unwrap();
         manifest.validate().unwrap();
         let form = manifest.tool_form.as_ref().unwrap();
         let values: serde_json::Map<String, Value> = form

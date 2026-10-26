@@ -303,7 +303,7 @@ fn view(broker: &mut Broker) -> Result<Overview, String> {
         } else {
             None
         },
-        can_host: available && cfg!(windows),
+        can_host: available && cfg!(any(windows, target_os = "linux")),
         component_state: if !available {
             "missing"
         } else if broker.client.is_some()

@@ -8,7 +8,7 @@ export type TaskSnapshot = {
   world_folder?: string | null;
   game_name: string;
   title: string;
-  kind: 'directory_migration' | 'game_copy' | 'game_readiness' | 'game_install' | 'game_repair' | 'game_java' | 'mod_install' | 'mod_update' | 'resource_pack' | 'shader_pack' | 'modpack_download' | 'curseforge_pack_download' | 'world_restore' | 'world_automatic_backup' | 'world_snapshot' | 'world_snapshot_restore' | 'trial_copy' | 'storage_move' | 'pack_update_copy';
+  kind: 'change_share' | 'game_transfer' | 'directory_migration' | 'game_copy' | 'game_readiness' | 'game_install' | 'game_repair' | 'game_java' | 'mod_install' | 'mod_update' | 'resource_pack' | 'shader_pack' | 'modpack_download' | 'curseforge_pack_download' | 'world_restore' | 'world_automatic_backup' | 'world_snapshot' | 'world_snapshot_restore' | 'trial_copy' | 'storage_move' | 'pack_update_copy';
   state: 'queued' | 'running' | 'cancelling' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
   progress: TaskProgress | null;
   error: string | null;
@@ -22,6 +22,7 @@ export function taskStateLabel(task: TaskSnapshot): string {
   return t(`tasks.states.${task.state}`);
 }
 export function taskPhaseLabel(progress: TaskProgress): string {
+  if (['receiving', 'verifying', 'preparing'].includes(progress.phase)) return t(`tasks.phases.${progress.phase}`);
   if (['world-snapshot-scan', 'world-snapshot-write', 'world-snapshot-verify', 'world-snapshot-restore', 'world-snapshot-publish', 'world-snapshot-complete', 'world-extract', 'world-copy', 'world-commit', 'world-complete', 'java-metadata', 'java-download', 'java-install', 'java-verify'].includes(progress.phase)) return t(`tasks.phases.${progress.phase}`);
   const phase = progress.phase === 'pack-base-complete' ? progress.phase : progress.phase.replace(/^pack-base-/, '');
   const known = ['metadata', 'files', 'assets', 'fabric', 'forge-installer', 'neoforge-installer', 'pack-download', 'pack-overrides', 'pack-install', 'mod-download', 'mod-install', 'import-copy', 'copying', 'personal-options', 'complete', 'pack-base-complete'];
@@ -33,6 +34,8 @@ export function taskHasKnownTotal(progress: TaskProgress): boolean {
 }
 
 export function taskTitleLabel(task: TaskSnapshot): string {
+  if (task.kind === 'change_share') return t('tasks.sharedChanges');
+  if (task.kind === 'game_transfer') return t('tasks.gameTransfer');
   if (task.kind === 'directory_migration') return t('tasks.storageMove');
   if (task.kind === 'game_copy') return t('tasks.gameCopy');
   return task.kind === 'game_readiness' ? t('readiness.title') : task.kind === 'game_java' ? t('tasks.javaRuntime') : task.kind === 'game_repair' ? t('tasks.repairGame') : task.kind === 'world_automatic_backup' ? t('tasks.automaticBackup') : task.kind === 'world_snapshot' ? t('tasks.snapshotSave') : task.kind === 'world_snapshot_restore' ? t('tasks.snapshotRestore') : task.kind === 'trial_copy' ? t('tasks.trialCopy') : task.kind === 'storage_move' ? t('tasks.storageMove') : task.kind === 'pack_update_copy' ? t('tasks.packUpdateCopy') : task.title;
@@ -54,4 +57,4 @@ export function taskFailureMessage(task: TaskSnapshot): string {
 }
 export function isWorldSnapshotTask(task: TaskSnapshot): boolean { return task.kind === 'world_snapshot' || task.kind === 'world_snapshot_restore' || task.kind === 'world_automatic_backup'; }
 
-export function taskProgressUsesBytes(progress: TaskProgress): boolean { return progress.phase.startsWith('world-snapshot-') || progress.phase === 'java-download' || progress.phase === 'copying'; }
+export function taskProgressUsesBytes(progress: TaskProgress): boolean { return progress.phase.startsWith('world-snapshot-') || progress.phase === 'java-download' || progress.phase === 'copying' || progress.phase === 'receiving'; }

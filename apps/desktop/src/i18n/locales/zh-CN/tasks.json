@@ -1,4 +1,7 @@
 {
+  "sharedChanges": "应用共享改动",
+  "gameTransfer": "接收游戏",
+  "openTransfer": "查看传输",
   "repairGame": "修复游戏文件",
   "javaRuntime": "准备 Java 运行环境",
   "snapshotSave": "保存世界版本",
@@ -55,6 +58,9 @@
     "interrupted": "已中断"
   },
   "phases": {
+    "receiving": "正在接收游戏文件",
+    "verifying": "正在检查接收的文件",
+    "preparing": "正在准备本机运行环境",
     "java-metadata": "检查 Java 运行环境",
     "java-download": "下载 Java 运行环境",
     "java-install": "安装 Java 运行环境",

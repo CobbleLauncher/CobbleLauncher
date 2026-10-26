@@ -3,11 +3,13 @@ import {
   ArrowLeft, Check, ChevronDown, CircleAlert, Compass, Copy, Download, Ellipsis,
   ExternalLink, Folder, Info, LoaderCircle, Network, Pencil, Pin, Play, Plus, Puzzle, RefreshCw,
   Search, Settings, Trash2, User, X, Palette, Cpu, HardDrive, ShieldCheck, Sun, Moon, Monitor, Languages,
-  ChevronRight, FileSearch, Keyboard, SlidersHorizontal,
+  ChevronRight, FileSearch, Keyboard, SlidersHorizontal, Blocks, Share2,
 } from '@lucide/vue';
 
 // Explicit imports keep the shipped set finite and tree-shakable.
 export const appIcons = {
+  blocks: Blocks,
+  share: Share2,
   'chevron-right': ChevronRight,
   'file-search': FileSearch,
   keyboard: Keyboard,

@@ -375,7 +375,15 @@ pub async fn start(app: AppHandle, auth: &Auth, args: PlanRequest) -> Result<Val
         )
     };
     if !p.disabled_mods.is_empty() {
-        details.push_str(&format!("\n{}: {}", if auth.locale == "zh-CN" { "仅在副本禁用" } else { "Disable in copy only" }, p.disabled_mods.join(", ")));
+        details.push_str(&format!(
+            "\n{}: {}",
+            if auth.locale == "zh-CN" {
+                "仅在副本禁用"
+            } else {
+                "Disable in copy only"
+            },
+            p.disabled_mods.join(", ")
+        ));
     }
     if !crate::plugins::plugin_confirm::ask(
         &app,

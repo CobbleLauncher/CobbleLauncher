@@ -65,8 +65,15 @@ async fn storage_done(
 async fn native_done(app: &AppHandle, id: &str) -> Result<games::tasks::TaskSnapshot> {
     for _ in 0..300 {
         let task = games::tasks::list_tasks(app.clone())?
-            .into_iter().find(|task| task.id == id).ok_or("native task missing")?;
-        if !matches!(task.state, games::tasks::TaskState::Queued | games::tasks::TaskState::Running | games::tasks::TaskState::Cancelling) {
+            .into_iter()
+            .find(|task| task.id == id)
+            .ok_or("native task missing")?;
+        if !matches!(
+            task.state,
+            games::tasks::TaskState::Queued
+                | games::tasks::TaskState::Running
+                | games::tasks::TaskState::Cancelling
+        ) {
             return Ok(task);
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -95,9 +102,12 @@ pub async fn run(app: &AppHandle, window: &WebviewWindow, base: &Path) -> Result
     let packages=[&trial,&storage,&config,&share,&inbox].iter().map(|auth|json!({"id":auth.manifest.id,"version":auth.manifest.version,"componentSha256":auth.manifest.component_sha256,"frontend":auth.manifest.frontend})).collect::<Vec<_>>();
     {
         use std::io::Write;
-        let mut file = std::fs::File::create(source.join("cancellation-fixture.bin")).map_err(io)?;
+        let mut file =
+            std::fs::File::create(source.join("cancellation-fixture.bin")).map_err(io)?;
         let chunk = [37u8; 128 * 1024];
-        for _ in 0..512 { file.write_all(&chunk).map_err(io)?; }
+        for _ in 0..512 {
+            file.write_all(&chunk).map_err(io)?;
+        }
         file.sync_all().map_err(io)?;
     }
     eprintln!("MAINTENANCE_STAGE trial-copy");
@@ -115,12 +125,21 @@ pub async fn run(app: &AppHandle, window: &WebviewWindow, base: &Path) -> Result
     )
     .await?;
     let trial_id = string(&started, "taskId")?;
-    require(games::tasks::active_count(app) > 0, "trial copy did not enter native active state")?;
+    require(
+        games::tasks::active_count(app) > 0,
+        "trial copy did not enter native active state",
+    )?;
     plugins::plugin_views::revoke_window(&trial.session_id);
     let task = native_done(app, trial_id).await?;
-    require(task.state == games::tasks::TaskState::Succeeded, "trial native copy failed after view close")?;
+    require(
+        task.state == games::tasks::TaskState::Succeeded,
+        "trial native copy failed after view close",
+    )?;
     require(task.has_result, "trial copy has no Task Center result")?;
-    let copied_id = task.game_id.as_deref().ok_or("trial did not register new game")?;
+    let copied_id = task
+        .game_id
+        .as_deref()
+        .ok_or("trial did not register new game")?;
     let copied = games::workspace::snapshot(app, copied_id)?;
     require(
         copied
@@ -166,9 +185,15 @@ pub async fn run(app: &AppHandle, window: &WebviewWindow, base: &Path) -> Result
         cancelled["status"] == "cancelled",
         "active trial cancellation did not terminate as cancelled",
     )?;
-    require(games::tasks::active_count(app) == 0, "cancelled task still holds native active slot")?;
+    require(
+        games::tasks::active_count(app) == 0,
+        "cancelled task still holds native active slot",
+    )?;
     let cancelled_record = native_done(app, cancel_id).await?;
-    require(cancelled_record.state == games::tasks::TaskState::Cancelled, "Task Center did not record native cancellation")?;
+    require(
+        cancelled_record.state == games::tasks::TaskState::Cancelled,
+        "Task Center did not record native cancellation",
+    )?;
     require(
         source.join("saves/synthetic/level.dat").is_file(),
         "trial cancellation removed source world",
@@ -189,11 +214,20 @@ pub async fn run(app: &AppHandle, window: &WebviewWindow, base: &Path) -> Result
     )
     .await?;
     let move_id = string(&moving, "taskId")?;
-    require(games::tasks::active_count(app) > 0, "migration did not enter native active state")?;
+    require(
+        games::tasks::active_count(app) > 0,
+        "migration did not enter native active state",
+    )?;
     plugins::plugin_views::revoke_window(&storage.session_id);
     let moved = native_done(app, move_id).await?;
-    require(moved.state == games::tasks::TaskState::Succeeded, "native migration failed after view close")?;
-    require(moved.has_result && moved.game_id.as_deref() == Some(GAME), "migration Task Center result is not navigable")?;
+    require(
+        moved.state == games::tasks::TaskState::Succeeded,
+        "native migration failed after view close",
+    )?;
+    require(
+        moved.has_result && moved.game_id.as_deref() == Some(GAME),
+        "migration Task Center result is not navigable",
+    )?;
     let current = games::workspace::snapshot(app, GAME)?;
     require(
         current.directory.canonicalize().map_err(io)?

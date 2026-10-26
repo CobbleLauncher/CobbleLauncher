@@ -17,6 +17,7 @@ members = [
   "crates/plugin-trust",
   "crates/plugin-host",
   "crates/plugin-webview-windows",
+  "crates/plugin-webview-linux",
   "crates/plugin-sdk",
   "examples/schematic-viewer",
   "examples/crash-doctor",
@@ -79,6 +80,7 @@ unicode-normalization = "=0.1.26"
 caseless = "=0.2.2"
 zip = { version = "=9.0.5", default-features = false }
 flate2 = { version = "=1.1.10", default-features = false, features = ["zlib-rs"] }
+tar = "=0.4.46"
 crc32fast = "=1.5.3"
 sha2 = "=0.10.9"
 sha1 = "=0.10.6"

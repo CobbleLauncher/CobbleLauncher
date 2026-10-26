@@ -54,6 +54,10 @@ __pycache__/
 !/scripts/license-policy.json
 !/scripts/licenses.test.mjs
 !/scripts/package-windows.mjs
+!/scripts/package-unix.mjs
+!/scripts/package-unix.test.mjs
+!/scripts/linux-native-smoke.py
+!/scripts/package-native.sh
 !/scripts/prepare-updater-release.mjs
 !/scripts/prepare-updater-release.test.mjs
 !/scripts/measure-native-process.py

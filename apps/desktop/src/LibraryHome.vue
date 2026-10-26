@@ -18,7 +18,7 @@ import { savedMarketItems } from './market-saved';
 import { t } from './i18n';
 
 const props = defineProps<{ editHome?: boolean;  games: HomeGame[]; profileLibrary: ProfileLibrary; starting: string[]; retrying: string[]; quickActions?: CommandAction[]; quickActionsLoading?: boolean; loading?: boolean; error?: string }>();
-defineEmits<{ play: [id: string]; manage: [id: string]; select: [id: string]; retry: [id: string]; retrySessionRecovery: [id: string]; create: []; importPack: []; importLauncher: []; reload: []; finishEditing: []; savedMarket: [collection: 'favorite' | 'later'] }>();
+defineEmits<{ play: [id: string]; manage: [id: string]; select: [id: string]; retry: [id: string]; retrySessionRecovery: [id: string]; create: []; importPack: []; importLauncher: []; receiveGame: []; reload: []; finishEditing: []; savedMarket: [collection: 'favorite' | 'later'] }>();
 const all = ref(false);
 const organization = ref(readLibraryOrganization());
 const layout = ref(readHomeLayout());
@@ -204,6 +204,12 @@ function iconUrl(game: HomeGame) { return game.icon_ref ? icons.value.get(game.i
                 @select="$emit('importLauncher')"
               >
                 <AppIcon name="folder" />{{ t('home.importLauncher') }}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                class="profile-menu-item"
+                @select="$emit('receiveGame')"
+              >
+                <AppIcon name="download" />{{ t('home.receiveGame') }}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenuPortal>

@@ -98,6 +98,8 @@ pub enum FrontendRequest {
     InboxPending(Empty),
     #[serde(rename = "fileInbox.open")]
     InboxOpen(super::plugin_file_inbox::OpenRequest),
+    #[serde(rename = "fileInbox.openLink")]
+    InboxOpenLink(super::plugin_file_inbox::LinkRequest),
     #[serde(rename = "fileInbox.release")]
     InboxRelease(super::plugin_file_inbox::ReleaseRequest),
     #[serde(rename = "langPackage.pick")]
@@ -354,6 +356,7 @@ fn authorize_method(manifest: &PluginManifest, request: &FrontendRequest) -> Res
         FrontendRequest::InboxPick(_) => unit_permission(manifest,PermissionNode::FileInboxImportRequest {}),
         FrontendRequest::InboxPending(_) => unit_permission(manifest,PermissionNode::FileInboxImportRequest {}),
         FrontendRequest::InboxOpen(_) => unit_permission(manifest,PermissionNode::FileInboxImportRequest {}),
+        FrontendRequest::InboxOpenLink(_) => unit_permission(manifest,PermissionNode::FileInboxImportRequest {}),
         FrontendRequest::InboxRelease(_) => unit_permission(manifest,PermissionNode::FileInboxImportRequest {}),
         FrontendRequest::LangPick(_) => super::plugin_lang_package::permitted(manifest),
         FrontendRequest::LangCheck(_) => super::plugin_lang_package::permitted(manifest),
@@ -580,6 +583,9 @@ fn access_requests(request: &FrontendRequest) -> Vec<Access> {
         FrontendRequest::InboxOpen(args) => {
             one("file-inbox", "fileInbox.open", args.game_id.as_deref())
         }
+        FrontendRequest::InboxOpenLink(args) => {
+            one("file-inbox", "fileInbox.openLink", args.game_id.as_deref())
+        }
         FrontendRequest::InboxRelease(_) => one("file-inbox", "fileInbox.release", None),
         FrontendRequest::LangPick(_) => one("selected-file-read", "langPackage.pick", None),
         FrontendRequest::LangCheck(_) => one("language-report", "langPackage.check", None),
@@ -791,6 +797,7 @@ pub async fn frontend_call(
         FrontendRequest::InboxPick(_) => super::plugin_file_inbox::pick(app.clone(), &auth).await,
         FrontendRequest::InboxPending(_) => super::plugin_file_inbox::pending(app.clone(), &auth).await,
         FrontendRequest::InboxOpen(args) => super::plugin_file_inbox::open(app.clone(), &auth, args).await,
+        FrontendRequest::InboxOpenLink(args) => super::plugin_file_inbox::open_link(app.clone(), &auth, args).await,
         FrontendRequest::InboxRelease(args) => super::plugin_file_inbox::release(app.clone(), &auth, args).await,
         FrontendRequest::LangPick(_) => serde_json::to_value(super::plugin_lang_package::pick(app.clone(), &auth).await?).map_err(|_| "LANG_PACKAGE_IO".into()),
         FrontendRequest::LangCheck(args) => serde_json::to_value(super::plugin_lang_package::check(app.clone(), &auth, args).await?).map_err(|_| "LANG_PACKAGE_IO".into()),

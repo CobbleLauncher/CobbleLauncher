@@ -14,6 +14,50 @@ const URL: &str = "https://one.fixture.invalid/file";
 const BODY: &[u8] = b"abcdef";
 
 #[test]
+fn adoptium_requests_accept_verified_zip_and_tar_packages_only() {
+    let mut expectation = expected();
+    expectation.digests.sha256 = Some([1; 32]);
+    for filename in ["runtime.zip", "runtime.tar.gz"] {
+        let url = format!(
+            "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.1%2B1/{filename}"
+        );
+        let request = DownloadRequest::new(
+            &url,
+            expectation,
+            DownloadAuthority::same_origin(
+                "adoptium",
+                "managed-java",
+                "temurin-ga-archive-v1",
+                None,
+            )
+            .unwrap(),
+            None,
+        )
+        .unwrap();
+        assert!(request.with_adoptium_redirects().is_ok(), "{filename}");
+    }
+    for filename in ["runtime.exe", "runtime.tar.gz.exe", "runtime.tgz"] {
+        let url = format!(
+            "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.1%2B1/{filename}"
+        );
+        let request = DownloadRequest::new(
+            &url,
+            expectation,
+            DownloadAuthority::same_origin(
+                "adoptium",
+                "managed-java",
+                "temurin-ga-archive-v1",
+                None,
+            )
+            .unwrap(),
+            None,
+        )
+        .unwrap();
+        assert!(request.with_adoptium_redirects().is_err(), "{filename}");
+    }
+}
+
+#[test]
 fn curseforge_redirect_request_identity_is_explicit_and_cannot_mix_mirror_grants() {
     let mut expectation = expected();
     expectation.digests.sha1 = Some([0; 20]);

@@ -3,6 +3,10 @@
 mod archive;
 mod install;
 mod metadata;
+mod target;
+pub(crate) fn supported_target() -> bool {
+    target::Target::host().is_ok()
+}
 pub(crate) async fn space_package(
     required: u32,
     broker: &cobble_net::Broker,
@@ -39,7 +43,13 @@ fn cached_space_package(
     use std::io::Read;
     let mut options = cap_std::fs::OpenOptions::new();
     options.read(true).follow(FollowSymlinks::No);
-    let file = match root.open_with(format!(".selection-{required}-x64.json"), &options) {
+    let file = match root.open_with(
+        format!(
+            ".selection-{required}-{}.json",
+            target::Target::host()?.key()
+        ),
+        &options,
+    ) {
         Ok(file) => file,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e.into()),
@@ -106,7 +116,7 @@ pub async fn install_managed_java_controlled(
     control: crate::OperationControl,
 ) -> Result<JavaRuntime, Error> {
     control.check_cancelled()?;
-    if !cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+    if !supported_target() {
         return Err("JAVA_MANAGED_ACQUISITION_UNSUPPORTED_PLATFORM".into());
     }
     let root = cobble_minecraft::managed_java_root()?;
@@ -124,7 +134,7 @@ pub async fn install_managed_java_at_controlled(
     control: crate::OperationControl,
 ) -> Result<JavaRuntime, Error> {
     control.check_cancelled()?;
-    if !cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+    if !supported_target() {
         return Err("JAVA_MANAGED_ACQUISITION_UNSUPPORTED_PLATFORM".into());
     }
     install::install_at(required, root, cache, control).await

@@ -4,8 +4,9 @@ import { computed, onUnmounted, ref, useId, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import VersionSelector from './VersionSelector.vue';
 import type { ModVersion, ModVersionDetails } from './games';
-import { t } from './i18n';
-const props = defineProps<{ gameId: string; projectId: string; disabled: boolean; currentVersionId?: string; preferredVersionId?: string }>();
+import { locale, t } from './i18n';
+import { linkedVersionId } from './file-inbox-market';
+const props = defineProps<{ gameId: string; projectId: string; disabled: boolean; currentVersionId?: string; preferredVersionId?: string; linkedVersion?: string }>();
 const emit = defineEmits<{ selected: [version: ModVersion | null] }>();
 const controlId = useId();
 const versions = ref<ModVersion[]>([]);
@@ -27,7 +28,7 @@ async function load() {
     const value = await invoke<ModVersion[]>('list_game_mod_versions', { id: props.gameId, projectId: props.projectId });
     if (current !== request) return;
     versions.value = value;
-    versionId.value = value.find((version) => version.version_id === props.preferredVersionId)?.version_id
+    versionId.value = props.linkedVersion ? linkedVersionId(value, props.linkedVersion) : value.find((version) => version.version_id === props.preferredVersionId)?.version_id
       ?? value.find((version) => version.version_id === props.currentVersionId)?.version_id
       ?? value.find((version) => version.version_type === 'release')?.version_id ?? value[0]?.version_id ?? '';
   } catch { if (current === request) error.value = t('modUpdates.loadFailed'); }
@@ -77,6 +78,7 @@ onUnmounted(() => { ++request; ++detailsRequest; });
       </button>
     </div>
     <template v-else-if="versions.length">
+      <p v-if="linkedVersion && !versionId" role="status" class="setting-hint">{{ locale === 'zh-CN' ? '链接中的版本未在当前列表中找到，请手动选择版本。' : 'Linked version was not found here. Choose a version manually.' }}</p>
       <div class="form-field">
         <label :for="`mod-version-${controlId}`">{{ t('modUpdates.versionLabel') }}</label>
         <VersionSelector

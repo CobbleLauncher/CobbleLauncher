@@ -124,6 +124,19 @@ impl Drop for MeshActivity {
 fn broker() -> &'static Mutex<Broker> {
     BROKER.get_or_init(Default::default)
 }
+/// Private adapter for explicitly approved game handoffs, never a renderer/plugin IPC.
+pub(crate) fn file_transfer_request(command: Value) -> Result<Value, String> {
+    if !command
+        .get("op")
+        .and_then(Value::as_str)
+        .is_some_and(|op| op.starts_with("app_file_"))
+    {
+        return Err("GAME_TRANSFER_COMMAND_DENIED".into());
+    }
+    let mut client = broker().lock().map_err(|_| "Mesh is unavailable")?;
+    client.prepare()?;
+    client.request(command)
+}
 /// Closed plugin adapter. It only uses the already-running social client.
 pub(crate) fn plugin_event_request(
     expected_generation: Option<u64>,
@@ -202,13 +215,7 @@ fn plugin_event_command_allowed(generation: Option<u64>, command: &Value) -> boo
     fields.len() == keys.len() && keys.iter().all(|key| fields.contains_key(*key))
 }
 fn helper_path() -> Result<PathBuf, String> {
-    Ok(std::env::current_exe()
-        .map_err(|_| "无法确定联机组件位置")?
-        .with_file_name(if cfg!(windows) {
-            "cobble-mesh-companion.exe"
-        } else {
-            "cobble-mesh-companion"
-        }))
+    crate::runtime_resources::mesh_companion().map_err(|_| "无法确定联机组件位置".into())
 }
 fn running_game(app: &AppHandle, id: &str) -> Result<sessions::Session, String> {
     let library = app.state::<GameLibrary>();
@@ -417,7 +424,7 @@ pub fn mesh_availability() -> Availability {
     Availability {
         available,
         reason: (!available).then(|| "当前安装未包含联机组件".into()),
-        can_host: available && cfg!(windows),
+        can_host: available && cfg!(any(windows, target_os = "linux")),
     }
 }
 #[tauri::command]

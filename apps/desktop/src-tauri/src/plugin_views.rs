@@ -10,26 +10,29 @@ use std::{
     },
 };
 use tauri::{Manager, Webview, WebviewBuilder, WebviewUrl};
+#[cfg(target_os = "linux")]
+#[path = "plugin_view_linux.rs"]
+mod linux;
 
 const SCHEME: &str = "cobble-plugin";
 static NEXT_OPEN: AtomicU64 = AtomicU64::new(0);
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "isolated-webview-probe"))]
 static ISOLATED_PROBE: AtomicBool = AtomicBool::new(false);
 static VIEWS: OnceLock<Mutex<HashMap<String, Arc<ViewSession>>>> = OnceLock::new();
 fn views() -> &'static Mutex<HashMap<String, Arc<ViewSession>>> {
     VIEWS.get_or_init(Default::default)
 }
 
-/// The response policy and joined native workflow are verified on WebView2 155.
-/// Windows still checks the actual engine version before loading any assets.
+/// Native isolation and joined workflows are verified on WebView2 and WebKitGTK.
+/// Both adapters check the loaded engine version before loading plugin assets.
 /// Other engines retain the host-rendered fallback.
 fn frontend_runtime_enabled() -> bool {
-    cfg!(windows)
+    cfg!(any(windows, target_os = "linux"))
 }
 
 /// Mark the standalone security/workflow examples for bounded native diagnostics.
 /// This helper accepts only a temporary probe registry and never broadens support.
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "isolated-webview-probe"))]
 #[allow(dead_code)]
 pub fn enable_isolated_probe() -> Result<(), String> {
     let registry = super::root("plugins")?
@@ -140,7 +143,7 @@ pub struct ViewAuthorization {
     pub session_id: String,
 }
 /// Test-only backend fixture session. It is not a rendered WebView authorization proof.
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "isolated-webview-probe"))]
 #[allow(dead_code)]
 pub fn isolated_authorization(
     app: &tauri::AppHandle,
@@ -485,13 +488,29 @@ pub async fn open_plugin_view(
             revoke_window(&label);
             return Err("PLUGIN_VIEW_RUNTIME_UNSUPPORTED".into());
         }
-        #[cfg(debug_assertions)]
+        #[cfg(any(debug_assertions, feature = "isolated-webview-probe"))]
         if ISOLATED_PROBE.load(Ordering::Acquire) {
             eprintln!("probe WebView2 runtime {version}");
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
     {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        child
+            .with_webview(move |native| {
+                let _ = sender.send(linux::configure(native, bounds));
+            })
+            .map_err(|_| "PLUGIN_VIEW_RUNTIME_UNSUPPORTED")?;
+        let _version = tokio::time::timeout(std::time::Duration::from_secs(5), receiver)
+            .await
+            .map_err(|_| "PLUGIN_VIEW_RUNTIME_UNSUPPORTED")?
+            .map_err(|_| "PLUGIN_VIEW_RUNTIME_UNSUPPORTED")??;
+        #[cfg(any(debug_assertions, feature = "isolated-webview-probe"))]
+        if ISOLATED_PROBE.load(Ordering::Acquire) {
+            eprintln!("probe WebKitGTK runtime {_version}");
+        }
+    }
+    if !cfg!(any(windows, target_os = "linux")) {
         revoke_window(&label);
         return Err("PLUGIN_VIEW_RUNTIME_UNSUPPORTED".into());
     }
@@ -518,10 +537,18 @@ pub fn resize_plugin_view(
     if session.owner != webview.label() {
         return Err("PLUGIN_VIEW_CALLER_DENIED".into());
     }
-    webview
+    let child = webview
         .app_handle()
         .get_webview(&view_id)
-        .ok_or("PLUGIN_VIEW_REVOKED")?
+        .ok_or("PLUGIN_VIEW_REVOKED")?;
+    #[cfg(target_os = "linux")]
+    {
+        return child
+            .with_webview(move |native| linux::resize(native, bounds))
+            .map_err(|_| "PLUGIN_VIEW_UNAVAILABLE".into());
+    }
+    #[cfg(not(target_os = "linux"))]
+    child
         .set_bounds(tauri::Rect {
             position: tauri::LogicalPosition::new(bounds.x, bounds.y).into(),
             size: tauri::LogicalSize::new(bounds.width, bounds.height).into(),
@@ -662,7 +689,7 @@ const SHELL_BOOTSTRAP: &str = r#"
 (() => {
  if (window !== window.top) return;
  const channel = 'cobble-plugin-frontend-v1';
- const allowed = new Set(['mesh.subscribe','mesh.receive','mesh.unsubscribe','mesh.send','mesh.peers','ai.status','ai.configure','ai.clear','ai.chat','ai.cancel','recovery.experimentPreview','recovery.experimentOpen','trialCopy.cleanup','trialCopy.preview','trialCopy.pickDestination','trialCopy.start','trialCopy.task','trialCopy.cancel','trialCopy.openGame','storageWorkspace.overview','storageWorkspace.pickDestination','storageWorkspace.cleanCache','storageWorkspace.startMove','storageWorkspace.task','storageWorkspace.cancel','storageWorkspace.releaseSource','storageWorkspace.openSource','configWorkspace.list','configWorkspace.read','configWorkspace.readBackup','configWorkspace.write','configWorkspace.restore','recovery.snapshot','recovery.openRequest','playManifest.preview','playManifest.export','fileInbox.pick','fileInbox.pending','fileInbox.open','fileInbox.release','langPackage.pick','langPackage.check','langPackage.document','langPackage.cancel','generatedBlueprint.save','generatedBlueprint.open','context','exports.text','clipboard.writeText','view.setDirty','handoffs.receivers','handoffs.send','handoffs.take','data.read','data.write','data.remove','worlds.metadata','seedMap.capabilities','seedMap.generate','seedMap.search','seedMap.cancel','configs.list','configs.read','report.pick','report.check','report.cancel','keybindings.preview','keybindings.apply','keybindings.restore','diagnostics.list','diagnostics.read','diagnostics.check','diagnostics.pick','inspection.snapshot','inspection.check','worldSnapshots.list','worldSnapshots.compare','worldSnapshots.openRestore']);
+ const allowed = new Set(['mesh.subscribe','mesh.receive','mesh.unsubscribe','mesh.send','mesh.peers','ai.status','ai.configure','ai.clear','ai.chat','ai.cancel','recovery.experimentPreview','recovery.experimentOpen','trialCopy.cleanup','trialCopy.preview','trialCopy.pickDestination','trialCopy.start','trialCopy.task','trialCopy.cancel','trialCopy.openGame','storageWorkspace.overview','storageWorkspace.pickDestination','storageWorkspace.cleanCache','storageWorkspace.startMove','storageWorkspace.task','storageWorkspace.cancel','storageWorkspace.releaseSource','storageWorkspace.openSource','configWorkspace.list','configWorkspace.read','configWorkspace.readBackup','configWorkspace.write','configWorkspace.restore','recovery.snapshot','recovery.openRequest','playManifest.preview','playManifest.export','fileInbox.pick','fileInbox.pending','fileInbox.open','fileInbox.openLink','fileInbox.release','langPackage.pick','langPackage.check','langPackage.document','langPackage.cancel','generatedBlueprint.save','generatedBlueprint.open','context','exports.text','clipboard.writeText','view.setDirty','handoffs.receivers','handoffs.send','handoffs.take','data.read','data.write','data.remove','worlds.metadata','seedMap.capabilities','seedMap.generate','seedMap.search','seedMap.cancel','configs.list','configs.read','report.pick','report.check','report.cancel','keybindings.preview','keybindings.apply','keybindings.restore','diagnostics.list','diagnostics.read','diagnostics.check','diagnostics.pick','inspection.snapshot','inspection.check','worldSnapshots.list','worldSnapshots.compare','worldSnapshots.openRestore']);
  window.addEventListener('message', async event => {
   const frame = document.getElementById('plugin-content');
   const data = event.data;
@@ -693,7 +720,7 @@ const FRAME_BOOTSTRAP: &str = r#"
  });
  Object.defineProperty(window,'__COBBLE_PLUGIN_BRIDGE__',{value:Object.freeze({request(method,params={}) {
   return new Promise((resolve,reject)=>{
-   if(!['mesh.subscribe','mesh.receive','mesh.unsubscribe','mesh.send','mesh.peers','ai.status','ai.configure','ai.clear','ai.chat','ai.cancel','recovery.experimentPreview','recovery.experimentOpen','trialCopy.cleanup','trialCopy.preview','trialCopy.pickDestination','trialCopy.start','trialCopy.task','trialCopy.cancel','trialCopy.openGame','storageWorkspace.overview','storageWorkspace.pickDestination','storageWorkspace.cleanCache','storageWorkspace.startMove','storageWorkspace.task','storageWorkspace.cancel','storageWorkspace.releaseSource','storageWorkspace.openSource','configWorkspace.list','configWorkspace.read','configWorkspace.readBackup','configWorkspace.write','configWorkspace.restore','recovery.snapshot','recovery.openRequest','playManifest.preview','playManifest.export','fileInbox.pick','fileInbox.pending','fileInbox.open','fileInbox.release','langPackage.pick','langPackage.check','langPackage.document','langPackage.cancel','generatedBlueprint.save','generatedBlueprint.open','context','exports.text','clipboard.writeText','view.setDirty','handoffs.receivers','handoffs.send','handoffs.take','data.read','data.write','data.remove','worlds.metadata','seedMap.capabilities','seedMap.generate','seedMap.search','seedMap.cancel','configs.list','configs.read','report.pick','report.check','report.cancel','keybindings.preview','keybindings.apply','keybindings.restore','diagnostics.list','diagnostics.read','diagnostics.check','diagnostics.pick','inspection.snapshot','inspection.check','worldSnapshots.list','worldSnapshots.compare','worldSnapshots.openRestore'].includes(method)){reject(new Error('PLUGIN_FRONTEND_METHOD_DENIED'));return;}
+   if(!['mesh.subscribe','mesh.receive','mesh.unsubscribe','mesh.send','mesh.peers','ai.status','ai.configure','ai.clear','ai.chat','ai.cancel','recovery.experimentPreview','recovery.experimentOpen','trialCopy.cleanup','trialCopy.preview','trialCopy.pickDestination','trialCopy.start','trialCopy.task','trialCopy.cancel','trialCopy.openGame','storageWorkspace.overview','storageWorkspace.pickDestination','storageWorkspace.cleanCache','storageWorkspace.startMove','storageWorkspace.task','storageWorkspace.cancel','storageWorkspace.releaseSource','storageWorkspace.openSource','configWorkspace.list','configWorkspace.read','configWorkspace.readBackup','configWorkspace.write','configWorkspace.restore','recovery.snapshot','recovery.openRequest','playManifest.preview','playManifest.export','fileInbox.pick','fileInbox.pending','fileInbox.open','fileInbox.openLink','fileInbox.release','langPackage.pick','langPackage.check','langPackage.document','langPackage.cancel','generatedBlueprint.save','generatedBlueprint.open','context','exports.text','clipboard.writeText','view.setDirty','handoffs.receivers','handoffs.send','handoffs.take','data.read','data.write','data.remove','worlds.metadata','seedMap.capabilities','seedMap.generate','seedMap.search','seedMap.cancel','configs.list','configs.read','report.pick','report.check','report.cancel','keybindings.preview','keybindings.apply','keybindings.restore','diagnostics.list','diagnostics.read','diagnostics.check','diagnostics.pick','inspection.snapshot','inspection.check','worldSnapshots.list','worldSnapshots.compare','worldSnapshots.openRestore'].includes(method)){reject(new Error('PLUGIN_FRONTEND_METHOD_DENIED'));return;}
    if(pending.size>=16){reject(new Error('PLUGIN_FRONTEND_BUSY'));return;}
    const id=String(++next);const timer=setTimeout(()=>{pending.delete(id);reject(new Error('PLUGIN_FRONTEND_TIMEOUT'));},60000);
    pending.set(id,{resolve,reject,timer});

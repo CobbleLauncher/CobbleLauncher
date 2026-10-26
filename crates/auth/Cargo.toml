@@ -29,6 +29,7 @@ keyring = { version = "=3.6.3", default-features = false, features = ["apple-nat
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "=3.6.3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
+dbus-secret-service = { version = "=4.1.0", default-features = false, features = ["crypto-rust"] }
 
 [lints]
 workspace = true

@@ -18,6 +18,9 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Webview};
+#[path = "plugin_file_inbox_links.rs"]
+mod links;
+pub use links::LinkRequest;
 const MAX_FILES: usize = 8;
 const MAX_BYTES: u64 = cobble_content::MAX_PACK_ARCHIVE_BYTES;
 const MAX_TOTAL: u64 = 1024 * 1024 * 1024;
@@ -753,6 +756,34 @@ pub async fn open(
     }
     app.emit_to("main", "plugin-file-inbox-open", event)
         .map_err(|_| "FILE_INBOX_UNAVAILABLE")?;
+    Ok(json!({"requested":true}))
+}
+pub async fn open_link(
+    app: AppHandle,
+    auth: &ViewAuthorization,
+    args: LinkRequest,
+) -> Result<Value, String> {
+    current(auth)?;
+    let link = links::parse(&args.url)?;
+    let game_id = args.game_id.or_else(|| auth.instance_id.clone());
+    if let Some(id) = &game_id {
+        if auth.instance_id.as_deref().is_some_and(|bound| bound != id) {
+            return Err("PLUGIN_GAME_SCOPE".into());
+        }
+        crate::games::ensure_registered_game(&app, id).map_err(|_| "PLUGIN_GAME_SCOPE")?;
+    }
+    if link.kind != "modpack" && game_id.is_none() {
+        return Err("FILE_INBOX_GAME_REQUIRED".into());
+    }
+    app.emit_to(
+        "main",
+        "plugin-file-inbox-market",
+        json!({
+            "provider":link.provider,"kind":link.kind,"project":link.project,
+            "version":link.version,"gameId":game_id
+        }),
+    )
+    .map_err(|_| "FILE_INBOX_UNAVAILABLE")?;
     Ok(json!({"requested":true}))
 }
 fn main_only(view: &Webview) -> Result<(), String> {

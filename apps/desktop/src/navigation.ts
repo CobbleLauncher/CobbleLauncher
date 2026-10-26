@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import type { GameAction } from './games';
 import type { MarketKind } from './market';
+import type { FileInboxMarketLink } from './file-inbox-market';
 import type { ResolvedCommand } from './extensions/contributions';
 import type { SnapshotRestoreTarget } from './world-snapshots';
 import type { ConfigRestoreTarget, RecoveryDetailTarget } from './recovery-navigation';
@@ -19,7 +20,7 @@ export interface ToolLocation {
   title?: string;
 }
 export interface ExtensionCandidate { sourceId: string; pluginId: string }
-export type MarketPage = { view: 'discover-packs'; kind: MarketKind; gameId: string; query?: string };
+export type MarketPage = { view: 'discover-packs'; kind: MarketKind; gameId: string; query?: string; link?: FileInboxMarketLink };
 export type AppPage =
   | { view: 'first-run' | 'library' | 'create' | 'import' | 'cf-import' | 'import-launcher' | 'settings' | 'profiles' | 'add-profile' }
   | { view: 'extensions'; candidate?: ExtensionCandidate }
@@ -30,6 +31,8 @@ export type AppPage =
   | { view: 'readiness'; gameId: string }
   | { view: 'mesh-group'; gameId: string; invitation?: string }
   | { view: 'game-action'; gameId: string; action: GameAction }
+  | { view: 'share-changes'; gameId: string; mode: 'export' | 'import' }
+  | { view: 'game-transfer'; gameId: string; taskId?: string; offerId?: string }
   | { view: 'mesh'; gameId: string; initialMode?: 'host' | 'join' | 'contacts'; initialContactId?: string; contactRequestId?: number }
   | MarketPage
   | { view: 'tools'; location?: ToolLocation };
@@ -112,11 +115,13 @@ export function toolPage(state: NavigationState, location: ToolLocation): Naviga
   return enterPage(state, { view: 'tools', location });
 }
 export function pageKey(page:AppPage):string {
+  if(page.view==='share-changes') return JSON.stringify([page.view,page.gameId,page.mode]);
+  if(page.view==='game-transfer') return JSON.stringify([page.view,page.gameId,page.taskId,page.offerId]);
   if(page.view==='move-games') return JSON.stringify([page.view,page.taskId]);
   if(page.view==='tools') {const location=page.location;return JSON.stringify([page.view,location?.pluginId,location?.blueprintView,location?.instanceId,location?.keybindingTargetId,location?.handoffId,location?.configRestoreTarget,location?.command]);}
   if(page.view==='extension-detail') return JSON.stringify([page.view,page.pluginId]);
   if(page.view==='game-action') return JSON.stringify([page.view,page.gameId,page.action]);
-  if(page.view==='discover-packs') return JSON.stringify([page.view,page.gameId,page.kind,page.query]);
+  if(page.view==='discover-packs') return JSON.stringify([page.view,page.gameId,page.kind,page.query,page.link]);
   return JSON.stringify([page.view,'gameId' in page?page.gameId:null]);
 }
 

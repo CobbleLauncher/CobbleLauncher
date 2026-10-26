@@ -100,8 +100,12 @@ impl PermissionNode {
             Self::SettingsRead { keys } => Self::SettingsRead {
                 keys: sorted(keys.clone()),
             },
-            Self::MeshEventsSend { namespaces } => Self::MeshEventsSend { namespaces: sorted(namespaces.clone()) },
-            Self::MeshEventsReceive { namespaces } => Self::MeshEventsReceive { namespaces: sorted(namespaces.clone()) },
+            Self::MeshEventsSend { namespaces } => Self::MeshEventsSend {
+                namespaces: sorted(namespaces.clone()),
+            },
+            Self::MeshEventsReceive { namespaces } => Self::MeshEventsReceive {
+                namespaces: sorted(namespaces.clone()),
+            },
             _ => self.clone(),
         }
     }
@@ -133,8 +137,22 @@ impl PermissionNode {
             (Self::SettingsRead { keys: granted }, Self::SettingsRead { keys: requested }) => {
                 requested.iter().all(|x| granted.contains(x))
             }
-            (Self::MeshEventsSend { namespaces: granted }, Self::MeshEventsSend { namespaces: requested })
-            | (Self::MeshEventsReceive { namespaces: granted }, Self::MeshEventsReceive { namespaces: requested }) => requested.iter().all(|x| granted.contains(x)),
+            (
+                Self::MeshEventsSend {
+                    namespaces: granted,
+                },
+                Self::MeshEventsSend {
+                    namespaces: requested,
+                },
+            )
+            | (
+                Self::MeshEventsReceive {
+                    namespaces: granted,
+                },
+                Self::MeshEventsReceive {
+                    namespaces: requested,
+                },
+            ) => requested.iter().all(|x| granted.contains(x)),
             _ => self == requested,
         }
     }
@@ -445,9 +463,9 @@ mod clipboard_permission_tests {
 
     #[test]
     fn local_frontend_report_has_no_implicit_resource_access() {
-        let mut manifest: PluginManifest = serde_json::from_str(include_str!(
-            "../../../examples/anvil-planner/plugin.json"
-        )).unwrap();
+        let mut manifest: PluginManifest =
+            serde_json::from_str(include_str!("../../../examples/anvil-planner/plugin.json"))
+                .unwrap();
         manifest.validate().unwrap();
         assert!(manifest.is_local_frontend_report());
         assert_eq!(manifest.effective_permissions().len(), 2);
@@ -555,22 +573,56 @@ mod inspection_permission_tests {
     }
     #[test]
     fn diagnostic_recovery_inspection_preserves_text_abi_and_selected_log_access() {
-        let mut current:PluginManifest=serde_json::from_str(include_str!("../../../examples/crash-doctor/plugin.json")).unwrap();
-        current.id="another-diagnostic-tool".into();
-        current.name="Another diagnostic tool".into();
+        let mut current: PluginManifest =
+            serde_json::from_str(include_str!("../../../examples/crash-doctor/plugin.json"))
+                .unwrap();
+        current.id = "another-diagnostic-tool".into();
+        current.name = "Another diagnostic tool".into();
         current.validate().unwrap();
-        assert_eq!(current.api_version,crate::REPORT_API_VERSION);
-        assert!(current.effective_permissions().contains(&PermissionNode::SelectedFileRead{extensions:vec!["log".into(),"txt".into()]}));
+        assert_eq!(current.api_version, crate::REPORT_API_VERSION);
+        assert!(
+            current
+                .effective_permissions()
+                .contains(&PermissionNode::SelectedFileRead {
+                    extensions: vec!["log".into(), "txt".into()]
+                })
+        );
         assert!(!current.is_inspection_report());
     }
     #[test]
     fn diagnostic_recovery_inspection_rejects_extra_scopes_missing_grants_and_protocols() {
-        let current:PluginManifest=serde_json::from_str(include_str!("../../../examples/crash-doctor/plugin.json")).unwrap();
-        for required in [PermissionNode::GameDiagnosticsRead{},PermissionNode::GameRecoveryRead{},PermissionNode::InstanceCopyRequest{},PermissionNode::PrivateStorage{},PermissionNode::SelectedFileRead{extensions:vec!["log".into(),"txt".into()]}] {
-            let mut invalid=current.clone();invalid.permissions.as_mut().unwrap().retain(|node|node!=&required);assert!(invalid.validate().is_err(),"missing grant {required:?}");
+        let current: PluginManifest =
+            serde_json::from_str(include_str!("../../../examples/crash-doctor/plugin.json"))
+                .unwrap();
+        for required in [
+            PermissionNode::GameDiagnosticsRead {},
+            PermissionNode::GameRecoveryRead {},
+            PermissionNode::InstanceCopyRequest {},
+            PermissionNode::PrivateStorage {},
+            PermissionNode::SelectedFileRead {
+                extensions: vec!["log".into(), "txt".into()],
+            },
+        ] {
+            let mut invalid = current.clone();
+            invalid
+                .permissions
+                .as_mut()
+                .unwrap()
+                .retain(|node| node != &required);
+            assert!(invalid.validate().is_err(), "missing grant {required:?}");
         }
-        let mut invalid=current.clone();for node in invalid.permissions.as_mut().unwrap(){if let PermissionNode::GameInspectionRead{scopes}=node{scopes.push(InspectionScope::Worlds);}}assert!(invalid.validate().is_err());
-        invalid=current;invalid.report_protocols.push(crate::CONFIG_FOLDER_PROTOCOL.into());assert!(invalid.validate().is_err());
+        let mut invalid = current.clone();
+        for node in invalid.permissions.as_mut().unwrap() {
+            if let PermissionNode::GameInspectionRead { scopes } = node {
+                scopes.push(InspectionScope::Worlds);
+            }
+        }
+        assert!(invalid.validate().is_err());
+        invalid = current;
+        invalid
+            .report_protocols
+            .push(crate::CONFIG_FOLDER_PROTOCOL.into());
+        assert!(invalid.validate().is_err());
     }
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -591,9 +643,23 @@ fn sorted(mut values: Vec<String>) -> Vec<String> {
 impl PluginManifest {
     /// An explicitly granted Mesh frontend does not imply file associations.
     pub fn is_mesh_events_frontend(&self) -> bool {
-        self.api_version == REPORT_CONTEXT_API_VERSION && self.capabilities == ["report"]
-            && self.frontend.is_some() && self.file_extensions.is_empty() && self.report_protocols.is_empty()
-            && self.permissions.as_deref().unwrap_or_default().iter().any(|node| matches!(node, PermissionNode::MeshEventsSend { .. } | PermissionNode::MeshEventsReceive { .. }))
+        self.api_version == REPORT_CONTEXT_API_VERSION
+            && self.capabilities == ["report"]
+            && self.frontend.is_some()
+            && self.file_extensions.is_empty()
+            && self.report_protocols.is_empty()
+            && self
+                .permissions
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .any(|node| {
+                    matches!(
+                        node,
+                        PermissionNode::MeshEventsSend { .. }
+                            | PermissionNode::MeshEventsReceive { .. }
+                    )
+                })
     }
     /// A text-report frontend can inspect the two declared scopes needed for
     /// independent diagnosis trials without pretending its Wasm ABI is JSON 0.2.
@@ -612,7 +678,11 @@ impl PluginManifest {
         if self.frontend.is_some() {
             nodes.push(PermissionNode::UiWebview {});
             for node in self.permissions.as_deref().unwrap_or_default() {
-                if matches!(node, PermissionNode::MeshEventsSend { .. } | PermissionNode::MeshEventsReceive { .. }) {
+                if matches!(
+                    node,
+                    PermissionNode::MeshEventsSend { .. }
+                        | PermissionNode::MeshEventsReceive { .. }
+                ) {
                     nodes.push(node.canonical());
                 }
             }
@@ -763,14 +833,36 @@ impl PluginManifest {
     }
     pub fn validate_permissions(&self) -> Result<(), PluginError> {
         let requested = self.permissions.as_deref().unwrap_or_default();
-        if requested.iter().filter(|node| matches!(node, PermissionNode::MeshEventsSend { .. })).count() > 1
-            || requested.iter().filter(|node| matches!(node, PermissionNode::MeshEventsReceive { .. })).count() > 1 {
-            return Err(PluginError::new("PLUGIN_INVALID_PERMISSIONS", "Each Mesh direction has one namespace declaration"));
+        if requested
+            .iter()
+            .filter(|node| matches!(node, PermissionNode::MeshEventsSend { .. }))
+            .count()
+            > 1
+            || requested
+                .iter()
+                .filter(|node| matches!(node, PermissionNode::MeshEventsReceive { .. }))
+                .count()
+                > 1
+        {
+            return Err(PluginError::new(
+                "PLUGIN_INVALID_PERMISSIONS",
+                "Each Mesh direction has one namespace declaration",
+            ));
         }
         for node in requested {
-            if let PermissionNode::MeshEventsSend { namespaces } | PermissionNode::MeshEventsReceive { namespaces } = node
-                && (self.frontend.is_none() || namespaces.is_empty() || namespaces.len() > crate::MAX_MESH_NAMESPACES || namespaces.iter().any(|namespace| !crate::valid_mesh_namespace(namespace))) {
-                return Err(PluginError::new("PLUGIN_INVALID_PERMISSIONS", "Mesh events require a frontend and one to eight exact, non-reserved namespaces"));
+            if let PermissionNode::MeshEventsSend { namespaces }
+            | PermissionNode::MeshEventsReceive { namespaces } = node
+                && (self.frontend.is_none()
+                    || namespaces.is_empty()
+                    || namespaces.len() > crate::MAX_MESH_NAMESPACES
+                    || namespaces
+                        .iter()
+                        .any(|namespace| !crate::valid_mesh_namespace(namespace)))
+            {
+                return Err(PluginError::new(
+                    "PLUGIN_INVALID_PERMISSIONS",
+                    "Mesh events require a frontend and one to eight exact, non-reserved namespaces",
+                ));
             }
         }
         let workflow = requested.iter().any(|node| {
@@ -812,8 +904,12 @@ impl PluginManifest {
             && !requested.iter().any(|node| matches!(node, PermissionNode::GameInspectionRead { scopes } if scopes.contains(&crate::InspectionScope::Storage))) {
             return Err(PluginError::new("PLUGIN_INVALID_PERMISSIONS", "Storage actions require the existing storage inspection scope"));
         }
-        if requested.contains(&PermissionNode::GeneratedBlueprintSave {}) && self.frontend.is_none() {
-            return Err(PluginError::new("PLUGIN_INVALID_PERMISSIONS", "Generated blueprints require a frontend"));
+        if requested.contains(&PermissionNode::GeneratedBlueprintSave {}) && self.frontend.is_none()
+        {
+            return Err(PluginError::new(
+                "PLUGIN_INVALID_PERMISSIONS",
+                "Generated blueprints require a frontend",
+            ));
         }
         if requested.contains(&PermissionNode::TextExport {}) && self.frontend.is_none() {
             return Err(PluginError::new(
@@ -941,7 +1037,10 @@ impl PluginManifest {
                     sorted(origins.clone()).len() != origins.len()
                 }
                 PermissionNode::SettingsRead { keys } => sorted(keys.clone()).len() != keys.len(),
-                PermissionNode::MeshEventsSend { namespaces } | PermissionNode::MeshEventsReceive { namespaces } => sorted(namespaces.clone()).len() != namespaces.len(),
+                PermissionNode::MeshEventsSend { namespaces }
+                | PermissionNode::MeshEventsReceive { namespaces } => {
+                    sorted(namespaces.clone()).len() != namespaces.len()
+                }
                 _ => false,
             });
             if nodes.len() > 16
@@ -1222,15 +1321,29 @@ mod tests {
 
 #[cfg(test)]
 mod generated_blueprint_manifest_tests {
- use super::*;
- #[test]
- fn generated_blueprint_manifest_validates_without_implicit_files() {
-  let manifest:PluginManifest=serde_json::from_str(include_str!("../../../examples/geometry-builder/plugin.json")).unwrap();
-  manifest.validate().unwrap();
-  assert!(manifest.is_local_frontend_report());
-  assert!(manifest.effective_permissions().contains(&PermissionNode::GeneratedBlueprintSave {}));
-  assert!(!manifest.effective_permissions().iter().any(|node|matches!(node,PermissionNode::SelectedFileRead{..})));
-  let mut invalid=manifest;invalid.frontend=None;assert!(invalid.validate().is_err());
-  assert!(serde_json::from_value::<PermissionNode>(serde_json::json!({"permission":"launcher:blueprints/generated-save","path":"../world"})).is_err());
- }
+    use super::*;
+    #[test]
+    fn generated_blueprint_manifest_validates_without_implicit_files() {
+        let manifest: PluginManifest = serde_json::from_str(include_str!(
+            "../../../examples/geometry-builder/plugin.json"
+        ))
+        .unwrap();
+        manifest.validate().unwrap();
+        assert!(manifest.is_local_frontend_report());
+        assert!(
+            manifest
+                .effective_permissions()
+                .contains(&PermissionNode::GeneratedBlueprintSave {})
+        );
+        assert!(
+            !manifest
+                .effective_permissions()
+                .iter()
+                .any(|node| matches!(node, PermissionNode::SelectedFileRead { .. }))
+        );
+        let mut invalid = manifest;
+        invalid.frontend = None;
+        assert!(invalid.validate().is_err());
+        assert!(serde_json::from_value::<PermissionNode>(serde_json::json!({"permission":"launcher:blueprints/generated-save","path":"../world"})).is_err());
+    }
 }

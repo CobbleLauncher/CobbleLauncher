@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-//! Standalone Windows WebView2 boundary probe. Never loads account/game libraries.
+//! Standalone native browser boundary probe. Never loads account/game libraries.
 #![allow(dead_code)]
 #[path = "../src/plugin_views.rs"]
 mod plugin_views;
@@ -17,6 +17,7 @@ static ROOT: OnceLock<tempfile::TempDir> = OnceLock::new();
 static PROOF: Mutex<Option<Value>> = Mutex::new(None);
 static ACTUAL: AtomicBool = AtomicBool::new(false);
 static MAIN_CONTROL: AtomicBool = AtomicBool::new(false);
+static MAIN_NETWORK: AtomicBool = AtomicBool::new(false);
 static CHILD_COMMAND_HITS: AtomicUsize = AtomicUsize::new(0);
 static ACL_DENIED: AtomicBool = AtomicBool::new(false);
 static TCP_HITS: AtomicUsize = AtomicUsize::new(0);
@@ -40,6 +41,17 @@ fn registry() -> Result<cobble_plugin_host::PluginRegistry, String> {
 mod games {
     pub(crate) fn ensure_registered_game(_: &tauri::AppHandle, _: &str) -> Result<(), String> {
         Err("No game context in security probe".into())
+    }
+}
+mod plugin_lang_package {
+    pub fn revoke_session(_: &str) {}
+}
+mod plugin_mesh_events {
+    pub fn revoke_session(_: &str) {}
+}
+mod plugin_handoffs {
+    pub fn authorize_view(_: &str, _: Option<&str>, _: Option<&str>) -> Result<(), String> {
+        Err("No handoff in security probe".into())
     }
 }
 #[tauri::command]
@@ -87,11 +99,12 @@ async fn frontend_call(
                 std::thread::sleep(Duration::from_millis(500));
                 eprintln!(
                     "PROBE_RECEIPT {}",
-                    json!({"actual":ACTUAL.load(Ordering::Acquire),"main":MAIN_CONTROL.load(Ordering::Acquire),"aclDenied":ACL_DENIED.load(Ordering::Acquire),"childExecutions":CHILD_COMMAND_HITS.load(Ordering::Acquire),"tcp":TCP_HITS.load(Ordering::Acquire),"udp":UDP_HITS.load(Ordering::Acquire),"frame":*PROOF.lock().unwrap()})
+                    json!({"actual":ACTUAL.load(Ordering::Acquire),"main":MAIN_CONTROL.load(Ordering::Acquire),"mainNetwork":MAIN_NETWORK.load(Ordering::Acquire),"aclDenied":ACL_DENIED.load(Ordering::Acquire),"childExecutions":CHILD_COMMAND_HITS.load(Ordering::Acquire),"tcp":TCP_HITS.load(Ordering::Acquire),"udp":UDP_HITS.load(Ordering::Acquire),"frame":*PROOF.lock().unwrap()})
                 );
                 let frame = PROOF.lock().unwrap().clone().unwrap_or(Value::Null);
                 let safe = ACTUAL.load(Ordering::Acquire)
                     && MAIN_CONTROL.load(Ordering::Acquire)
+                    && MAIN_NETWORK.load(Ordering::Acquire)
                     && ACL_DENIED.load(Ordering::Acquire)
                     && CHILD_COMMAND_HITS.load(Ordering::Acquire) == 0
                     && TCP_HITS.load(Ordering::Acquire) == 0
@@ -100,9 +113,10 @@ async fn frontend_call(
                     && frame["storage"] == false
                     && frame["bridge"] == true
                     && frame["origin"] == "null"
-                    && frame["rawPrivilegedOutcome"] == "transport-blocked"
+                    && (frame["rawPrivilegedOutcome"] == "transport-blocked"
+                        || frame["rawPrivilegedOutcome"] == "unavailable")
                     && frame["unknownMethodDenied"] == true
-                    && frame["rtc"] == true;
+                    && frame["rtc"] == cfg!(windows);
                 handle.exit(if safe { 0 } else { 3 });
             });
             Ok(json!({"accepted":true}))
@@ -164,10 +178,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::thread::spawn(move || {
         while !stop_tcp.load(Ordering::Acquire) {
             if let Ok((mut stream, _)) = tcp.accept() {
-                TCP_HITS.fetch_add(1, Ordering::Relaxed);
                 let _ = stream.set_read_timeout(Some(Duration::from_millis(100)));
                 let mut bytes = [0; 2048];
                 if let Ok(count) = std::io::Read::read(&mut stream, &mut bytes) {
+                    let main_control = bytes[..count].starts_with(b"GET /main-control ");
+                    if main_control {
+                        MAIN_NETWORK.store(true, Ordering::Release);
+                    } else {
+                        TCP_HITS.fetch_add(1, Ordering::Relaxed);
+                    }
                     eprintln!(
                         "probe observed HTTP {}",
                         String::from_utf8_lossy(&bytes[..count])
@@ -175,6 +194,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .next()
                             .unwrap_or("")
                     );
+                    let _ = std::io::Write::write_all(&mut stream, b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
                 }
             }
             std::thread::sleep(Duration::from_millis(10));
@@ -235,7 +255,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .to_vec(),
                 );
             })
-            .initialization_script(PARENT_SCRIPT)
+            .initialization_script(PARENT_SCRIPT.replace("__TCP__", &tcp_port.to_string()))
             .build()?;
             Ok(())
         })
@@ -243,7 +263,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.run(|_, _| {});
     stop.store(true, Ordering::Release);
     let proof = PROOF.lock().unwrap().clone();
-    let result = json!({"actual_config_doctor_frontend_context":ACTUAL.load(Ordering::Acquire),"main_control":MAIN_CONTROL.load(Ordering::Acquire),"child_privileged_executions":CHILD_COMMAND_HITS.load(Ordering::Acquire),"child_acl_denied":ACL_DENIED.load(Ordering::Acquire),"tcp_hits":TCP_HITS.load(Ordering::Acquire),"udp_hits":UDP_HITS.load(Ordering::Acquire),"frame":proof});
+    let result = json!({"actual_config_doctor_frontend_context":ACTUAL.load(Ordering::Acquire),"main_control":MAIN_CONTROL.load(Ordering::Acquire),"main_network_unaffected":MAIN_NETWORK.load(Ordering::Acquire),"child_privileged_executions":CHILD_COMMAND_HITS.load(Ordering::Acquire),"child_acl_denied":ACL_DENIED.load(Ordering::Acquire),"tcp_hits":TCP_HITS.load(Ordering::Acquire),"udp_hits":UDP_HITS.load(Ordering::Acquire),"frame":proof});
     println!("{}", serde_json::to_string_pretty(&result)?);
     if !ACTUAL.load(Ordering::Acquire) || proof.is_none() {
         return Err("Frontend runtime probe did not finish".into());
@@ -255,6 +275,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         || frame["origin"] != "null"
         || frame["tauri"] != "undefined"
         || !MAIN_CONTROL.load(Ordering::Acquire)
+        || !MAIN_NETWORK.load(Ordering::Acquire)
         || CHILD_COMMAND_HITS.load(Ordering::Acquire) != 0
         || !ACL_DENIED.load(Ordering::Acquire)
     {
@@ -266,7 +287,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 const PARENT_SCRIPT: &str = r#"
-window.startProbe=()=>window.__TAURI_INTERNALS__.invoke('open_plugin_view',{pluginId:'frontend-security-probe',instanceId:null,bounds:{x:0,y:30,width:680,height:500},locale:'en-US',theme:'light'}).catch(console.error);
+window.startProbe=async()=>{await fetch('http://127.0.0.1:__TCP__/main-control');const v=await window.__TAURI_INTERNALS__.invoke('open_plugin_view',{pluginId:'frontend-security-probe',instanceId:null,bounds:{x:0,y:30,width:680,height:500},locale:'en-US',theme:'light'});await new Promise(r=>setTimeout(r,300));return window.__TAURI_INTERNALS__.invoke('resize_plugin_view',{viewId:v.view_id,bounds:{x:16,y:45,width:400,height:300}}).catch(console.error)};
 window.addEventListener('DOMContentLoaded',async()=>{await window.__TAURI_INTERNALS__.invoke('get_app_info');return window.__TAURI_INTERNALS__.invoke('open_plugin_view',{pluginId:'config-doctor',instanceId:null,bounds:{x:0,y:30,width:680,height:500},locale:'en-US',theme:'light'}).catch(console.error)});
 "#;
 const PROBE_SCRIPT: &str = r#"

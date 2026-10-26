@@ -73,6 +73,7 @@
     "incomplete": "Sign-in returned incomplete results. Try again.",
     "notDesktop": "Sign in to a Microsoft account in the desktop app.",
     "expired": "Sign-in expired. Try again.",
+    "vaultUnavailable": "Unlock or start your system credential store, then retry sign-in.",
     "poll": "Sign-in did not finish: {error}",
     "start": "Could not start Microsoft sign-in: {error}"
   }

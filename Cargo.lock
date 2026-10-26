@@ -908,6 +908,7 @@ dependencies = [
  "base64 0.22.1",
  "cobble-net",
  "curl",
+ "dbus-secret-service",
  "dirs 7.0.0",
  "getrandom 0.4.3",
  "image",
@@ -1026,6 +1027,7 @@ dependencies = [
 name = "cobble-core"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "cap-fs-ext",
  "cap-std",
  "cobble-auth",
@@ -1037,6 +1039,7 @@ dependencies = [
  "cobble-store",
  "dirs 7.0.0",
  "dunce",
+ "flate2",
  "process-wrap",
  "rustix",
  "serde",
@@ -1044,6 +1047,7 @@ dependencies = [
  "sha1",
  "sha2 0.10.9",
  "sysinfo",
+ "tar",
  "tokio",
  "zip",
 ]
@@ -1082,6 +1086,7 @@ dependencies = [
  "cobble-platform",
  "cobble-plugin-api",
  "cobble-plugin-host",
+ "cobble-plugin-webview-linux",
  "cobble-plugin-webview-windows",
  "cobble-seed-map",
  "cobble-store",
@@ -1091,6 +1096,7 @@ dependencies = [
  "fastnbt",
  "flate2",
  "getrandom 0.4.3",
+ "gtk",
  "image",
  "keyring",
  "open",
@@ -1113,6 +1119,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "url",
+ "webkit2gtk",
  "zip",
 ]
 
@@ -1317,6 +1324,13 @@ dependencies = [
  "tokio",
  "tough",
  "url",
+]
+
+[[package]]
+name = "cobble-plugin-webview-linux"
+version = "0.1.0"
+dependencies = [
+ "webkit2gtk",
 ]
 
 [[package]]

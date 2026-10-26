@@ -225,13 +225,7 @@ pub fn get_blueprint_provider_availability() -> Availability {
     }
 }
 fn host() -> Result<PathBuf, String> {
-    let path = std::env::current_exe()
-        .map_err(|_| "无法找到插件运行程序")?
-        .with_file_name(if cfg!(windows) {
-            "cobble-plugin-host.exe"
-        } else {
-            "cobble-plugin-host"
-        });
+    let path = crate::runtime_resources::plugin_host().map_err(|_| "无法找到插件运行程序")?;
     if !path.is_file() {
         return Err("插件运行程序不可用".into());
     }

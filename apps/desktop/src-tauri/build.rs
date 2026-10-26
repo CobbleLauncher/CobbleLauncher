@@ -2,6 +2,22 @@
 fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
+            "preview_game_change_export",
+            "export_game_change",
+            "import_game_change",
+            "preview_game_change_apply",
+            "apply_game_change",
+            "undo_game_change_new_config",
+            "game_transfer_context",
+            "game_transfer_prepare",
+            "game_transfer_send",
+            "game_transfer_cancel",
+            "game_transfer_offers",
+            "game_transfer_list_outgoing",
+            "game_transfer_status",
+            "game_transfer_accept",
+            "game_transfer_reject",
+            "game_transfer_discard",
             "get_onboarding_state",
             "save_onboarding_state",
             "launcher_update_status",
