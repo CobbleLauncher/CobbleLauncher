@@ -2,6 +2,15 @@ name: Publish macOS preview
 
 on:
   workflow_dispatch:
+    inputs:
+      arm64_build_run:
+        description: Optional successful Apple Silicon build run to publish; supply both run IDs
+        type: string
+        default: ''
+      x64_build_run:
+        description: Optional successful Intel build run to publish; supply both run IDs
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -12,6 +21,7 @@ concurrency:
 
 jobs:
   package:
+    if: inputs.arm64_build_run == '' && inputs.x64_build_run == ''
     name: Build ${{ matrix.arch }} macOS preview
     strategy:
       fail-fast: false
@@ -54,42 +64,73 @@ jobs:
         env:
           COURSE_FORGE_API: ${{ secrets.COURSE_FORGE_API }}
         run: |
-          node scripts/package-unix.mjs --platform darwin --arch "${{ matrix.arch }}" --embedded-curseforge-key --adhoc-sign
-          mkdir -p target/macos-assets
-          archive="$(find target/test-release -maxdepth 1 -type f -name "*-darwin-${{ matrix.arch }}-preview.tar.gz" -print -quit)"
+          package_output="${RUNNER_TEMP}/cobble-package-${{ matrix.arch }}"
+          assets="${RUNNER_TEMP}/macos-assets"
+          node scripts/package-unix.mjs --platform darwin --arch "${{ matrix.arch }}" --embedded-curseforge-key --adhoc-sign --output-dir "$package_output"
+          mkdir -p "$assets"
+          archive="$(find "$package_output" -maxdepth 1 -type f -name "*-darwin-${{ matrix.arch }}-preview.tar.gz" -print -quit)"
           test -n "$archive"
-          cp "$archive" "target/macos-assets/CobbleLauncher-macos-${{ matrix.arch }}.tar.gz"
-          (cd target/macos-assets && shasum -a 256 "CobbleLauncher-macos-${{ matrix.arch }}.tar.gz" > "CobbleLauncher-macos-${{ matrix.arch }}.tar.gz.sha256")
+          cp "$archive" "$assets/CobbleLauncher-macos-${{ matrix.arch }}.tar.gz"
+          (cd "$assets" && shasum -a 256 "CobbleLauncher-macos-${{ matrix.arch }}.tar.gz" > "CobbleLauncher-macos-${{ matrix.arch }}.tar.gz.sha256")
       - name: Upload stable-name preview assets
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-preview-${{ matrix.arch }}-${{ github.run_id }}
-          path: target/macos-assets/CobbleLauncher-macos-${{ matrix.arch }}.tar.gz*
+          path: ${{ runner.temp }}/macos-assets/CobbleLauncher-macos-${{ matrix.arch }}.tar.gz*
           if-no-files-found: error
           retention-days: 1
 
   publish:
     name: Publish macOS prerelease
     needs: package
+    if: ${{ !cancelled() && (needs.package.result == 'success' || needs.package.result == 'skipped') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
+      actions: read
+    env:
+      ARM64_RUN: ${{ inputs.arm64_build_run || github.run_id }}
+      X64_RUN: ${{ inputs.x64_build_run || github.run_id }}
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Verify successful builds and record provenance
+        env:
+          REUSE_ARM64: ${{ inputs.arm64_build_run }}
+          REUSE_X64: ${{ inputs.x64_build_run }}
+        run: |
+          if [[ -n "$REUSE_ARM64" && -z "$REUSE_X64" || -z "$REUSE_ARM64" && -n "$REUSE_X64" ]]; then
+            echo "Supply both build run IDs, or leave both empty to build new packages."
+            exit 1
+          fi
+          [[ "$ARM64_RUN" =~ ^[0-9]+$ && "$X64_RUN" =~ ^[0-9]+$ ]]
+          for arch in arm64 x64; do
+            if [ "$arch" = arm64 ]; then source_run="$ARM64_RUN"; else source_run="$X64_RUN"; fi
+            successful_jobs="$(gh api "repos/$GH_REPO/actions/runs/$source_run/jobs?filter=all&per_page=100" --paginate \
+              --jq ".jobs[] | select(.name == \"Build $arch macOS preview\" and .conclusion == \"success\") | .id")"
+            test -n "$successful_jobs"
+            source_sha="$(gh api "repos/$GH_REPO/actions/runs/$source_run" --jq .head_sha)"
+            printf -- '- %s: %s ([CI build](%s/%s/actions/runs/%s))\n' "$arch" "$source_sha" "$GITHUB_SERVER_URL" "$GH_REPO" "$source_run" >> "$RUNNER_TEMP/macos-provenance.md"
+          done
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: macos-preview-*-${{ github.run_id }}
+          name: macos-preview-arm64-${{ env.ARM64_RUN }}
+          run-id: ${{ env.ARM64_RUN }}
+          github-token: ${{ github.token }}
           path: target/macos-assets
-          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: macos-preview-x64-${{ env.X64_RUN }}
+          run-id: ${{ env.X64_RUN }}
+          github-token: ${{ github.token }}
+          path: target/macos-assets
       - name: Verify both architecture assets and checksums
         run: |
           test -s target/macos-assets/CobbleLauncher-macos-arm64.tar.gz
           test -s target/macos-assets/CobbleLauncher-macos-x64.tar.gz
           (cd target/macos-assets && sha256sum -c CobbleLauncher-macos-arm64.tar.gz.sha256 && sha256sum -c CobbleLauncher-macos-x64.tar.gz.sha256)
       - name: Create macOS preview prerelease
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
         run: |
           tag="macos-preview-${GITHUB_RUN_ID}"
           notes="${RUNNER_TEMP}/macos-preview-notes.md"
@@ -98,6 +139,8 @@ jobs:
 
           These bundles are ad-hoc signed for local execution. They are not Developer ID signed or notarized, and native macOS acceptance has not been completed. Gatekeeper may block launch. Custom plugin frontends are disabled; tools use host-rendered fallback where available. The optional Cobble Mesh companion is not included.
           NOTES
+          printf '\nBuild provenance:\n' >> "$notes"
+          cat "$RUNNER_TEMP/macos-provenance.md" >> "$notes"
           gh release create "$tag" \
             target/macos-assets/CobbleLauncher-macos-arm64.tar.gz \
             target/macos-assets/CobbleLauncher-macos-arm64.tar.gz.sha256 \
