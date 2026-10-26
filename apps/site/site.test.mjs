@@ -34,7 +34,7 @@ test('landing is three complete scenes and community links identify actual optio
 });
 
 test('hero uses the requested name and concise bilingual values without renaming the site',()=>{
-  assert.equal(document.querySelector('h1').textContent,'原石启动器');
+  assert.equal(document.querySelector('h1').textContent,'圆石启动器');
   assert.equal(new JSDOM(english.heroTitle).window.document.body.textContent,'CobbleLauncher');
   assert.equal(document.querySelector('.arrival-intro').textContent,'本地优先，去中心连接。安全高效，开放共享。');
   assert.equal(english.intro,'Local first. Decentralized connections.<br>Safe, efficient and open to share.');
@@ -66,15 +66,14 @@ test('circle preview stays symmetric, unique and within the chosen radius',()=>{
     for(const [x,y] of cells){assert.ok(set.has(`${-x},${y}`));assert.ok(set.has(`${x},${-y}`));assert.ok(set.has(`${y},${x}`));assert.ok(Math.abs(Math.hypot(x,y)-radius)<.5);}
   }
 });
-test('static site is self-contained and preview downloads target the explicit Windows asset',async()=>{
+test('static site is self-contained and download fallback offers desktop system selection',async()=>{
   assert.equal(document.querySelectorAll('script[src^="http"],link[href^="http"]').length,0);
   assert.equal(document.querySelector('#download-dialog'),null);
   assert.ok(!html.includes('尚未发布公开安装包'));
   for(const link of document.querySelectorAll('[data-get]')){
     assert.equal(link.tagName,'A');
-    assert.equal(link.href,'https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.1/CobbleLauncher-windows-x64.zip');
-    assert.match(link.getAttribute('aria-label'),/Windows x64/);
-    assert.match(link.getAttribute('aria-label'),/Beta/);
+    assert.equal(link.href,'https://github.com/CobbleLauncher/CobbleLauncher/releases');
+    assert.equal(link.getAttribute('aria-label'),'选择桌面系统');
   }
   let raw=0,gzip=0;
   for(const name of await readdir(new URL('./dist/',import.meta.url))){const data=await readFile(new URL(`./dist/${name}`,import.meta.url));raw+=data.length;gzip+=gzipSync(data).length;}

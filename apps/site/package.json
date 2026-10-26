@@ -5,8 +5,8 @@
   "license": "MIT",
   "scripts": {
     "dev": "node server.mjs",
-    "check": "node --check dist/app.js && node --check dist/terrain.js && node --check dist/community.js && node --check dist/demos.js && node --check dist/copy.js && node --check dist/page.js",
-    "test": "node --test site.test.mjs",
+    "check": "node --check dist/app.js && node --check dist/terrain.js && node --check dist/community.js && node --check dist/demos.js && node --check dist/copy.js && node --check dist/page.js && node --check dist/downloads.js",
+    "test": "node --test site.test.mjs downloads.test.mjs",
     "generate": "node generate-pages.mjs"
   }
 }

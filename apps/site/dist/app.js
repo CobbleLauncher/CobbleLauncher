@@ -2,6 +2,8 @@
 import { createTerrain } from './terrain.js';
 import { english, labels } from './copy.js';
 import { renderCommunity } from './community.js';
+import { setupDownloads } from './downloads.js';
+const downloads=setupDownloads(document,navigator);
 const root=document.documentElement, reduced=matchMedia('(prefers-reduced-motion: reduce)');
 const terrain=createTerrain(document.querySelector('#terrain'));
 const translations=[...document.querySelectorAll('[data-i18n]')].map(element=>({element,zh:element.innerHTML,key:element.dataset.i18n}));
@@ -15,7 +17,7 @@ function language(value){
   document.querySelectorAll('[data-label]').forEach(element=>element.setAttribute('aria-label',labels[value][element.dataset.label]));
   const button=document.querySelector('#language');button.textContent=value==='zh'?'EN':'中';button.setAttribute('aria-label',value==='zh'?'Switch to English':'切换为中文');
   document.title=value==='zh'?'圆石 Cobble Launcher — Minecraft Java 启动器':'Cobble Launcher — Minecraft Java Launcher';
-  renderCommunity(document.querySelector('#community-grid'),value);store('language',value);
+  renderCommunity(document.querySelector('#community-grid'),value);downloads.setLanguage(value);store('language',value);
 }
 function theme(value){root.dataset.theme=value;document.querySelector('#theme').setAttribute('aria-pressed',String(value==='dark'));store('theme',value);terrain.redraw();}
 document.querySelector('#language').addEventListener('click',()=>language(lang==='zh'?'en':'zh'));
