@@ -20,7 +20,7 @@ function shell(page,lang,title,description,body){
 for(const lang of ['zh','en']){
  for(const page of ['privacy','terms']){
   const content=legal[page][lang];
-  const body=`<div class="page-lead"><h1>${content.title}</h1><p>${content.intro}</p><p class="page-meta">${lang==='en'?'Updated':'更新日期'} · 2026-10-25</p></div><div class="legal-layout"><nav class="page-toc" aria-label="${lang==='en'?'On this page':'本页目录'}">${content.sections.map(([name],i)=>`<a href="#section-${i+1}">${name}</a>`).join('')}</nav><div class="legal-body">${content.sections.map(([name,...paragraphs],i)=>`<section id="section-${i+1}"><h2>${name}</h2>${paragraphs.map(p=>`<p>${p}</p>`).join('')}</section>`).join('')}</div></div>`;
+  const body=`<div class="page-lead"><h1>${content.title}</h1><p>${content.intro}</p><p class="page-meta">${lang==='en'?'Updated':'更新日期'} · ${legal[page].updated??'2026-10-25'}</p></div><div class="legal-layout"><nav class="page-toc" aria-label="${lang==='en'?'On this page':'本页目录'}">${content.sections.map(([name],i)=>`<a href="#section-${i+1}">${name}</a>`).join('')}</nav><div class="legal-body">${content.sections.map(([name,...paragraphs],i)=>`<section id="section-${i+1}"><h2>${name}</h2>${paragraphs.map(p=>`<p>${p}</p>`).join('')}</section>`).join('')}</div></div>`;
   await writeFile(new URL(route(page,lang).replace('./','./dist/'),import.meta.url),shell(page,lang,content.title,content.intro,body));
  }
  await writeFile(new URL(route('mesh',lang).replace('./','./dist/'),import.meta.url),shell('mesh',lang,'Cobble Mesh',lang==='en'?'Local identities, discovery, relays and game streams. Explore the architecture of Cobble Mesh.':'本地身份、节点发现、中继与游戏流：用拓扑和时序图了解 Cobble Mesh。',meshContent(lang)));
