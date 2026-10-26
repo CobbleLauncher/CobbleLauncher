@@ -67,6 +67,10 @@ test('macOS app is fully signed before the package-root inventory hashes final b
   const codeSign = args => {
     const target = args.at(-1);
     if (args[0] === '--verify') { calls.push('verify'); return; }
+    if (target.endsWith('cobble-desktop')) {
+      const helper = path.join(path.dirname(target), 'cobble-plugin-host');
+      assert.match(readFileSync(helper).toString(), /executable-signature/);
+    }
     if (target.endsWith('.app')) {
       calls.push('app');
       const main = path.join(target, 'Contents/MacOS/cobble-desktop');
@@ -80,7 +84,7 @@ test('macOS app is fully signed before the package-root inventory hashes final b
     writeFileSync(target, Buffer.concat([readFileSync(target), Buffer.from('executable-signature')]));
   };
   assembleUnixPackage({ ...options, adhocSign: true, codeSign });
-  assert.deepEqual(calls, ['cobble-desktop', 'cobble-plugin-host', 'app', 'verify']);
+  assert.deepEqual(calls, ['cobble-plugin-host', 'cobble-desktop', 'app', 'verify']);
   const inventory = JSON.parse(readFileSync(path.join(options.directory, 'PACKAGE-INVENTORY.json')));
   assert.equal(inventory.signing, 'ad-hoc');
   assert.equal(inventory.notarized, false);

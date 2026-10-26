@@ -119,7 +119,11 @@ Keep the entire package together. Settings and credentials use the operating-sys
   if (adhocSign) {
     if (platform !== 'darwin' || process.platform !== 'darwin' && !codeSign) throw new Error('Ad-hoc signing requires a native macOS package job.');
     const sign = codeSign ?? (args => execFileSync('codesign', args, { stdio: 'inherit', env: withoutProviderCredentials(process.env) }));
-    for (const name of executableNames) {
+    // codesign sees other Mach-O files in Contents/MacOS as nested code while
+    // signing the main executable, so sign helper executables before the app's
+    // CFBundleExecutable on both Intel and Apple Silicon runners.
+    const signingOrder = [...executableNames.filter(name => name !== 'cobble-desktop'), 'cobble-desktop'];
+    for (const name of signingOrder) {
       const identifier = name === 'cobble-desktop' ? 'dev.cobble-launcher.internal' : `dev.cobble-launcher.internal.${name}`;
       sign(['--force', '--sign', '-', '--timestamp=none', '--identifier', identifier, path.join(executables, name)]);
     }
