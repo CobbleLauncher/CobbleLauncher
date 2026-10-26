@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 export const english = {
   privacy:'Privacy',terms:'Terms',skip:'Skip to content', brand:'LAUNCHER', navExperience:'Experience', navTools:'Workbench', get:'Get Cobble', preview:'Early preview',
-  hero1:'Launch games.',hero2:'Manage content.',intro:'Let your launcher handle the little things.<br>You decide where the adventure goes.',explore:'Explore Cobble',openLocal:'Open source. Local first. Room to make it yours.',worldYours:'A world, waiting for your next idea.',
+  heroTitle:'Cobble<br><span class="world-word">Launcher</span>',intro:'Let your launcher handle the little things.<br>You decide where the adventure goes.',explore:'Explore Cobble',openLocal:'Open source. Local first. Room to make it yours.',worldYours:'A world, waiting for your next idea.',
   meadow:'Meadow',autumn:'Autumn',snow:'First snow',terrainHint:'Try a season · Turn the world',builtFor:'Made for every “just one more block.”',
   everyday:'EVERYDAY, SIMPLIFIED',experienceTitle:'Open. Continue.<br>That simple.',experienceIntro:'Your last world. Your favorite Mods.<br>Pick up right where you left off.',
   playTitle:'Back to your world',playDesc:'Separate games. One click to continue.',modsTitle:'Everything you play with',modsDesc:'Review versions and dependencies together.',worldsTitle:'Keep what you create',worldsDesc:'Deduplicated snapshots. A world of history.',
@@ -18,7 +18,7 @@ export const demoCopy={
 
 // Three-chapter landing page; the retained demonstration translations remain available.
 Object.assign(english,{
-  navCommunity:'Community',navTogether:'Together',get:'Windows Beta',source:'View source',intro:'Manage games, Mods and worlds.<br>Launch when you’re ready.',platformShort:'Windows x64 · Portable Beta',otherPlatforms:'Other platforms & releases ↗',openLocal:'MIT open source · Local first',keepGoing:'Explore community plugins',
+  navCommunity:'Community',navTogether:'Together',get:'Windows Beta',source:'View source',intro:'Local first. Decentralized connections.<br>Safe, efficient and open to share.',platformShort:'Windows x64 · Portable Beta',otherPlatforms:'Other platforms & releases ↗',openLocal:'MIT open source · Local first',keepGoing:'Explore community plugins',
   communityTitle:'Community tools.<br>Optional plugins.',communityIntro:'Tools for building, exploring and diagnosis.<br>Use the SDK to create your own plugins.',exploreTools:'Explore community tools',toolsYourWay:'Tools when you need them. Play your way.',communityFoot:'Open SDK · Wasm plugins · Made together',nextConnection:'Multiplayer & catalogs',
   togetherTitle:'Multiplayer.<br>Plugin catalogs.',togetherIntro:'Invite friends to play through Mesh.<br>Get plugins from catalogs you choose.',meshExplore:'Explore Cobble Mesh',joinBuilding:'Contribute on GitHub',togetherFoot:'Your own world. Open possibilities.',
   networkTitle:'An ecosystem connected by players and communities',networkDescription:'Illustration: players, community services and plugin catalogs work together around your local Cobble.',nodeLocal:'Your Cobble',nodePlayers:'Players',nodeCatalogs:'Catalogs',nodeServices:'Community services',nodePlugins:'Plugin creators',networkCaption:'Every contribution opens another possibility.',credits:'Asset licenses',

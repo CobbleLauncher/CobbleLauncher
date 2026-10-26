@@ -33,6 +33,15 @@ test('landing is three complete scenes and community links identify actual optio
   for(const element of document.querySelectorAll('[data-depth]'))assert.ok(Math.abs(Number(element.dataset.depth))<=.3);
 });
 
+test('hero uses the requested name and concise bilingual values without renaming the site',()=>{
+  assert.equal(document.querySelector('h1').textContent,'原石启动器');
+  assert.equal(new JSDOM(english.heroTitle).window.document.body.textContent,'CobbleLauncher');
+  assert.equal(document.querySelector('.arrival-intro').textContent,'本地优先，去中心连接。安全高效，开放共享。');
+  assert.equal(english.intro,'Local first. Decentralized connections.<br>Safe, efficient and open to share.');
+  assert.match(document.querySelector('.site-header .brand').textContent,/圆石启动器/);
+  assert.match(document.title,/圆石 Cobble Launcher/);
+});
+
 test('Mesh page describes scoped public relay evidence and retains unverified topology boundaries',async()=>{
   const source=await readFile(new URL('./dist/mesh.en.html',import.meta.url),'utf8');
   assert.ok(source.includes('/cobblemesh/events/1.0.0'));
