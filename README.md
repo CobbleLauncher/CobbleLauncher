@@ -6,7 +6,9 @@ Cobble is an open-source launcher for Minecraft: Java Edition, built with Rust, 
 
 **[Download Windows Beta](https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.1/CobbleLauncher-windows-x64.zip)** · [Website](https://cobble.yuzhes.com/) · [All releases](https://github.com/CobbleLauncher/CobbleLauncher/releases)
 
-The first public beta is available for Windows x64. Extract the entire ZIP and open **Cobble Launcher.exe**. Microsoft Edge WebView2 is required. The build is unsigned; macOS and Linux packages are not available yet.
+The Windows x64 beta is available now. Extract the entire ZIP and open **Cobble Launcher.exe**. Microsoft Edge WebView2 is required. The build is unsigned. The [website](https://cobble.yuzhes.com/) checks GitHub Releases for the latest package for each supported system, with a menu for other systems.
+
+macOS previews are built in CI for Apple Silicon and Intel. They use ad-hoc signatures and are **not notarized or tested on a physical Mac**. Custom plugin frontends are disabled, and the separate Mesh companion is not included. Linux remains an internal test package.
 
 ## Play and manage your games
 
@@ -49,7 +51,7 @@ Online mode connects after the home screen is ready and reconnects in the backgr
 ## Current limits
 
 - Forge and NeoForge support Minecraft 1.21.1. Forge 1.20.1 / 47.4.x and NeoForge 1.21.4 / 21.4.x are experimental; installation checks do not establish compatibility with every Mod or loader patch.
-- Automatic Java downloads currently support Windows x64. Other platforms use an installed runtime; a manually selected Java executable is never silently replaced.
+- Automatic Java downloads support Windows x64, with Linux x64 and macOS x64/arm64 adapters under internal testing. A manually selected Java executable is never silently replaced.
 - Modpack updates support local MRPACK files and create independent copies. Online whole-pack updates, CurseForge pack updates and in-place upgrades are not supported.
 - A diagnostic trial copy is a separate experiment; it does not perform a whole-pack upgrade. Play Configuration's MRPACK export excludes unverified, changed and CurseForge Mod files. Mesh setup invitations can reference both providers and preserve restricted-file requirements. Neither workflow embeds Mod jars; review selected configuration text before sharing.
 - Blueprint previews support Sponge `.schem` v1–v3 local-palette files and `.litematic` v4–v7, with basic cube rendering. Textures may be read from your installed game; Minecraft textures are not distributed with Cobble.
@@ -81,7 +83,15 @@ The folder and ZIP are written to `target/test-release/`. Extract the entire ZIP
 
 To include Mesh, pass `--mesh-project <path-to-companion-checkout>` using a checkout that provides the `cobble-mesh-companion` target. Mesh is maintained separately from this repository.
 
-CurseForge integration uses the project's own approved API key. The manual **Package Windows client** workflow reads the `COURSE_FORGE_API` Actions secret and enables the release integration. Ordinary builds do not embed a key. For local development, `scripts/launch-desktop-local.mjs` can launch an already-built debug executable with the key from `../.secret.env`. Maintainers can use `pnpm package:local` to build an experience package with that key embedded; credential files must stay outside Git.
+For an internal Linux or macOS package, build on the target system:
+
+```sh
+pnpm package:unix
+```
+
+This produces a portable Linux archive or an unsigned macOS app bundle in `target/test-release/`, with native helpers, bundled plugins and dependency licenses. Linux requires GTK 3, WebKitGTK 4.1 (2.52.6 or newer), and Secret Service for credential storage. Isolated plugin frontends are available on Linux with a supported WebKitGTK runtime. macOS uses host-rendered plugin pages where available; custom frontends remain disabled pending native acceptance. The manual **Package internal Unix clients** workflow builds internal archives. **Publish macOS preview** builds both Mac architectures, adds ad-hoc signatures and publishes checksummed prerelease archives after both builds succeed. It does not change the Windows automatic update feeds.
+
+CurseForge integration uses the project's own approved API key. The manual package workflows read the `COURSE_FORGE_API` Actions secret only for the desktop build. Ordinary builds do not embed a key. For local development, `scripts/launch-desktop-local.mjs` can launch an already-built debug executable with the key from `../.secret.env`. Maintainers can use `pnpm package:local` on Windows, or `pnpm package:unix --embedded-curseforge-key` with the key in the environment on Unix. Credential files must stay outside Git. The development-only MCS token is excluded from release builds.
 
 ## Build a plugin
 
