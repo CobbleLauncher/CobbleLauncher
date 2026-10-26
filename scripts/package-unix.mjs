@@ -66,7 +66,7 @@ function safeDestination(base, relative) {
   if (!relative || path.isAbsolute(relative) || !destination.startsWith(path.resolve(base) + path.sep)) throw new Error(`Unsafe inventory path: ${relative}`);
   return destination;
 }
-export function assembleUnixPackage({ directory, repository = root, platform, arch, version, binaryDir, pluginsDir, inventory, pluginIds = officialPluginIds, meshBinary, adhocSign = false }) {
+export function assembleUnixPackage({ directory, repository = root, platform, arch, version, binaryDir, pluginsDir, inventory, pluginIds = officialPluginIds, meshBinary, adhocSign = false, codeSign = null }) {
   unixTarget(platform, arch);
   if (!/^[0-9A-Za-z.+-]+$/.test(version)) throw new Error('Invalid application version.');
   const app = platform === 'darwin' ? path.join(directory, 'Cobble Launcher.app/Contents') : directory;
@@ -114,24 +114,23 @@ ${platform === 'linux' ? 'Linux: extract the entire archive and run ./cobble-des
 
 ${platform === 'linux' ? 'Linux x64 supports managed Temurin 17 downloads and Java 21 runtime archive extraction. Minecraft 1.21.1 launch to the main menu and normal quit were verified on Ubuntu 24.04.2 under WSL2/Xvfb. Launching the game through the native UI and recovering after SIGTERM were verified separately from the normal menu-quit run. Secret Service credential storage passed isolated roundtrip and locked tests; Microsoft sign-in remains unverified.' : 'Select an installed compatible Java runtime. Managed-Java and real-game acceptance remain pending on macOS. Microsoft sign-in and native credential storage acceptance remain unverified.'} Java, Minecraft, mods and worlds are not included. ${platform === 'linux' ? 'Linux Mesh game hosting includes native listener ownership verification; real Minecraft multiplayer acceptance remains unverified.' : 'macOS Mesh game hosting remains gated until native listener ownership checks pass.'}
 
-Keep the entire package together. Settings and credentials use the operating-system user profile. Java, Minecraft, mods and worlds are not included. Third-party licenses, source URLs and target-filtered dependency records are retained in ${platform === 'darwin' ? 'Cobble Launcher.app/Contents/Resources/' : ''}DEPENDENCIES.json and third-party/licenses. PACKAGE-INVENTORY.json records packaged file hashes and modes.
+Keep the entire package together. Settings and credentials use the operating-system user profile. Java, Minecraft, mods and worlds are not included. Third-party licenses, source URLs and target-filtered dependency records are retained in ${platform === 'darwin' ? 'Cobble Launcher.app/Contents/Resources/' : ''}DEPENDENCIES.json and third-party/licenses. The package-root PACKAGE-INVENTORY.json records packaged file hashes and modes.
 `);
   if (adhocSign) {
-    if (platform !== 'darwin' || process.platform !== 'darwin') throw new Error('Ad-hoc signing requires a native macOS package job.');
+    if (platform !== 'darwin' || process.platform !== 'darwin' && !codeSign) throw new Error('Ad-hoc signing requires a native macOS package job.');
+    const sign = codeSign ?? (args => execFileSync('codesign', args, { stdio: 'inherit' }));
     for (const name of executableNames) {
       const identifier = name === 'cobble-desktop' ? 'dev.cobble-launcher.internal' : `dev.cobble-launcher.internal.${name}`;
-      execFileSync('codesign', ['--force', '--sign', '-', '--timestamp=none', '--identifier', identifier, path.join(executables, name)], { stdio: 'inherit' });
+      sign(['--force', '--sign', '-', '--timestamp=none', '--identifier', identifier, path.join(executables, name)]);
     }
+    const appBundle = path.join(directory, 'Cobble Launcher.app');
+    sign(['--force', '--sign', '-', '--timestamp=none', appBundle]);
+    sign(['--verify', '--deep', '--strict', appBundle]);
   }
   const files = [];
   function scan(dir) { for (const name of readdirSync(dir).sort()) { const file = path.join(dir, name); if (lstatSync(file).isDirectory()) scan(file); else files.push({ path: path.relative(directory, file).split(path.sep).join('/'), sha256: createHash('sha256').update(readFileSync(file)).digest('hex'), mode: lstatSync(file).mode & 0o777 }); } }
   scan(directory);
-  writeFileSync(path.join(resources, 'PACKAGE-INVENTORY.json'), JSON.stringify({ platform, arch, signing: platform === 'darwin' ? (adhocSign ? 'ad-hoc' : 'unsigned') : 'not-applicable', notarized: false, files }, null, 2) + '\n');
-  if (adhocSign) {
-    const appBundle = path.join(directory, 'Cobble Launcher.app');
-    execFileSync('codesign', ['--force', '--sign', '-', '--timestamp=none', appBundle], { stdio: 'inherit' });
-    execFileSync('codesign', ['--verify', '--deep', '--strict', appBundle], { stdio: 'inherit' });
-  }
+  writeFileSync(path.join(directory, 'PACKAGE-INVENTORY.json'), JSON.stringify({ platform, arch, signing: platform === 'darwin' ? (adhocSign ? 'ad-hoc' : 'unsigned') : 'not-applicable', notarized: false, files }, null, 2) + '\n');
   return { executables, resources };
 }
 function run(executable, args, options = {}) { return execFileSync(executable, args, { cwd: root, env: withoutProviderCredentials(process.env), stdio: 'inherit', ...options }); }
