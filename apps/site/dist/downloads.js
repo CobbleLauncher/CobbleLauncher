@@ -14,8 +14,8 @@ const specs=Object.freeze([
 const publishedFallbacks=Object.freeze([
   {...specs[0],version:'v0.1.0-beta.3',publishedAt:'2026-10-29T04:56:18Z',prerelease:true,href:'https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.3/CobbleLauncher-windows-x64-setup.exe'},
   {...specs[1],version:'v0.1.0-beta.3',publishedAt:'2026-10-29T04:56:18Z',prerelease:true,href:'https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.3/CobbleLauncher-windows-x64.zip'},
-  {...specs[2],version:'macos-preview-40815472872',publishedAt:'2026-10-29T04:16:16Z',prerelease:true,href:'https://github.com/CobbleLauncher/CobbleLauncher/releases/download/macos-preview-40815472872/CobbleLauncher-macos-arm64.tar.gz'},
-  {...specs[3],version:'macos-preview-40815472872',publishedAt:'2026-10-29T04:16:16Z',prerelease:true,href:'https://github.com/CobbleLauncher/CobbleLauncher/releases/download/macos-preview-40815472872/CobbleLauncher-macos-x64.tar.gz'},
+  {...specs[2],version:'macos-preview-40820678904',publishedAt:'2026-10-29T05:47:56Z',prerelease:true,href:'https://github.com/CobbleLauncher/CobbleLauncher/releases/download/macos-preview-40820678904/CobbleLauncher-macos-arm64.tar.gz'},
+  {...specs[3],version:'macos-preview-40820678904',publishedAt:'2026-10-29T05:47:56Z',prerelease:true,href:'https://github.com/CobbleLauncher/CobbleLauncher/releases/download/macos-preview-40820678904/CobbleLauncher-macos-x64.tar.gz'},
   {...specs[4],version:null,publishedAt:null,prerelease:false,href:null},
 ]);
 export const desktopReleases=Object.freeze([
