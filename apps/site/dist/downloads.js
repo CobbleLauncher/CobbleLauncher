@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 export const releasesPage='https://github.com/CobbleLauncher/CobbleLauncher/releases';
 export const releasesApi='https://api.github.com/repos/CobbleLauncher/CobbleLauncher/releases?per_page=50';
-export const releaseCacheKey='cobble-site-desktop-releases-v2';
+export const releaseCacheKey='cobble-site-desktop-releases-v3';
 export const releaseCacheTtl=30*60*1000;
 
 const specs=Object.freeze([
@@ -11,11 +11,15 @@ const specs=Object.freeze([
   {os:'macos',arch:'x64',name:'macOS Intel',file:'CobbleLauncher-macos-x64.tar.gz'},
   {os:'linux',arch:'x64',name:'Linux x64',file:'CobbleLauncher-linux-x64.tar.gz'},
 ]);
-const windowsFallback={...specs[1],version:'v0.1.0-beta.1',prerelease:true,href:'https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.1/CobbleLauncher-windows-x64.zip'};
+const publishedFallbacks=Object.freeze([
+  {...specs[0],version:'v0.1.0-beta.2',publishedAt:'2026-10-29T04:15:05Z',prerelease:true,href:'https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/CobbleLauncher-windows-x64-setup.exe'},
+  {...specs[1],version:'v0.1.0-beta.2',publishedAt:'2026-10-29T04:15:05Z',prerelease:true,href:'https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/CobbleLauncher-windows-x64.zip'},
+  {...specs[2],version:'macos-preview-40815472872',publishedAt:'2026-10-29T04:16:16Z',prerelease:true,href:'https://github.com/CobbleLauncher/CobbleLauncher/releases/download/macos-preview-40815472872/CobbleLauncher-macos-arm64.tar.gz'},
+  {...specs[3],version:'macos-preview-40815472872',publishedAt:'2026-10-29T04:16:16Z',prerelease:true,href:'https://github.com/CobbleLauncher/CobbleLauncher/releases/download/macos-preview-40815472872/CobbleLauncher-macos-x64.tar.gz'},
+  {...specs[4],version:null,publishedAt:null,prerelease:false,href:null},
+]);
 export const desktopReleases=Object.freeze([
-  {...specs[0],version:null,prerelease:false,href:null},
-  windowsFallback,
-  ...specs.slice(2).map(spec=>({...spec,version:null,prerelease:false,href:null})),
+  ...publishedFallbacks,
 ]);
 
 // Detection chooses an OS only. Mac architecture is intentionally a user choice.
@@ -72,7 +76,19 @@ export function selectReleaseAssets(releases){
   });
 }
 function mergeFallback(selected){
-  return selected.map(item=>item.href?item:item.os==='windows'&&item.format==='portable'?windowsFallback:{...item,version:null,prerelease:false,href:null});
+  return selected.map(item=>{
+    const fallback=desktopReleases.find(candidate=>candidate.os===item.os&&candidate.arch===item.arch&&candidate.format===item.format);
+    if(item.href){
+      const fetchedDate=Date.parse(item.publishedAt??'')||0;
+      const fallbackDate=Date.parse(fallback?.publishedAt??'')||0;
+      return fallback?.href&&fallbackDate>fetchedDate?fallback:item;
+    }
+    if(!fallback?.href)return item;
+    const newestFetched=selected.filter(candidate=>candidate.os===item.os&&candidate.arch===item.arch&&candidate.href)
+      .reduce((latest,candidate)=>Math.max(latest,Date.parse(candidate.publishedAt??'')||0),0);
+    const fallbackDate=Date.parse(fallback.publishedAt??'')||0;
+    return newestFetched>fallbackDate?item:fallback;
+  });
 }
 function validCacheItems(items){
   if(!Array.isArray(items))return null;
