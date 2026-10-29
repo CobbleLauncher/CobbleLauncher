@@ -4,6 +4,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { ContextMenuRoot, ContextMenuTrigger, DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenuContent, DropdownMenuItem, PopoverRoot, PopoverTrigger, PopoverPortal, PopoverContent } from 'reka-ui';
 import GameCard from './GameCard.vue';
+import HomeDashboard from './home/HomeDashboard.vue';
+import HomeAddMenu from './home/HomeAddMenu.vue';
 import AppIcon from './ui/AppIcon.vue';
 import { effectiveProfile, type ProfileLibrary } from './games';
 import { homeGames, searchHomeGames, type HomeGame } from './library-home';
@@ -14,13 +16,26 @@ import { ArrowUp, ArrowDown } from '@lucide/vue';
 import SwitchField from './ui/SwitchField.vue';
 import SelectField from './ui/SelectField.vue';
 import SearchField from './ui/SearchField.vue';
+import UndoNotice from './ui/UndoNotice.vue';
 import { savedMarketItems } from './market-saved';
 import { t } from './i18n';
 
-const props = defineProps<{ editHome?: boolean;  games: HomeGame[]; profileLibrary: ProfileLibrary; starting: string[]; retrying: string[]; quickActions?: CommandAction[]; quickActionsLoading?: boolean; loading?: boolean; error?: string }>();
-defineEmits<{ play: [id: string]; manage: [id: string]; select: [id: string]; retry: [id: string]; retrySessionRecovery: [id: string]; create: []; importPack: []; importLauncher: []; receiveGame: []; reload: []; finishEditing: []; savedMarket: [collection: 'favorite' | 'later'] }>();
+const props = defineProps<{ active?: boolean; editHome?: boolean;  games: HomeGame[]; profileLibrary: ProfileLibrary; starting: string[]; retrying: string[]; quickActions?: CommandAction[]; quickActionsLoading?: boolean; loading?: boolean; error?: string }>();
+const emit = defineEmits<{ play: [id: string]; manage: [id: string]; select: [id: string]; retry: [id: string]; retrySessionRecovery: [id: string]; create: []; importPack: []; importLauncher: []; receiveGame: []; reload: []; finishEditing: []; savedMarket: [collection: 'favorite' | 'later']; section: [id:string, section:'worlds'|'screenshots', folderName?:string]; mesh:[id:string, mode:'host'|'join']; tools:[]; configureTools:[] }>();
 const all = ref(false);
 const organization = ref(readLibraryOrganization());
+const organizationUndo = ref<{ revision: number; previous: ReturnType<typeof readLibraryOrganization>; ids: string[] } | null>(null);
+let organizationRevision = 0;
+function undoOrganization() {
+  const undo = organizationUndo.value;
+  if (!undo) return;
+  const restored = { ...organization.value };
+  for (const id of undo.ids) {
+    if (undo.previous[id]) restored[id] = undo.previous[id];
+    else delete restored[id];
+  }
+  organization.value = restored; writeLibraryOrganization(restored); organizationUndo.value = null;
+}
 const layout = ref(readHomeLayout());
 function refreshLayout() { layout.value = readHomeLayout(); }
 onMounted(() => window.addEventListener('cobble-home-layout-changed', refreshLayout));
@@ -57,6 +72,8 @@ async function runQuick(action: CommandAction) {
 function removeUnavailableQuick() { setLayout({ ...layout.value, quickIds: layout.value.quickIds.filter(id => !unavailableQuickIds.value.includes(id)) }); }
 const otherGames = computed(() => selection.value.ordered.filter(game => game.id !== selection.value.featured?.id).slice(0, 4));
 function saveOrganization(changes: { group?: string; tags?: string[]; archived?: boolean }) {
+  if (!selected.value.length) return;
+  organizationUndo.value = { revision: ++organizationRevision, previous: organization.value, ids: [...selected.value] };
   for (const id of selected.value) organization.value = updateGameOrganization(organization.value, id, changes);
   writeLibraryOrganization(organization.value);
   selected.value = [];
@@ -96,11 +113,28 @@ const pageSize = 50;
 const updates = ref(new Map<string, Pick<HomeGame, 'pinned' | 'cover_ref'>>());
 watch(() => props.games.map(game => `${game.id}:${game.pinned}:${game.cover_ref}`).join('|'), () => updates.value.clear());
 const selection = computed(() => homeGames(filterOrganizedGames(props.games.map(game => ({ ...game, ...updates.value.get(game.id) })), organization.value)));
+const activeHomeId = ref('');
+const featured = computed(() => selection.value.ordered.find(game => game.id === activeHomeId.value) ?? selection.value.featured);
+function openHomeSection(section: 'worlds' | 'screenshots', folderName?: string) {
+  const game = featured.value;
+  if (game) emit('section', game.id, section, folderName);
+}
+const switcherGames = computed(() => {
+  if (layout.value.hidden.includes('other')) return featured.value ? [featured.value] : [];
+  const candidates = selection.value.ordered.filter(game => game.status === 'installed').slice(0,6);
+  if (featured.value && !candidates.some(game => game.id === featured.value!.id)) candidates.splice(5,1,featured.value);
+  return candidates;
+});
+watch(() => featured.value?.id, id => { if (id) emit('select',id); }, { immediate:true });
+const dashboardCommands = computed(() => {
+  if (layout.value.hidden.includes('quick')) return [];
+  return quickEntries.value.length ? quickEntries.value : quickActions.value.filter(action => action.id.startsWith('plugin:')).sort((a,b) => (b.recentAt ?? 0)-(a.recentAt ?? 0)).slice(0,3);
+});
 function updateAppearance(game: HomeGame) { updates.value.set(game.id, { pinned: game.pinned, cover_ref: game.cover_ref }); }
 const covers = ref(new Map<string, string>());
 let coverRevision = 0;
-watch(() => selection.value.featured?.cover_ref, async () => {
-  const game = selection.value.featured;
+watch(() => featured.value?.cover_ref, async () => {
+  const game = featured.value;
   const revision = ++coverRevision;
   if (!game?.cover_ref || covers.value.has(game.cover_ref)) return;
   try {
@@ -128,7 +162,8 @@ function prepareGameContext(event: MouseEvent) {
 }
 function prepareTouchContext(event: PointerEvent) { if (event.pointerType === 'touch' || event.pointerType === 'pen') prepareGameContext(event); }
 watch([search, page, all, archived, groupFilter, tagFilters], () => { sharedContextOpen.value = false; contextGameId.value = ''; });
-const visible = computed(() => all.value ? pageGames.value : [...(selection.value.featured ? [selection.value.featured] : []), ...selection.value.recent]);
+const archiveVisibleIds = ref<string[]>([]);
+const visible = computed(() => all.value ? pageGames.value : [...(featured.value ? [featured.value] : []), ...switcherGames.value, ...selection.value.ordered.filter(game => archiveVisibleIds.value.includes(game.id))]);
 watch([search, archived, groupFilter, tagFilters], () => { page.value = 0; selected.value = []; });
 watch(() => filtered.value.length, count => { page.value = Math.min(page.value, Math.max(0, Math.ceil(count / pageSize) - 1)); });
 function toggleAll() { all.value = !all.value; page.value = 0; search.value = ''; }
@@ -137,7 +172,7 @@ const icons = ref(new Map<string, string>());
 let iconRevision = 0;
 watch(() => visible.value.filter(game => game.icon_ref).map(game => `${game.id}:${game.icon_ref}`).join('|'), async () => {
   const revision = ++iconRevision;
-  const ids = visible.value.filter(game => game.icon_ref && !icons.value.has(game.icon_ref)).map(game => game.id).slice(0, 64);
+  const ids = [...new Set(visible.value.filter(game => game.icon_ref && !icons.value.has(game.icon_ref)).map(game => game.id))].slice(0, 64);
   if (!ids.length) return;
   try {
     const results = await invoke<{ id: string; icon_ref: string; data_url: string }[]>('get_game_icons', { ids });
@@ -156,7 +191,10 @@ function iconUrl(game: HomeGame) { return game.icon_ref ? icons.value.get(game.i
 
 <template>
   <div class="library-home">
-    <header class="home-heading">
+    <header
+      v-if="all || editing || !featured"
+      class="home-heading"
+    >
       <h1>{{ t('home.title') }}</h1>
       <div class="home-heading-actions">
         <button
@@ -441,9 +479,9 @@ function iconUrl(game: HomeGame) { return game.icon_ref ? icons.value.get(game.i
           {{ t('home.noMatches') }}
         </p><button
           class="text-button"
-          @click="search = ''"
+          @click="search = ''; groupFilter = ''; tagFilters = []"
         >
-          {{ t('home.clearSearch') }}
+          {{ t('common.clearFilters') }}
         </button>
       </div>
       <div
@@ -465,6 +503,72 @@ function iconUrl(game: HomeGame) { return game.icon_ref ? icons.value.get(game.i
         </button>
       </div>
     </template>
+    <HomeDashboard
+      v-else-if="!editing && featured"
+      :game="featured"
+      :games="switcherGames"
+      :archive-games="selection.ordered"
+      :active="active !== false"
+      :profile="effectiveProfile(featured,profileLibrary)"
+      :starting="starting.includes(featured.id)"
+      :retrying="retrying.includes(featured.id)"
+      :icons="icons"
+      :covers="covers"
+      :cover-url="featured.cover_ref ? covers.get(featured.cover_ref) : undefined"
+      :commands="dashboardCommands"
+      :unavailable-tools="unavailableQuickIds.length"
+      :show-tools="!layout.hidden.includes('quick')"
+      :tools-loading="quickActionsLoading"
+      @select="activeHomeId=$event"
+      @visible-archive-games="archiveVisibleIds=$event"
+      @play="$emit('play',$event)"
+      @manage="$emit('manage',$event)"
+      @retry="$emit('retry',$event)"
+      @retry-session-recovery="$emit('retrySessionRecovery',$event)"
+      @appearance="updateAppearance"
+      @library="toggleAll"
+      @section="openHomeSection"
+      @mesh="$emit('mesh',featured.id,$event)"
+      @tools="$emit('tools')"
+      @configure-tools="$emit('configureTools')"
+    >
+      <template #profile>
+        <slot
+          name="profile"
+          :game="featured"
+        >
+          <span>{{ effectiveProfile(featured,profileLibrary)?.name }}</span>
+        </slot>
+      </template>
+      <template #add>
+        <HomeAddMenu
+          @create="$emit('create')"
+          @import-pack="$emit('importPack')"
+          @import-launcher="$emit('importLauncher')"
+          @receive-game="$emit('receiveGame')"
+        />
+      </template>
+      <template #saved>
+        <div
+          v-if="!layout.hidden.includes('favorites') && (savedCounts.favorite || savedCounts.later)"
+          class="home-saved-market-actions"
+        >
+          <button
+            v-if="savedCounts.favorite"
+            class="text-button"
+            @click="$emit('savedMarket','favorite')"
+          >
+            {{ t('home.marketFavorites',{count:savedCounts.favorite}) }}
+          </button><button
+            v-if="savedCounts.later"
+            class="text-button"
+            @click="$emit('savedMarket','later')"
+          >
+            {{ t('home.marketLater',{count:savedCounts.later}) }}
+          </button>
+        </div>
+      </template>
+    </HomeDashboard>
     <template v-else>
       <GameCard
         v-if="selection.featured"
@@ -672,6 +776,13 @@ function iconUrl(game: HomeGame) { return game.icon_ref ? icons.value.get(game.i
         </section>
       </template>
     </template>
+    <UndoNotice
+      v-if="organizationUndo"
+      :key="organizationUndo.revision"
+      :message="t('common.updatedGames', { count: organizationUndo.ids.length })"
+      @undo="undoOrganization"
+      @dismiss="organizationUndo = null"
+    />
   </div>
 </template>
 

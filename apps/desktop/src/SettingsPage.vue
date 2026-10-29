@@ -9,6 +9,8 @@ import { RadioGroupRoot, RadioGroupItem, TabsRoot, TabsContent, DialogRoot, Dial
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import SettingsRow from './ui/settings/SettingsRow.vue';
 import SettingsSaveBar from './settings/SettingsSaveBar.vue';
+import MirrorAddressEditor from './settings/MirrorAddressEditor.vue';
+import { focusSettingsError } from './settings/focus-settings-error';
 import GameDirectoryMigration from './settings/GameDirectoryMigration.vue';
 import ConfirmationDialog from './ui/ConfirmationDialog.vue';
 import type { HomeGame } from './library-home';
@@ -85,17 +87,15 @@ async function updateCache(clear = false) {
 }
 const editingMirror = ref(false);
 const mirrorDraft = ref('');
+const mirrorEditor = ref<InstanceType<typeof MirrorAddressEditor>>();
 const savedMirror = computed(() => validateDownloadSettings({ source: 'custom', mirror: downloadSettings.value.mirror }) === null ? downloadSettings.value.mirror : '');
 const sourceOptions = computed(() => [
   { value: 'automatic', label: t('settingsLayout.recommended') }, { value: 'official', label: t('settingsLayout.official') }, { value: 'bmclapi', label: 'BMCLAPI' },
   ...(savedMirror.value ? [{ value: 'custom', label: new URL(savedMirror.value).hostname }] : []),
 ]);
 function editMirror() { mirrorDraft.value = downloadSettings.value.mirror; editingMirror.value = true; settingsError.value = ''; }
-async function addMirror() {
-  const candidate = { source: 'custom' as const, mirror: mirrorDraft.value.trim() };
-  settingsError.value = validateDownloadSettings(candidate) ? t('settingsLayout.customMirrorInvalid') : '';
-  if (settingsError.value) return;
-  downloadSettings.value.mirror = candidate.mirror; downloadSettings.value.source = 'custom';
+function addMirror(url: string) {
+  downloadSettings.value.mirror = url; downloadSettings.value.source = 'custom';
   editingMirror.value = false;
 
 }
@@ -231,6 +231,9 @@ onMounted(() => { void loadSettings(); });
 const directoryDraft = ref('');
 const directoryDirty = computed(() => !!preferences.value && (directoryReset.value || directoryDraft.value !== preferences.value.game_directory));
 const copied = ref(false);
+let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+watch(directoryDraft, () => { copied.value = false; directoryError.value = ''; clearTimeout(copiedTimer); });
+onUnmounted(() => clearTimeout(copiedTimer));
 const advanced = ref<InstanceType<typeof AdvancedRuntimeSettings> | null>(null);
 const advancedDirty = ref(false);
 const appearance = ref<InstanceType<typeof AppearanceSettings> | null>(null);
@@ -242,6 +245,8 @@ const shortcuts = ref<InstanceType<typeof ShortcutSettings> | null>(null);
 const shortcutsDirty = ref(false);
 const savingAll = ref(false);
 const saveError = ref('');
+const savedRevision = ref(0);
+const settingsRoot = ref<HTMLElement>();
 const hasDrafts = computed(() => homeLayoutDirty.value || shortcutsDirty.value || languageDirty.value || javaDirty.value || appearanceDirty.value || hasDownloadChanges.value || editingMirror.value || tuningDirty.value || memoryDirty.value || directoryDirty.value || advancedDirty.value);
 const pendingNative = computed(() => savingAll.value || savingSettings.value || tuningBusy.value || memoryBusy.value || directoryBusy.value || javaBusy.value || advanced.value?.busy);
 function cancelDownloads() { if (loadedDownloadSettings.value) downloadSettings.value = { ...loadedDownloadSettings.value }; editingMirror.value = false; settingsError.value = ''; }
@@ -254,7 +259,7 @@ async function applyDirectory() {
 }
 async function copyDirectory() {
   if (!preferences.value) return;
-  try { await writeText(directoryDraft.value); copied.value = true; }
+  try { await writeText(directoryDraft.value); copied.value = true; clearTimeout(copiedTimer); copiedTimer = setTimeout(() => { copied.value = false; }, 1800); }
   catch { directoryError.value = t('settingsLayout.clipboardFailed'); }
 }
 function cancelAll() {
@@ -273,7 +278,10 @@ async function applyAll() {
   let complete = false;
   let group = 'downloads';
   try {
-    if (editingMirror.value) { await addMirror(); if (editingMirror.value) return false; }
+    if (editingMirror.value) {
+      if (!mirrorEditor.value) { activeCategory.value = 'downloads'; await nextTick(); }
+      if (!mirrorEditor.value?.submit()) return false;
+    }
     if (hasDownloadChanges.value && validateDownloadSettings(downloadSettings.value)) { settingsError.value = t('settingsLayout.customMirrorInvalid'); return false; }
     if (memoryDirty.value && (!Number.isInteger(memoryDraft.value) || memoryDraft.value < 512 || memoryDraft.value > 262144)) { group = 'runtime'; memoryError.value = t('settingsLayout.memoryInvalid'); return false; }
     if (javaDirty.value) { group = 'runtime'; await saveJava(); if (javaDirty.value) return false; }
@@ -291,6 +299,14 @@ async function applyAll() {
     const category = categories.value.find(category => category.id === group);
     saveError.value = complete ? '' : t('settingsLayout.editor.saveFailedCategory', { category: category?.labelKey ? t(category.labelKey) : category?.label ?? '' });
     savingAll.value = false;
+    if (complete) savedRevision.value++;
+    else {
+      activeCategory.value = group;
+      await nextTick();
+      // Let the tab's Presence update expose its controls before moving focus.
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      focusSettingsError(settingsRoot.value);
+    }
   }
 }
 const categoryChanging = ref(false);
@@ -319,7 +335,10 @@ watch(() => props.initialCategory, value => { if (value && categories.value.some
 defineExpose({ canLeave, confirmLeave, openCategory: selectCategory });
 </script>
 <template>
-  <div class="settings-page page-content settings-layout">
+  <div
+    ref="settingsRoot"
+    class="settings-page page-content settings-layout"
+  >
     <TabsRoot
       class="settings-workspace"
       orientation="vertical"
@@ -417,7 +436,10 @@ defineExpose({ canLeave, confirmLeave, openCategory: selectCategory });
                     {{ option.label }}
                   </RadioGroupItem>
                 </RadioGroupRoot>
-                <div class="settings-inline-actions">
+                <div
+                  v-if="!editingMirror"
+                  class="settings-inline-actions"
+                >
                   <button
                     class="text-button"
                     :disabled="!settingsReady || savingSettings"
@@ -434,39 +456,14 @@ defineExpose({ canLeave, confirmLeave, openCategory: selectCategory });
                     {{ t('settingsLayout.removeMirror') }}
                   </button>
                 </div>
-                <form
+                <MirrorAddressEditor
                   v-if="editingMirror"
-                  class="settings-mirror-draft"
-                  @submit.prevent="addMirror"
-                >
-                  <label for="mirror-url">{{ t('settingsLayout.mirror') }}</label>
-                  <input
-                    id="mirror-url"
-                    v-model="mirrorDraft"
-                    type="url"
-                    :placeholder="t('settingsLayout.mirrorPlaceholder')"
-                    :disabled="savingSettings"
-                    spellcheck="false"
-                    autocomplete="off"
-                  >
-                  <p class="setting-hint">
-                    {{ t('settingsLayout.mirrorHelp') }}
-                  </p>
-                  <div class="settings-inline-actions">
-                    <button
-                      type="submit"
-                      class="text-button"
-                    >
-                      {{ t('settingsLayout.useMirror') }}
-                    </button><button
-                      type="button"
-                      class="text-button"
-                      @click="editingMirror = false"
-                    >
-                      {{ t('settingsLayout.cancel') }}
-                    </button>
-                  </div>
-                </form>
+                  ref="mirrorEditor"
+                  v-model="mirrorDraft"
+                  :disabled="savingSettings"
+                  @use="addMirror"
+                  @cancel="editingMirror = false"
+                />
                 <button
                   v-if="!settingsReady && settingsError"
                   class="text-button"
@@ -541,6 +538,8 @@ defineExpose({ canLeave, confirmLeave, openCategory: selectCategory });
                   <input
                     id="default-game-directory"
                     v-model="directoryDraft"
+                    :title="directoryDraft"
+                    :aria-invalid="!!directoryError"
                     :disabled="!preferences || directoryBusy || !native"
                     spellcheck="false"
                     autocomplete="off"
@@ -553,8 +552,8 @@ defineExpose({ canLeave, confirmLeave, openCategory: selectCategory });
                     @click="changeDirectory()"
                   />
                   <AppIconButton
-                    icon="copy"
-                    :label="t('settingsLayout.copy')"
+                    :icon="copied ? 'check' : 'copy'"
+                    :label="t(copied ? 'settingsLayout.copied' : 'settingsLayout.copy')"
                     :disabled="!preferences || directoryBusy"
                     @click="copyDirectory"
                   />
@@ -772,6 +771,7 @@ defineExpose({ canLeave, confirmLeave, openCategory: selectCategory });
           :dirty="hasDrafts"
           :busy="pendingNative"
           :error="saveError"
+          :saved-revision="savedRevision"
           @save="applyAll"
           @discard="cancelAll"
         />
@@ -817,6 +817,6 @@ defineExpose({ canLeave, confirmLeave, openCategory: selectCategory });
   </div>
 </template>
 <style scoped>
-.settings-layout{max-width:100%;min-width:0}.settings-category-content{min-width:0}.settings-choice-group{display:flex;gap:8px;flex-wrap:wrap}.settings-choice{font:inherit;font-size:var(--ui-text-label);padding:10px 14px;border:1px solid var(--line);border-radius:8px;color:var(--muted);background:var(--panel)}.settings-choice[data-state=checked]{color:var(--ink);border-color:var(--accent);background:var(--tint)}.settings-inline-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.settings-row-control .settings-inline-actions{margin-top:10px}.settings-mirror-draft{display:grid;gap:8px;margin-top:12px}.settings-path-control{display:flex;gap:3px;align-items:center;min-width:0;border:1px solid var(--line);border-radius:8px;padding:3px;background:var(--panel)}.settings-path-control input{flex:1;width:0!important;min-width:0;font-family:inherit;border:0!important;background:transparent!important;text-overflow:ellipsis}.settings-path-text{font:inherit;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:8px 0;color:var(--muted)}.settings-number-pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}.settings-number-pair label{display:grid;gap:var(--ui-space-2);font-size:var(--ui-text-label);line-height:var(--ui-leading-label)}.settings-manual-content{display:grid;gap:10px;padding-top:14px}.settings-manual-content label{font-size:var(--ui-text-label);line-height:var(--ui-leading-label)}.settings-scope{font-size:12px;color:var(--muted);margin:14px 0}.settings-category-content :deep(.memory-field>label){display:none}.settings-category-content :deep(.memory-presets){margin-top:0}.settings-leave-dialog{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(460px,calc(100vw - 40px));padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);z-index:101}.settings-leave-dialog h2{font-size:16px;margin:0 0 20px}.settings-dialog-overlay{position:fixed;inset:0;background:#0006;z-index:100}
+.settings-layout{max-width:100%;min-width:0}.settings-category-content{min-width:0}.settings-choice-group{display:flex;gap:8px;flex-wrap:wrap}.settings-choice{font:inherit;font-size:var(--ui-text-label);padding:10px 14px;border:1px solid var(--line);border-radius:8px;color:var(--muted);background:var(--panel)}.settings-choice[data-state=checked]{color:var(--ink);border-color:var(--accent);background:var(--tint)}.settings-inline-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.settings-row-control .settings-inline-actions{margin-top:10px}.settings-path-control{display:flex;gap:3px;align-items:center;min-width:0;border:1px solid var(--line);border-radius:8px;padding:3px;background:var(--panel)}.settings-path-control input{flex:1;width:0!important;min-width:0;font-family:inherit;border:0!important;background:transparent!important;text-overflow:ellipsis}.settings-path-text{font:inherit;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:8px 0;color:var(--muted)}.settings-number-pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}.settings-number-pair label{display:grid;gap:var(--ui-space-2);font-size:var(--ui-text-label);line-height:var(--ui-leading-label)}.settings-manual-content{display:grid;gap:10px;padding-top:14px}.settings-manual-content label{font-size:var(--ui-text-label);line-height:var(--ui-leading-label)}.settings-scope{font-size:12px;color:var(--muted);margin:14px 0}.settings-category-content :deep(.memory-field>label){display:none}.settings-category-content :deep(.memory-presets){margin-top:0}.settings-leave-dialog{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(460px,calc(100vw - 40px));padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);z-index:101}.settings-leave-dialog h2{font-size:16px;margin:0 0 20px}.settings-dialog-overlay{position:fixed;inset:0;background:#0006;z-index:100}
 </style>
 <style scoped src="./settings/appearance.css"></style>

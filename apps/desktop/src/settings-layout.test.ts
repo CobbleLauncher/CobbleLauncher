@@ -10,6 +10,38 @@ import SelectField from './ui/SelectField.vue';
 import { applyAppearance, defaultAppearance, readAppearance } from './theme';
 import { readHomeLayout } from './home-layout';
 import type { Game } from './games';
+it('returns a failed directory save to its input, keeps the draft and acknowledges retry success', async () => {
+  setLocale('en-US'); native(); const original = vi.mocked(invoke).getMockImplementation()!;
+  let fail = true;
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === 'set_default_game_directory' && fail) throw Error('Directory unavailable');
+    return original(command, args);
+  });
+  const wrapper = mount(SettingsPage, { attachTo: document.body, props: { initialCategory: 'downloads' } }); await flushPromises();
+  await wrapper.get('#default-game-directory').setValue('D:\\New games');
+  await wrapper.findAll('[role="tab"]').find(tab => tab.text() === 'Appearance')!.trigger('keydown', { key: 'Enter' }); await flushPromises();
+  await wrapper.get('.settings-save-bar .primary-button').trigger('click'); await flushPromises();
+  expect(wrapper.get('#default-game-directory').element).toHaveProperty('value', 'D:\\New games');
+  await vi.waitFor(() => expect(document.activeElement?.id).toBe('default-game-directory'));
+  expect(wrapper.vm.canLeave()).toBe(false);
+  fail = false; await wrapper.get('.settings-save-bar .primary-button').trigger('click'); await flushPromises();
+  expect(wrapper.get('.settings-save-bar').text()).toBe('Saved'); expect(wrapper.vm.canLeave()).toBe(true); wrapper.unmount();
+});
+it('keeps a mirror draft across categories and validates it before global save', async () => {
+  setLocale('en-US'); native();
+  const wrapper = mount(SettingsPage, { props: { initialCategory: 'downloads' } }); await flushPromises();
+  await wrapper.findAll('button').find(button => button.text() === 'Add mirror')!.trigger('click');
+  await wrapper.get('#mirror-url').setValue('http://mirror.example.org');
+  await wrapper.findAll('[role="tab"]').find(tab => tab.text() === 'Appearance')!.trigger('keydown', { key: 'Enter' }); await flushPromises();
+  await wrapper.get('.settings-save-bar .primary-button').trigger('click'); await flushPromises();
+  expect(wrapper.get('#mirror-url').element).toHaveProperty('value', 'http://mirror.example.org');
+  expect(wrapper.get('#mirror-url').attributes('aria-invalid')).toBe('true');
+  expect(vi.mocked(invoke).mock.calls.some(([name]) => name === 'set_download_settings')).toBe(false);
+  await wrapper.get('#mirror-url').setValue('https://mirror.example.org/');
+  await wrapper.get('.settings-save-bar .primary-button').trigger('click'); await flushPromises();
+  expect(invoke).toHaveBeenCalledWith('set_download_settings', { settings: { source: 'custom', mirror: 'https://mirror.example.org/' } });
+  expect(wrapper.vm.canLeave()).toBe(true); wrapper.unmount();
+});
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: () => true }));
 vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({ writeText: vi.fn() }));
 const preferences = { memory_mb: 4096, game_directory: 'C:\\Games', custom_game_directory: true };
@@ -136,7 +168,7 @@ it('retains appearance drafts across categories and saves or discards through on
   expect(wrapper.get('.appearance-preview-canvas').attributes('data-accent')).toBe('blue');
   await wrapper.get('.settings-save-bar .primary-button').trigger('click'); await flushPromises();
   expect(readAppearance().accent).toBe('blue');
-  expect(wrapper.find('.settings-save-bar').exists()).toBe(false);
+  expect(wrapper.get('.settings-save-bar').text()).toBe('Saved');
   await wrapper.get('input[name="appearance-accent"][value="purple"]').setValue();
   await choose('Downloads & storage');
   await wrapper.get('.settings-save-bar .text-button').trigger('click'); await flushPromises();

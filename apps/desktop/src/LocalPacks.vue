@@ -2,12 +2,13 @@
 <script setup lang="ts">
 import { locale, t } from './i18n';
 import AppIcon from './ui/AppIcon.vue';
+import { useContentReveal, type ContentReveal } from './content-reveal';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { TabsRoot, TabsList, TabsTrigger, TabsContent } from 'reka-ui';
 import DiscoverPacks from './DiscoverPacks.vue';
 import type { LocalPack, LocalPackKind } from './games';
-const props = defineProps<{ gameId: string; kind: LocalPackKind; locked: boolean; revision?: number; installedOnly?: boolean }>();
+const props = defineProps<{ gameId: string; kind: LocalPackKind; locked: boolean; revision?: number; installedOnly?: boolean; reveal?: ContentReveal }>();
 const emit = defineEmits<{ busy: [value: boolean] }>();
 const label = computed(() => t(props.kind === 'resource_pack' ? 'localPacks.resources' : 'localPacks.shaders'));
 const packs = ref<LocalPack[]>([]);
@@ -29,6 +30,8 @@ const filtered = computed(() => {
   const search = query.value.trim().toLocaleLowerCase();
   return packs.value.filter((pack) => [pack.name, pack.file_name, pack.description].some((value) => value?.toLocaleLowerCase().includes(search)));
 });
+const revealRoot = ref<HTMLElement>();
+const highlighted = useContentReveal(() => props.reveal, packs, revealRoot, async () => { query.value = ''; tab.value = 'installed'; });
 let request = 0;
 function sizeLabel(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -79,7 +82,10 @@ watch(() => [props.gameId, props.kind], () => { tab.value = 'installed'; discove
 onUnmounted(() => { ++request; });
 </script>
 <template>
-  <div class="local-packs">
+  <div
+    ref="revealRoot"
+    class="local-packs"
+  >
     <TabsRoot
       v-model="tab"
       :unmount-on-hide="false"
@@ -182,6 +188,9 @@ onUnmounted(() => { ++request; });
             v-for="pack in filtered"
             :key="pack.file_name"
             class="local-pack-row"
+            :class="{ 'content-recent': highlighted.includes(pack.file_name) }"
+            tabindex="-1"
+            :data-content-file="pack.file_name"
           >
             <div class="local-pack-main">
               <span
@@ -258,5 +267,6 @@ onUnmounted(() => { ++request; });
   </div>
 </template>
 <style scoped>
+.local-pack-row.content-recent{background:var(--tint);box-shadow:inset 3px 0 var(--ui-focus)}
 .local-packs .content-heading{display:flex;justify-content:space-between;align-items:center;gap:14px;margin:18px 0 12px}.local-packs-count{margin:0;font-size:12px;color:var(--muted)}.local-packs .setting-hint{margin:5px 0 0}.local-pack-heading-actions{display:flex;gap:8px;flex-shrink:0}.local-pack-heading-actions button,.local-packs .content-toolbar button,.local-pack-main>button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:36px;padding:8px 11px}.local-packs .content-toolbar{margin-top:14px}.local-packs .mod-info{min-width:0}.local-packs .local-pack-row{overflow-wrap:anywhere}@media(max-width:560px){.local-packs .content-heading{align-items:flex-start}.local-pack-heading-actions{gap:6px}.local-pack-heading-actions button{font-size:12px;padding:8px 10px}}
 </style>

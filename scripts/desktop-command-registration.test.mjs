@@ -64,3 +64,12 @@ test('environment, readiness and background-copy workflows have complete IPC reg
     assert(main.permissions.includes(`allow-${command.replaceAll('_', '-')}`), `main webview cannot invoke ${command}`);
   }
 });
+
+test('home resources and original screenshot clipboard stay in the trusted webview', () => {
+  for (const command of ['get_home_world_summary', 'copy_game_screenshot']) {
+    assert(build.includes(`"${command}"`));
+    assert(handlers.includes(command));
+    assert(main.permissions.includes(`allow-${command.replaceAll('_', '-')}`));
+  }
+  assert.deepEqual(main.webviews, ['main']);
+});

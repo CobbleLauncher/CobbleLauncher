@@ -74,3 +74,13 @@ it('returns from the host confirmation to the originating plugin and game contex
   const state = enterPage(enterPage(initialNavigation(), plugin), { view: 'details', gameId: 'game', snapshotRestore: target });
   expect(goToParent(state).current).toEqual(plugin);
 });
+
+it('opens the exact homepage world without selecting a restore or writing', async () => {
+  const wrapper = mount(GameWorlds, {props: {gameId: 'game', locked: false, initialWorld: 'Survival'}, global: {stubs: {AutomaticWorldBackup: true, teleport: {template: '<slot />'}}}});
+  await flushPromises();
+  expect(wrapper.find('.world-snapshots').exists()).toBe(true);
+  expect(invoke).toHaveBeenCalledWith('list_world_snapshots', {gameId: 'game', folderName: 'Survival'});
+  expect(wrapper.find('.snapshot-confirm').exists()).toBe(false);
+  expect(invoke.mock.calls.some(([command]) => command === 'restore_world_snapshot' || command === 'create_world_snapshot')).toBe(false);
+  wrapper.unmount();
+});

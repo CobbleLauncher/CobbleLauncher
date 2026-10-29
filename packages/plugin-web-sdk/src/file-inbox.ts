@@ -12,13 +12,13 @@ export function parseFileInboxLink(value:string):FileInboxLink{
  if(value.length>2048||value.trim()!==value)throw Error('FILE_INBOX_LINK_UNSUPPORTED');
  let url:URL;try{url=new URL(value);}catch{throw Error('FILE_INBOX_LINK_UNSUPPORTED');}
  if(url.protocol!=='https:'||url.username||url.password||url.port||url.search||url.hash)throw Error('FILE_INBOX_LINK_UNSUPPORTED');
- const parts=url.pathname.replace(/^\/+|\/+$/g,'').split('/');let provider:FileInboxLink['provider'],kind:FileInboxLink['kind'],project:string,version:string|undefined;
+ const parts=url.pathname.replace(/^\/+|\/+$/g,'').split('/');let provider:FileInboxLink['provider'],kind:FileInboxLink['kind']|undefined,project:string,version:string|undefined;
  if(['modrinth.com','www.modrinth.com'].includes(url.hostname)&&(parts.length===2||parts.length===4&&parts[2]==='version')){
   const kinds:Record<string,FileInboxLink['kind']>={mod:'mod',modpack:'modpack',resourcepack:'resource_pack',shader:'shader_pack'};
-  provider='modrinth';kind=kinds[parts[0]];project=parts[1];version=parts.length===4?parts[3]:undefined;
+  provider='modrinth';kind=kinds[parts[0]!];project=parts[1]!;version=parts.length===4?parts[3]:undefined;
  }else if(['curseforge.com','www.curseforge.com'].includes(url.hostname)&&parts[0]==='minecraft'&&(parts.length===3||parts.length===5&&parts[3]==='files')){
   const kinds:Record<string,FileInboxLink['kind']>={'mc-mods':'mod',modpacks:'modpack'};
-  provider='curseforge';kind=kinds[parts[1]];project=parts[2];version=parts.length===5?parts[4]:undefined;
+  provider='curseforge';kind=kinds[parts[1]!];project=parts[2]!;version=parts.length===5?parts[4]:undefined;
  }else throw Error('FILE_INBOX_LINK_UNSUPPORTED');
  const valid=(s:string)=>!!s&&s.length<=128&&/^[a-zA-Z0-9._-]+$/.test(s);
  if(!kind||!valid(project)||version!==undefined&&!valid(version)||provider==='curseforge'&&version!==undefined&&!/^\d+$/.test(version))throw Error('FILE_INBOX_LINK_UNSUPPORTED');

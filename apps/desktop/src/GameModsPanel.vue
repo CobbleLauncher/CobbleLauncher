@@ -1,9 +1,10 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
 import { ContextMenuRoot, ContextMenuTrigger, ContextMenuPortal, ContextMenuContent, ContextMenuItem, PopoverRoot, PopoverTrigger, PopoverPortal, PopoverContent, DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from 'reka-ui';
 import { invoke } from '@tauri-apps/api/core';
 import type { Game, LocalMod } from './games';
+import { useContentReveal, type ContentReveal } from './content-reveal';
 import type { ModsActivity } from './game-mods';
 import AppIcon from './ui/AppIcon.vue';
 import AppIconButton from './ui/AppIconButton.vue';
@@ -17,7 +18,7 @@ import { usePluginListPagination } from './plugin-list-pagination';
 import { locale, t } from './i18n';
 import { usePageWorkspace } from './use-page-workspace';
 import { isContextMenuKey, navigateListWithArrows } from './list-keyboard';
-const props = defineProps<{ game: Game; locked: boolean; revision?: number }>();
+const props = defineProps<{ game: Game; locked: boolean; revision?: number; reveal?: ContentReveal }>();
 const emit = defineEmits<{ activity: [value: ModsActivity]; history: [] }>();
 type ContentWorkspace = { query: string; stateFilter: 'all' | 'enabled' | 'disabled'; sourceFilter: 'all' | 'modrinth' | 'curseforge' | 'local'; page: number; selectedMods: string[] };
 const workspace = shallowRef(usePageWorkspace<ContentWorkspace>('game-content', props.game.id, () => ({ query: '', stateFilter: 'all', sourceFilter: 'all', page: 1, selectedMods: [] })));
@@ -54,6 +55,7 @@ const stateFilter = ref(workspace.value.stateFilter);
 const sourceFilter = ref(workspace.value.sourceFilter);
 const sources = ref<Map<string, string>>(new Map());
 const readingSources = ref(false);
+const sourcesReady = ref(false);
 const sourceError = ref('');
 let sourceRequest = 0;
 const enabledCount = computed(() => mods.value.filter(mod => mod.enabled).length);
@@ -63,7 +65,7 @@ const canonicalFile = (filename: string) => filename.replace(/\.disabled$/i, '')
 async function readSources() {
   const current = ++sourceRequest;
   const id = props.game.id;
-  readingSources.value = true; sourceError.value = ''; sources.value = new Map();
+  readingSources.value = true; sourceError.value = '';
   try {
     const [modrinth, curseforge] = await Promise.all([
       invoke<{ filename: string }[]>('list_managed_game_mods', { id }),
@@ -79,6 +81,7 @@ async function readSources() {
       }
     }
     sources.value = index;
+    sourcesReady.value = true;
   } catch { if (current === sourceRequest) sourceError.value = t('gameMods.sourcesFailed'); }
   finally { if (current === sourceRequest) readingSources.value = false; }
 }
@@ -130,7 +133,7 @@ const filtered = computed(() => {
   const search = query.value.trim().toLocaleLowerCase();
   return mods.value.filter((mod) => {
     if (stateFilter.value !== 'all' && mod.enabled !== (stateFilter.value === 'enabled')) return false;
-    if (sourceFilter.value !== 'all' && (readingSources.value || sourceError.value || (sources.value.get(canonicalFile(mod.file_name)) ?? 'local') !== sourceFilter.value)) return false;
+    if (sourceFilter.value !== 'all' && (!sourcesReady.value || (sources.value.get(canonicalFile(mod.file_name)) ?? 'local') !== sourceFilter.value)) return false;
     return [mod.name, mod.file_name, mod.version, mod.loader, ...mod.authors].some(value => value?.toLocaleLowerCase().includes(search));
   });
 });
@@ -160,6 +163,11 @@ watch(query, value => { workspace.value.query = value; });
 watch(stateFilter, value => { workspace.value.stateFilter = value; });
 watch(sourceFilter, value => { workspace.value.sourceFilter = value; });
 watch(modPage, value => { workspace.value.page = value; });
+const revealRoot = ref<HTMLElement>();
+const highlighted = useContentReveal(() => props.reveal, mods, revealRoot, async file => {
+  tab.value = 'installed'; selectedMod.value = null; query.value = ''; stateFilter.value = 'all'; sourceFilter.value = 'all';
+  await nextTick(); modPage.value = Math.max(1, Math.floor(filtered.value.findIndex(mod => mod.file_name === file) / 50) + 1);
+});
 async function refresh(preserveError = false) {
   if (!props.game.loader_version) return;
   const current = ++request;
@@ -195,7 +203,7 @@ function remove(mod: LocalMod) {
 watch(locked, (value) => { if (value) { deleting.value = null; batchDeleting.value = false; } });
 watch([stateFilter, sourceFilter], () => { selectedMods.value = []; batchDeleting.value = false; deleting.value = null; });
 watch(sourceFilter, value => { if (value !== 'all') void readSources(); else { ++sourceRequest; readingSources.value = false; sourceError.value = ''; } });
-watch(() => props.game.id, id => { ++batchOperation; ++sourceRequest; workspace.value = usePageWorkspace<ContentWorkspace>('game-content', id, () => ({ query: '', stateFilter: 'all', sourceFilter: 'all', page: 1, selectedMods: [] })); sources.value = new Map(); readingSources.value = false; sourceError.value = ''; query.value = workspace.value.query; stateFilter.value = workspace.value.stateFilter; sourceFilter.value = workspace.value.sourceFilter; modPage.value = workspace.value.page; selectedMod.value = null; mods.value = []; selectedMods.value = [...workspace.value.selectedMods]; batchDeleting.value = false; deleting.value = null; busy.value = false; tab.value = 'installed'; void refresh(); });
+watch(() => props.game.id, id => { ++batchOperation; ++sourceRequest; workspace.value = usePageWorkspace<ContentWorkspace>('game-content', id, () => ({ query: '', stateFilter: 'all', sourceFilter: 'all', page: 1, selectedMods: [] })); sources.value = new Map(); sourcesReady.value = false; readingSources.value = false; sourceError.value = ''; query.value = workspace.value.query; stateFilter.value = workspace.value.stateFilter; sourceFilter.value = workspace.value.sourceFilter; modPage.value = workspace.value.page; selectedMod.value = null; mods.value = []; selectedMods.value = [...workspace.value.selectedMods]; batchDeleting.value = false; deleting.value = null; busy.value = false; tab.value = 'installed'; void refresh(); });
 onMounted(() => { void refresh(); });
 onUnmounted(() => { ++request; ++sourceRequest; ++batchOperation; });
 function handleModListKeydown(event: KeyboardEvent) {
@@ -214,6 +222,7 @@ function handleModListKeydown(event: KeyboardEvent) {
 <template>
   <div
     v-if="game.loader_version"
+    ref="revealRoot"
     class="game-mods-panel"
   >
     <div
@@ -393,6 +402,14 @@ function handleModListKeydown(event: KeyboardEvent) {
         <p class="mods-count">
           {{ hasFilter && !readingSources && !sourceError ? t('gameMods.filteredCount', {count: filtered.length, total: mods.length}) : t('gameMods.installedCount', {count: mods.length}) }}
         </p>
+        <span
+          v-if="loading && mods.length"
+          role="status"
+          class="mods-refreshing"
+        ><AppIcon
+          name="loader-circle"
+          class="ui-busy-icon"
+        />{{ t('gameMods.reading') }}</span>
       </div>
       <div
         v-if="selectedMods.length"
@@ -456,7 +473,7 @@ function handleModListKeydown(event: KeyboardEvent) {
         {{ error }}
       </p>
       <p
-        v-if="loading"
+        v-if="loading && !mods.length"
         class="content-empty"
         role="status"
       >
@@ -469,6 +486,7 @@ function handleModListKeydown(event: KeyboardEvent) {
         <ContextMenuTrigger as-child>
           <ul
             class="mod-list"
+            :aria-busy="loading || readingSources"
             :aria-label="t('gameMods.local')"
             @keydown="handleModListKeydown"
             @contextmenu.capture="prepareModContext"
@@ -478,6 +496,9 @@ function handleModListKeydown(event: KeyboardEvent) {
               v-for="mod in pageMods"
               :key="mod.file_name"
               class="mod-row"
+              :class="{ 'content-recent': highlighted.includes(mod.file_name) }"
+              tabindex="-1"
+              :data-content-file="mod.file_name"
               :data-mod-file="mod.file_name"
             >
               <label class="mod-select-cell"><input
@@ -577,16 +598,25 @@ function handleModListKeydown(event: KeyboardEvent) {
         :total="filtered.length"
         @page="modPage = $event"
       />
-      <p
-        v-else-if="!readingSources && !sourceError"
+      <div
+        v-else-if="!loading && !readingSources && !sourceError"
         class="content-empty"
       >
-        {{ hasFilter ? t('gameMods.noMatches') : t('gameMods.empty') }}
-      </p>
+        <p>{{ hasFilter ? t('gameMods.noMatches') : t('gameMods.empty') }}</p>
+        <button
+          v-if="hasFilter"
+          class="text-button"
+          @click="query = ''; stateFilter = 'all'; sourceFilter = 'all'"
+        >
+          {{ t('common.clearFilters') }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
 <style scoped>
+.mod-row.content-recent{background:var(--tint);box-shadow:inset 3px 0 var(--ui-focus)}
+.mods-refreshing{display:inline-flex;align-items:center;gap:8px;color:var(--ui-text-muted);font-size:var(--ui-text-caption)}
 .game-mods-panel{min-width:0}.mods-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:var(--ui-space-2);margin:0!important}.mods-content-type{flex:0 0 132px;min-width:0}.mods-search{flex:1 1 220px;min-width:160px}.mods-filter-trigger{display:inline-flex;gap:var(--ui-space-2);align-items:center;min-height:var(--ui-control-height);padding:0 var(--ui-space-3);font-size:var(--ui-text-label)}.mods-library-actions{display:flex;align-items:center;gap:var(--ui-space-2);margin-left:auto}.mods-library-actions :deep(.ui-icon-button){width:var(--ui-control-height);height:var(--ui-control-height)}.mods-count{flex:1;margin:0;color:var(--ui-text-muted);font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption)}
 .mods-list-summary{display:flex;align-items:center;justify-content:space-between;gap:var(--ui-space-3);min-height:var(--ui-control-compact);margin:var(--ui-space-3) 0 var(--ui-space-1)}.mod-selection-label,.mod-select-cell{display:flex;align-items:center;justify-content:center;flex:none;width:var(--ui-control-compact);gap:var(--ui-space-2);min-height:var(--ui-control-compact);font-size:var(--ui-text-caption);color:var(--ui-text-muted)}.mod-select-cell{min-height:var(--ui-control-height)}.mod-selection-label input,.mod-selection-checkbox{width:16px;height:16px;margin:0;accent-color:var(--ui-focus)}
 .game-mods-panel .mod-selection-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--ui-space-3);margin:var(--ui-space-2) 0;padding:var(--ui-space-2) var(--ui-space-3);border:1px solid var(--ui-border);border-radius:var(--ui-radius-md);background:var(--ui-surface-2);font-size:var(--ui-text-caption)}.mod-batch-actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ui-space-2)}.mod-batch-actions button{min-height:var(--ui-control-compact);padding:0 var(--ui-space-3);font-size:var(--ui-text-label)}

@@ -2,11 +2,33 @@
 <script setup lang="ts">
 import AppIcon from './AppIcon.vue';
 import AppIconButton from './AppIconButton.vue';
-import { nextTick, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
+import { t } from '../i18n';
 defineOptions({ inheritAttrs: false });
 const props = defineProps<{ id?: string; modelValue: string; label: string; placeholder?: string; disabled?: boolean; clearLabel?: string }>();
 const emit = defineEmits<{ 'update:modelValue': [value: string]; submit: [] }>();
 const input = ref<HTMLInputElement>();
+const clearLabel = computed(() => props.clearLabel ?? t('common.clearSearch'));
+const composing = ref(false);
+function changed(event: Event) { if (!composing.value) emit('update:modelValue', (event.target as HTMLInputElement).value); }
+function composed(event: CompositionEvent) { composing.value = false; changed(event); }
+let returnFocus: HTMLElement | null = null;
+function focused(event: FocusEvent) {
+  if (event.relatedTarget instanceof HTMLElement && !event.relatedTarget.closest('.search-field')) returnFocus = event.relatedTarget;
+}
+function keydown(event: KeyboardEvent) {
+  if (props.disabled || event.defaultPrevented || event.isComposing || composing.value || event.keyCode === 229) return;
+  if (event.key === 'Enter') { event.preventDefault(); emit('submit'); }
+  if (event.key !== 'Escape') return;
+  // Menus and dialogs own Escape before their nested search field does.
+  if (input.value?.closest('[role="dialog"], [role="menu"], [role="listbox"], [data-reka-popper-content-wrapper]')) return;
+  event.preventDefault(); event.stopPropagation();
+  if (props.modelValue) void clear();
+  else {
+    input.value?.blur();
+    if (returnFocus?.isConnected && !returnFocus.matches(':disabled')) returnFocus.focus({ preventScroll: true });
+  }
+}
 async function clear() {
   if (props.disabled) return;
   emit('update:modelValue', '');
@@ -34,12 +56,15 @@ async function clear() {
       :aria-label="label"
       :placeholder="placeholder"
       :disabled="disabled"
-      :data-custom-clear="Boolean(clearLabel)"
-      @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
-      @keydown.enter.prevent="$emit('submit')"
+      data-custom-clear="true"
+      @input="changed"
+      @keydown="keydown"
+      @focus="focused"
+      @compositionstart="composing = true"
+      @compositionend="composed"
     >
     <AppIconButton
-      v-if="clearLabel && modelValue"
+      v-if="modelValue"
       class="search-field-clear"
       icon="x"
       size="compact"

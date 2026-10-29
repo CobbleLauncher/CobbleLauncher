@@ -1,21 +1,27 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { t } from './i18n';
 import SettingsDisclosure from './ui/settings/SettingsDisclosure.vue';
+import { beginMarketInstall, endMarketInstall, marketInstallPending, modInstallResult, type MarketInstallResult } from './market-install-result';
+import type { ManagedGameMod } from './games';
 import type { CurseForgePlan } from './curseforge';
-const props = defineProps<{gameId: string; projectId: string; fileId: string; locked: boolean}>();
-const emit = defineEmits<{busy: [value: boolean]; installed: []}>();
+const props = defineProps<{gameId: string; projectId: string; fileId: string; locked: boolean; installedRecords?: ManagedGameMod[]}>();
+const emit = defineEmits<{busy: [value: boolean]; installed: [result: MarketInstallResult]}>();
 const plan = ref<CurseForgePlan | null>(null);
 const working = ref(false);
 const error = ref('');
 const complete = ref(false);
 const applying = ref(false);
+const alreadyInstalled = computed(() => props.installedRecords?.some(record => record.project_id === props.projectId && record.version_id === props.fileId));
+const installLocked = computed(() => props.locked || marketInstallPending(props.gameId));
+const knownProject = computed(() => props.installedRecords?.some(record => record.project_id === props.projectId));
 let revision = 0;
 async function prepare() {
   const current = ++revision;
   working.value = true; error.value = ''; plan.value = null; complete.value = false;
+  if (alreadyInstalled.value) { working.value = false; return; }
   try { const value = await invoke<CurseForgePlan>('preview_curseforge_mod_install', {id: props.gameId, projectId: props.projectId, fileId: props.fileId}); if (current === revision) plan.value = value; }
   catch { if (current === revision) error.value = t('curseforge.installFailed'); }
   finally { if (current === revision) working.value = false; }
@@ -33,11 +39,14 @@ async function openProject(projectId: string) {
   catch { error.value = t('curseforge.openFailed'); }
 }
 async function install() {
-  if (!plan.value?.ready || props.locked || working.value) return;
+  if (!plan.value?.ready || installLocked.value || working.value || complete.value || alreadyInstalled.value) return;
+  const id = props.gameId;
+  const selectedPlan = plan.value;
+  if (!beginMarketInstall(id)) return;
   const current = ++revision; working.value = true; applying.value = true; error.value = ''; emit('busy', true);
-  try { await invoke('install_curseforge_mod_plan', {id: props.gameId, planId: plan.value.plan_id}); if (current === revision) { complete.value = true; emit('installed'); } }
+  try { await invoke('install_curseforge_mod_plan', {id, planId: selectedPlan.plan_id}); if (current === revision) { complete.value = true; emit('installed', await modInstallResult(id, 'curseforge', selectedPlan.mods)); } }
   catch { if (current === revision) error.value = t('curseforge.installFailed'); }
-  finally { if (current === revision) {working.value = false; applying.value = false;} emit('busy', false); }
+  finally { endMarketInstall(id); if (current === revision) {working.value = false; applying.value = false;} emit('busy', false); }
 }
 watch(() => [props.gameId, props.projectId, props.fileId], () => void prepare(), {immediate: true});
 onUnmounted(() => { ++revision; });
@@ -45,10 +54,10 @@ onUnmounted(() => { ++revision; });
 <template>
   <div class="cf-install-plan">
     <p
-      v-if="complete"
+      v-if="complete || alreadyInstalled"
       role="status"
     >
-      {{ t('curseforge.installed') }}
+      {{ t('market.selectedInstalled') }}
     </p>
     <template v-else-if="plan">
       <ul class="mod-list">
@@ -107,10 +116,10 @@ onUnmounted(() => { ++revision; });
       </div>
       <button
         class="primary-button"
-        :disabled="!plan.ready || locked || working"
+        :disabled="!plan.ready || installLocked || working"
         @click="install"
       >
-        {{ t(applying ? 'curseforge.installing' : 'curseforge.install') }}
+        {{ t(applying ? 'curseforge.installing' : knownProject ? 'modUpdates.changeVersion' : 'curseforge.install') }}
       </button>
       <p
         v-if="locked"

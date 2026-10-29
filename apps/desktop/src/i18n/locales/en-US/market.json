@@ -53,5 +53,7 @@
   "dependencies": "Required dependencies ({count})",
   "installContents": "Installation contents",
   "sourceUnavailable": "{source} (unavailable)",
-  "anyVersion": "Any version"
+  "anyVersion": "Any version",
+  "alreadyInstalled": "Installed",
+  "selectedInstalled": "This version is installed"
 }

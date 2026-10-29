@@ -182,6 +182,8 @@ fn main() {
             games::game_config::read_game_config,
             games::game_config::save_game_config,
             games::game_config::restore_game_config_backup,
+            games::world_snapshots::home::get_home_world_summary,
+            games::screenshots::copy_game_screenshot,
             games::screenshots::list_game_screenshots,
             games::screenshots::get_game_screenshot,
             games::screenshots::open_game_screenshot,

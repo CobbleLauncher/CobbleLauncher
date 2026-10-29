@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 //! Native-only repository credentials and stopped-instance snapshot commands.
 use super::*;
+#[path = "home_world_resources.rs"]
+pub mod home;
 #[path = "world_snapshot_insights.rs"]
 pub mod insights;
 use cobble_core::{WorldSnapshot, WorldSnapshotRepository};

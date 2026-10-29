@@ -28,6 +28,16 @@ function read(): SavedMarketItem[] {
   } catch { return []; }
 }
 export const savedMarketItems = ref<SavedMarketItem[]>(read());
+export const savedMarketUndo = ref<{ item: SavedMarketItem; index: number; revision: number } | null>(null);
+let undoRevision = 0;
+export function undoMarketRemoval() {
+  const undo = savedMarketUndo.value;
+  if (!undo) return;
+  if (isMarketSaved(undo.item.provider, undo.item.kind, undo.item.project_id, undo.item.collection)) { savedMarketUndo.value = null; return; }
+  const restored = [...savedMarketItems.value]; restored.splice(undo.index, 0, undo.item);
+  try { localStorage.setItem(key, JSON.stringify(restored)); savedMarketItems.value = restored; savedMarketUndo.value = null; }
+  catch { /* Keep the undo action available if local storage could not be written. */ }
+}
 export function isMarketSaved(provider: SavedMarketItem['provider'], kind: SavedMarketItem['kind'], projectId: string, collection: SavedMarketItem['collection'] = 'later') {
   return savedMarketItems.value.some(item => item.provider === provider && item.kind === kind && item.project_id === projectId && item.collection === collection);
 }
@@ -37,6 +47,10 @@ export function toggleMarketSaved(provider: SavedMarketItem['provider'], kind: S
   savedMarketItems.value = retained.length === previous.length
     ? [{ collection, provider, kind, project_id: hit.project_id, title: hit.title, hit }, ...retained]
     : retained;
-  try { localStorage.setItem(key, JSON.stringify(savedMarketItems.value)); }
+  try {
+    localStorage.setItem(key, JSON.stringify(savedMarketItems.value));
+    const index = previous.findIndex(item => !retained.includes(item));
+    savedMarketUndo.value = index >= 0 ? { item: previous[index]!, index, revision: ++undoRevision } : null;
+  }
   catch { savedMarketItems.value = previous; }
 }

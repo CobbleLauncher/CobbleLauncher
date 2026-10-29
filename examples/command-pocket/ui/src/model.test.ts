@@ -1,5 +1,12 @@
 // SPDX-License-Identifier: MIT
-import {test} from 'node:test';import assert from 'node:assert/strict';import{parameters,fill,decode,generate}from './model.ts';
+import {test} from 'node:test';import assert from 'node:assert/strict';import{parameters,fill,decode,generate,ParameterMemory}from './model.ts';
 test('bounded named parameters, duplicate expansion, no multiline commands',()=>{assert.deepEqual(parameters('/home {place} {place}'),['place']);assert.equal(fill('/home {place}',{place:'base'}),'/home base');assert.throws(()=>fill('/home {place}',{place:'\nop me'}));assert.throws(()=>parameters('/home {bad-name}'));assert.throws(()=>parameters('/say hi\nop me'));assert.throws(()=>fill('/tp {player}',{}));});
 test('saved documents reject duplicate IDs and malformed templates',()=>{const entry={id:'a',name:'Home',template:'/home {place}',favorite:false};assert.equal(decode({schemaVersion:1,entries:[entry]}).entries.length,1);assert.throws(()=>decode({schemaVersion:1,entries:[entry,entry]}));assert.throws(()=>decode({schemaVersion:2,entries:[]}));});
 test('generator supports explicit releases and rejects injection and mixed local coordinates',()=>{const v={version:'1.21.4',target:'@s',x:'~',y:'64',z:'-8',item_id:'minecraft:torch',quantity:'64',effect_id:'minecraft:speed',seconds:'30',amplifier:'0',hide_particles:'false'};assert.equal(generate('teleport',v),'/tp @s ~ 64 -8');assert.equal(generate('give',v),'/give @s minecraft:torch 64');assert.equal(generate('effect',v),'/effect give @s minecraft:speed 30 0 false');assert.throws(()=>generate('teleport',{...v,x:'^'}));assert.throws(()=>generate('give',{...v,quantity:'65'}));assert.throws(()=>generate('give',{...v,version:'future'}));assert.throws(()=>generate('give',{...v,target:'@s\nop me'}));});
+test('parameter recall is scoped to game, server and exact template and keeps only 64 recent commands',()=>{
+ const memory=new ParameterMemory(),scope={gameId:'a',serverId:'friends'},entry={id:'home',template:'/home {place}'},values={place:'base'};
+ memory.remember(scope,entry,values);values.place='changed';assert.deepEqual(memory.recall(scope,entry),{place:'base'});
+ const recalled=memory.recall(scope,entry);recalled.place='edited';assert.deepEqual(memory.recall(scope,entry),{place:'base'});
+ assert.deepEqual(memory.recall({...scope,gameId:'b'},entry),{});assert.deepEqual(memory.recall({...scope,serverId:'creative'},entry),{});assert.deepEqual(memory.recall(scope,{...entry,template:'/warp {place}'}),{});
+ for(let i=0;i<64;i++)memory.remember(scope,{...entry,id:`${i}`},{place:`${i}`});assert.deepEqual(memory.recall(scope,entry),{});assert.deepEqual(memory.recall(scope,{...entry,id:'63'}),{place:'63'});
+});

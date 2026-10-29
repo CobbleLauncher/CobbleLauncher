@@ -63,7 +63,11 @@
   "editHome": "编辑首页",
   "done": "完成",
   "resetHome": "重置布局",
-  "sections": { "other": "其他游戏", "quick": "快捷操作", "favorites": "已保存项目" },
+  "sections": {
+    "other": "其他游戏",
+    "quick": "快捷操作",
+    "favorites": "已保存项目"
+  },
   "moveUp": "上移{name}",
   "moveDown": "下移{name}",
   "archived": "已归档",
@@ -95,5 +99,30 @@
   "quickActionFailed": "无法打开此操作",
   "savedMarket": "已保存项目",
   "marketFavorites": "收藏（{count}）",
-  "marketLater": "稍后安装（{count}）"
+  "marketLater": "稍后安装（{count}）",
+  "dashboard": {
+    "editGame": "编辑游戏",
+    "chooseGame": "选择游戏",
+    "openWorlds": "全部存档",
+    "worldsFailed": "无法读取存档",
+    "worldBackups": "存档与备份",
+    "noWorlds": "还没有存档",
+    "multiplayer": "与朋友联机",
+    "createInvite": "创建邀请",
+    "joinInvite": "加入邀请",
+    "chooseTools": "选择工具",
+    "search": "快捷搜索",
+    "worlds": "存档",
+    "retry": "重试",
+    "lastBackup": "最近备份 {date}",
+    "noBackups": "尚无备份",
+    "backupUnavailable": "暂时无法读取备份",
+    "pinTool": "固定到首页",
+    "unpinTool": "从首页取消固定",
+    "configureTools": "设置快捷工具",
+    "unavailableTools": "{count} 个工具不可用",
+    "chooseMore": "选择更多",
+    "manageLibrary": "管理游戏库",
+    "backToGame": "返回游戏"
+  }
 }

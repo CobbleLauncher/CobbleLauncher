@@ -53,5 +53,7 @@
   "dependencies": "必需依赖（{count}）",
   "installContents": "安装内容",
   "sourceUnavailable": "{source}（不可用）",
-  "anyVersion": "全部版本"
+  "anyVersion": "全部版本",
+  "alreadyInstalled": "已安装",
+  "selectedInstalled": "此版本已安装"
 }

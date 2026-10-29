@@ -2,6 +2,16 @@
 export type Entry = { id:string; name:string; template:string; favorite:boolean };
 export type Book = {schemaVersion:1; entries:Entry[]};
 export const key='commands-v1';
+/** Session-only input recall; templates and server contexts never share parameters. */
+export class ParameterMemory {
+ private readonly entries=new Map<string,Record<string,string>>();
+ private id(scope:unknown,entry:Pick<Entry,'id'|'template'>){return JSON.stringify([scope,entry.id,entry.template]);}
+ recall(scope:unknown,entry:Pick<Entry,'id'|'template'>){return {...this.entries.get(this.id(scope,entry))};}
+ remember(scope:unknown,entry:Pick<Entry,'id'|'template'>,values:Record<string,string>){
+  const id=this.id(scope,entry);this.entries.delete(id);this.entries.set(id,{...values});
+  while(this.entries.size>64)this.entries.delete(this.entries.keys().next().value!);
+ }
+}
 export function parameters(template:string):string[]{
  if(!/^\/\S+/.test(template)||template.length>4096||/[\r\n\u0000-\u001f\u007f]/.test(template))throw Error('INVALID_TEMPLATE');
  const names=[...template.matchAll(/\{([a-zA-Z][a-zA-Z0-9_]{0,31})\}/g)].map(match=>match[1]!);

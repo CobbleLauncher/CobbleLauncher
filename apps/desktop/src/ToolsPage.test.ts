@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: MIT
 /* eslint-disable vue/one-component-per-file -- test doubles expose native view leave guards */
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { defineComponent } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import PluginReportPanel from './PluginReportPanel.vue';
 import PluginWebView from './PluginWebView.vue';
 import ToolsPage from './ToolsPage.vue';
+import { clearPageWorkspacesForTests, usePageWorkspace } from './use-page-workspace';
 import { setLocale } from './i18n';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-afterEach(() => { vi.mocked(invoke).mockReset(); setLocale('zh-CN'); });
+beforeEach(() => { clearPageWorkspacesForTests(); });
+afterEach(() => { vi.useRealTimers(); vi.mocked(invoke).mockReset(); setLocale('zh-CN'); });
 
 it('opens a generic form tool with only a visible version default and runs its leave hook', async () => {
   const form = { schema_version: 1, schema: { type: 'object', additionalProperties: false, properties: { version: { type: 'string', enum: ['1.21.1'] } } } };
@@ -178,5 +180,53 @@ it('opens an unbound tool with the most recently launched installed game', async
   const wrapper = mount(ToolsPage, { props: { selectedPluginId: 'inspector', games: [game('older', 1, 'installed'), game('recent', 8, 'installed'), game('installing', 10, 'installing')] }, global: { stubs: { InspectorPanel: true } } });
   await flushPromises();
   expect(wrapper.getComponent({ name: 'InspectorPanel' }).props('instanceId')).toBe('recent');
+  wrapper.unmount();
+});
+
+it('retries the failed tool command with its original game context instead of reloading the catalog', async () => {
+  setLocale('en-US');
+  let resolutions = 0;
+  vi.mocked(invoke).mockImplementation(async command => {
+    if (command === 'list_plugins') return [{enabled: true, manifest: {id: 'report', name: 'Logbook', api_version: '0.2.0', capabilities: ['report'], file_extensions: ['log']}}];
+    if (command === 'resolve_extension_command') {
+      if (++resolutions === 1) throw new Error('temporarily unavailable');
+      return {pluginId: 'report', commandId: 'analyze', label: 'Analyze', workflow: 'report'};
+    }
+    return [{pluginId: 'report', settings: [], commands: [{id: 'analyze', label: 'Analyze', workflow: 'report', menus: [{position: 'tools', when: 'always'}]}]}];
+  });
+  const game = (id: string, last_launched_at: number) => ({id, name: id, last_launched_at, version: '1.21.1', directory: id, status: 'installed' as const, error: null, progress: null});
+  const wrapper = mount(ToolsPage, {props: {games: [game('original', 10), game('newer', 5)]}, global: {stubs: {PluginReportPanel: true}}});
+  await flushPromises(); await wrapper.get('[data-tool-id="report"]').trigger('click'); await flushPromises();
+  expect(wrapper.find('[role="alert"]').exists()).toBe(true);
+  await wrapper.setProps({games: [game('original', 10), game('newer', 20)]});
+  await wrapper.get('[role="alert"] button').trigger('click'); await flushPromises();
+  expect(resolutions).toBe(2);
+  expect(vi.mocked(invoke).mock.calls.filter(([name]) => name === 'list_plugins')).toHaveLength(1);
+  expect(vi.mocked(invoke).mock.calls.filter(([name]) => name === 'resolve_extension_command').at(-1)?.[1]).toMatchObject({pluginId: 'report', commandId: 'analyze', context: {instanceId: 'original'}});
+  expect(wrapper.findComponent(PluginReportPanel).props('instanceId')).toBe('original');
+  expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+  wrapper.unmount();
+});
+
+it('shows catalog loading and a retryable failure without claiming the saved search has no matches', async () => {
+  setLocale('en-US');
+  vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
+  usePageWorkspace('tools-catalog', undefined, () => ({query: 'saved search', page: 2, returnToolId: '', scrollTop: 0, restoreReturn: false}));
+  let reject!: (cause: Error) => void;
+  vi.mocked(invoke).mockImplementation(command => command === 'list_plugins' ? new Promise((_resolve, fail) => {reject = fail;}) : Promise.resolve([]));
+  const wrapper = mount(ToolsPage);
+  expect(wrapper.find('.tool-empty').exists()).toBe(false);
+  expect(wrapper.find('.loading-indicator').exists()).toBe(false);
+  await vi.advanceTimersByTimeAsync(140);
+  expect(wrapper.get('.loading-indicator').text()).toContain('Loading');
+  reject(new Error('local catalog unavailable')); await flushPromises();
+  expect(wrapper.find('.tool-empty').exists()).toBe(false);
+  expect(wrapper.find('.loading-indicator').exists()).toBe(false);
+  expect(wrapper.find('[role="alert"]').exists()).toBe(true);
+  expect(wrapper.get('input[type="search"]').element).toHaveProperty('value', 'saved search');
+  vi.mocked(invoke).mockResolvedValue([]);
+  await wrapper.get('[role="alert"] button').trigger('click'); await flushPromises();
+  expect(wrapper.get('.tool-empty').text()).toBe('No tools found.');
+  expect(wrapper.find('[role="alert"]').exists()).toBe(false);
   wrapper.unmount();
 });

@@ -17,6 +17,26 @@ const baseStubs = {GameModsPanel: true, LocalPacks: true, GameWorlds: true, Game
 const props = {game, starting: false, profile, library: {profiles: [profile], active_id: profile.id}};
 beforeEach(() => {setLocale('en-US'); vi.mocked(invoke).mockReset(); vi.mocked(invoke).mockResolvedValue([]);});
 afterEach(() => setLocale('zh-CN'));
+it('explains a screenshot export in the blocked launch action', async () => {
+  const wrapper = mount(GameDetailsPage, { props, global: { stubs: baseStubs } });
+  await wrapper.get('#game-screenshots-tab').trigger('keydown', { key: 'Enter' }); await flushPromises();
+  wrapper.getComponent(GameScreenshots).vm.$emit('busy', true); await flushPromises();
+  expect(wrapper.get('.play-button').text()).toBe('Exporting screenshots…');
+  expect(wrapper.get('.play-button').attributes('disabled')).toBeDefined(); wrapper.unmount();
+});
+it('keeps invalid rename input local and only submits a corrected name', async () => {
+  const wrapper = mount(GameDetailsPage, { props, global: { stubs: baseStubs } });
+  await wrapper.get('.details-rename').trigger('click');
+  await wrapper.get('#edited-game-name').setValue('   ');
+  await wrapper.get('.rename-form').trigger('submit');
+  expect(wrapper.get('#edited-game-name').attributes('aria-invalid')).toBe('true');
+  expect(vi.mocked(invoke).mock.calls.some(([name]) => name === 'rename_game')).toBe(false);
+  await wrapper.get('#edited-game-name').setValue('New world');
+  vi.mocked(invoke).mockResolvedValue({ ...game, name: 'New world' });
+  await wrapper.get('.rename-form').trigger('submit'); await flushPromises();
+  expect(invoke).toHaveBeenCalledWith('rename_game', { id: game.id, name: 'New world' });
+  expect(wrapper.find('.rename-form').exists()).toBe(false); wrapper.unmount();
+});
 it('shows the selected instance icon and preserves its preset if the image fails', async () => {
   const dataUrl = 'data:image/png;base64,aWNvbg==';
   vi.mocked(invoke).mockImplementation(async command => command === 'get_game_icons' ? [{ id: game.id, icon_ref: 'custom-icon', data_url: dataUrl }] : []);

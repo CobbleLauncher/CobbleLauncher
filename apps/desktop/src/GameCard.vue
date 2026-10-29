@@ -11,11 +11,11 @@ import AppIcon from './ui/AppIcon.vue';
 import type { AppIconName } from './ui/icons';
 import { readCoverFocus, writeCoverFocus } from './cover-focus';
 import { isGameCardSurface } from './game-card-interaction';
-const props = withDefaults(defineProps<{ game: HomeGame; retrying: boolean; profile: PlayerProfile | null; starting: boolean; variant?: 'featured' | 'row'; iconUrl?: string | null; coverUrl?: string | null; sharedContext?: boolean; sharedContextOpen?: boolean }>(), { variant: 'featured', iconUrl: null, coverUrl: null });
+const props = withDefaults(defineProps<{ game: HomeGame; retrying: boolean; profile: PlayerProfile | null; starting: boolean; variant?: 'featured' | 'row' | 'launch'; iconUrl?: string | null; coverUrl?: string | null; sharedContext?: boolean; sharedContextOpen?: boolean }>(), { variant: 'featured', iconUrl: null, coverUrl: null });
 const emit = defineEmits<{ retry: [id: string]; retrySessionRecovery: [id: string]; play: [id: string]; manage: [id: string]; appearance: [game: HomeGame]; select: [id: string] }>();
 function clickCard(event: MouseEvent) {
   emit('select', props.game.id);
-  if (props.game.status === 'installed' && isGameCardSurface(event)) emit('manage', props.game.id);
+  if (props.variant !== 'launch' && props.game.status === 'installed' && isGameCardSurface(event)) emit('manage', props.game.id);
 }
 const brokenIcon = ref(false);
 const brokenCover = ref(false);
@@ -28,6 +28,7 @@ function changeFocus(axis: 'x' | 'y', event: Event) {
 }
 function resetFocus() { focus.value = { x: 50, y: 50 }; writeCoverFocus(props.game.id, props.game.cover_ref, focus.value); }
 const contextOpen = ref(false);
+watch(() => props.game.id, () => { contextOpen.value = false; brokenIcon.value = false; brokenCover.value = false; });
 const contextReturnTarget = shallowRef<HTMLElement>();
 function rememberContextTarget(event: MouseEvent) {
   const card = event.currentTarget as HTMLElement;
@@ -88,7 +89,7 @@ const preset = computed(() => ['grass', 'stone', 'dirt', 'oak', 'water', 'lava',
     >
       <article
         class="game-card library-game"
-        :class="[`library-game--${variant}`, { 'has-cover': variant === 'featured' && coverUrl && !brokenCover }]"
+        :class="[`library-game--${variant}`, { 'has-cover': variant !== 'row' && coverUrl && !brokenCover }]"
         :aria-label="game.name"
         :data-preset="preset"
         :data-game-status="game.status"
@@ -142,10 +143,41 @@ const preset = computed(() => ['grass', 'stone', 'dirt', 'oak', 'water', 'lava',
             d="m40 40 28-16v32L40 72z"
           /></svg>
         </div>
+        <div
+          v-if="variant === 'launch'"
+          class="home-launch-art"
+          aria-hidden="true"
+        >
+          <Transition name="home-selection-fade">
+            <div
+              :key="`${game.id}:${coverUrl ?? ''}:${brokenCover}`"
+              class="home-launch-art-layer"
+            >
+              <img
+                v-if="coverUrl && !brokenCover"
+                :src="coverUrl"
+                :data-game-id="game.id"
+                :data-cover-url="coverUrl"
+                :style="{ objectPosition: `${focus.x}% ${focus.y}%` }"
+                alt=""
+                @error="($event.target as HTMLElement).dataset.gameId === game.id && ($event.target as HTMLElement).dataset.coverUrl === coverUrl && (brokenCover = true)"
+              ><div
+                v-else
+                class="home-launch-block"
+              >
+                <AppIcon
+                  name="blocks"
+                  :size="72"
+                />
+              </div>
+            </div>
+          </Transition>
+        </div>
         <div class="library-game-body">
           <component
-            :is="variant === 'featured' ? 'h2' : 'h3'"
+            :is="variant !== 'row' ? 'h2' : 'h3'"
             class="library-game-name"
+            :title="game.name"
           >
             <button
               v-if="game.status === 'installed'"
@@ -153,26 +185,46 @@ const preset = computed(() => ['grass', 'stone', 'dirt', 'oak', 'water', 'lava',
               :aria-label="t('home.manage', { name: game.name })"
               @click="$emit('manage', game.id)"
             >
-              {{ game.name }}
+              <Transition
+                v-if="variant === 'launch'"
+                name="home-selection-fade"
+              >
+                <span
+                  :key="game.id"
+                  class="home-launch-title"
+                  aria-hidden="true"
+                >{{ game.name }}</span>
+              </Transition>
+              <template v-else>
+                {{ game.name }}
+              </template>
             </button>
             <template v-else>
               {{ game.name }}
             </template>
           </component>
-          <p class="library-game-version">
-            {{ game.version }} · {{ loader }}
-          </p>
+          <div class="library-game-meta">
+            <p class="library-game-version">
+              {{ game.version }} · {{ loader }}
+            </p><button
+              v-if="variant === 'launch'"
+              class="text-button home-edit-game"
+              @click="$emit('manage',game.id)"
+            >
+              <AppIcon name="sliders-horizontal" />{{ t('home.dashboard.editGame') }}
+            </button>
+          </div>
           <p class="library-game-last-played">
             {{ lastPlayed }}
           </p>
           <p
-            v-if="variant === 'featured' && profile && game.profile_id"
+            v-if="variant !== 'row' && profile && game.profile_id"
             class="library-game-profile"
           >
             {{ profile.name }}
           </p>
           <div
-            v-if="editingCover && variant === 'featured' && coverUrl && !brokenCover"
+            v-if="editingCover && variant !== 'row' && coverUrl && !brokenCover"
             class="library-cover-focus"
             data-card-control
             role="group"
@@ -243,6 +295,10 @@ const preset = computed(() => ['grass', 'stone', 'dirt', 'oak', 'water', 'lava',
             {{ game.status === 'failed' ? t('home.installFailed') : t('home.launchFailed') }}
           </p>
         </div>
+        <slot
+          v-if="variant === 'launch'"
+          name="profile"
+        />
         <div
           v-if="game.status !== 'installing'"
           class="library-game-actions"
@@ -277,10 +333,11 @@ const preset = computed(() => ['grass', 'stone', 'dirt', 'oak', 'water', 'lava',
             /><span class="play-label">{{ playLabel }}</span>
           </button>
           <GameCardMenu
+            :key="game.id"
             :game="game"
             :context-open="sharedContext ? sharedContextOpen : contextOpen"
             :context-return-target="contextReturnTarget"
-            :adjust-cover="variant === 'featured' && !!coverUrl && !brokenCover"
+            :adjust-cover="variant !== 'row' && !!coverUrl && !brokenCover"
             @adjust-cover="editingCover = true"
             @updated="$emit('appearance', $event)"
             @manage="$emit('manage', $event)"
@@ -303,4 +360,12 @@ const preset = computed(() => ['grass', 'stone', 'dirt', 'oak', 'water', 'lava',
 .library-cover-focus{position:relative;margin-top:var(--ui-space-2)}.library-cover-focus>.text-button{font-size:var(--ui-text-caption);padding:var(--ui-space-1) 0}.library-cover-focus-controls{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ui-space-2);padding:var(--ui-space-2);border:1px solid var(--ui-border);border-radius:var(--ui-radius-md);background:var(--ui-surface-1)}.library-cover-focus-controls label{display:flex;align-items:center;gap:var(--ui-space-1);font-size:var(--ui-text-caption)}.library-cover-focus-controls input{width:80px;accent-color:var(--ui-focus)}
 @media(min-width:561px){.library-game-state:not(.library-game-state-recovery){position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}}
 @media(max-width:560px){.library-game{grid-template-columns:58px minmax(0,1fr);padding:var(--ui-space-4);gap:var(--ui-space-4);min-height:calc(4 * var(--ui-control-height) + var(--ui-space-4))}.library-game-cover{width:58px;height:58px}.library-game-cover svg{width:53px;height:53px}.library-game--featured .library-game-name{font-size:var(--ui-text-section);line-height:var(--ui-leading-section)}.library-game--featured .library-game-actions{grid-column:1/-1}.library-game--row{grid-template-columns:var(--ui-control-height) minmax(0,1fr) auto;min-height:calc(2 * var(--ui-control-height) + var(--ui-space-4));gap:var(--ui-space-3)}.library-game--row .library-game-cover{width:var(--ui-control-height);height:var(--ui-control-height)}.library-game--row .library-game-last-played{display:none}.library-game--row .library-game-retry{padding:0 var(--ui-space-2)}}
+/* SPDX-License-Identifier: MIT */
+.library-game--launch{display:flex;flex-direction:column;align-items:stretch;gap:0;padding:0 24px 24px;min-height:0;border:0;border-radius:0;background:transparent;overflow:hidden;cursor:default!important}
+.library-game--launch:before{display:none}.library-game--launch>.library-game-cover{display:none}.home-launch-art{height:164px;flex:none;margin:0 -24px 24px;background:var(--tint);overflow:hidden;position:relative}.home-launch-art-layer{position:absolute;inset:0;pointer-events:none}.home-launch-art img{width:100%;height:100%;object-fit:cover}.home-launch-block{height:100%;display:grid;place-items:center;color:var(--ui-accent);background:linear-gradient(145deg,transparent 45%,color-mix(in srgb,var(--ui-accent) 10%,transparent) 45% 70%,color-mix(in srgb,var(--ui-accent) 18%,transparent) 70%)}
+.library-game--launch .library-game-name{font-size:var(--ui-text-page);line-height:var(--ui-leading-page);height:calc(2em * var(--ui-leading-page));min-height:calc(2em * var(--ui-leading-page));margin:0;overflow:hidden}.library-game--launch .library-game-open{position:relative;display:block;height:100%;overflow:hidden;overflow-wrap:anywhere;width:100%;text-wrap:balance}.home-launch-title{position:absolute;inset:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;pointer-events:none}.home-selection-fade-enter-active,.home-selection-fade-leave-active{transition:opacity 160ms ease}.home-selection-fade-enter-from,.home-selection-fade-leave-to{opacity:0}.library-game--launch .library-game-meta{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0}.home-edit-game{display:flex;align-items:center;gap:6px;min-height:var(--ui-control-height);padding:4px 0;white-space:nowrap;font-size:var(--ui-text-caption);color:var(--ui-text-muted)}.library-game--launch .library-game-version{margin:0;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.library-game--launch .library-game-last-played,.library-game--launch .library-game-profile{display:none}.library-game--launch .library-game-actions{display:flex;align-items:stretch;gap:8px}.library-game--launch .library-game-play,.library-game--launch .library-game-retry{flex:1;justify-content:center;min-height:var(--ui-launch-height,48px);width:100%}.library-game--launch .library-game-body{margin-bottom:8px}.library-game--launch .library-game-pinned{top:12px;left:12px}.library-game--launch :deep(.home-launch-profile){padding-top:4px}
+@media(max-width:700px){.home-launch-art{height:120px}.library-game--launch{padding-bottom:20px}}
+
+@media(prefers-reduced-motion:reduce){.home-selection-fade-enter-active,.home-selection-fade-leave-active{transition:none}}
+[data-motion=reduced] .home-selection-fade-enter-active,[data-motion=reduced] .home-selection-fade-leave-active{transition:none}
 </style>

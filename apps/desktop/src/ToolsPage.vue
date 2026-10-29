@@ -22,6 +22,7 @@ import type { ProviderCandidateSelection } from './online-blueprints';
 import { recordToolOpen } from './tool-usage';
 import AppIcon from './ui/AppIcon.vue';
 import LoadingIndicator from './ui/LoadingIndicator.vue';
+import { useDelayedBusy } from './market/use-delayed-busy';
 const ToolFormPanel = defineAsyncComponent(() => import('./ToolFormPanel.vue'));
 type ToolPlugin = { manifest: PluginIdentityManifest & { frontend?: PluginFrontendManifest; tool_form?: ToolFormManifest; api_version?: string; capabilities: string[]; file_extensions: string[]; report_protocols?: string[]; interfaces?:{provides?:{id:string;version:string}[]}; permissions?:{permission:string}[] }; enabled: boolean; problem?: string };
 const props = withDefaults(defineProps<{ location?: ToolLocation; selectedPluginId?: string; selectedCommand?: ResolvedCommand; blueprintsOpenRequest?: number; games?: Game[]; initialGameId?: string; active?: boolean; suspended?: boolean }>(), { location: undefined, selectedPluginId: undefined, selectedCommand: undefined, blueprintsOpenRequest: 0, games: () => [], initialGameId: '', active: true, suspended: false });
@@ -91,9 +92,11 @@ function recordOpenedTool() {
   recordedTool = key;
   recordToolOpen({ pluginId: current.manifest.id, commandId: command });
 }
-const loading = ref(false);
+const loading = ref(true);
+const showLoading = useDelayedBusy(loading);
 const resolvingPluginId = ref('');
 const error = ref('');
+const failedCommand = ref<{pluginId: string; commandId: string; instanceId?: string}>();
 const plugin = computed(() => plugins.value.find(item => item.manifest.id === selected.value));
 const toolCatalogPlugins = computed<ToolCatalogPlugin[]>(() => {
   const commandPlugins = new Set(contributions.value.flatMap(item => item.commands.some(command => command.menus.some(menu => menu.position === 'tools')) ? [item.pluginId] : []));
@@ -111,7 +114,7 @@ const toolCatalogPlugins = computed<ToolCatalogPlugin[]>(() => {
 });
 let revision = 0;
 let commandRevision = 0;
-function invalidateCommand() { ++commandRevision; resolvingPluginId.value = ''; }
+function invalidateCommand() { ++commandRevision; resolvingPluginId.value = ''; failedCommand.value = undefined; }
 async function selectTool(id: string) {
   if (!await confirmLeave()) return;
   invalidateCommand();
@@ -121,7 +124,7 @@ async function selectTool(id: string) {
   emit('navigate', { pluginId: id, title: plugins.value.find(item => item.manifest.id === id)?.manifest.name, instanceId: gameContext.value, ...(id === BLUEPRINTS_TOOL_ID ? { blueprintView: 'library' } : {}) });
 }
 async function load() {
-  const current = ++revision; loading.value = true; error.value = '';
+  const current = ++revision; loading.value = true; error.value = ''; failedCommand.value = undefined;
   try {
     const [installed, available] = await Promise.all([invoke<ToolPlugin[]>('list_plugins'), invoke<ExtensionContribution[]>('list_extension_contributions', { locale: pluginLocale() })]);
     if (current !== revision) return;
@@ -131,19 +134,25 @@ async function load() {
   } catch { if (current === revision) error.value = t('navigation.loadError'); }
   finally { if (current === revision) loading.value = false; }
 }
-async function openCommand(pluginId: string, commandId: string) {
-  if (!await confirmLeave()) return;
+async function openCommand(pluginId: string, commandId: string, retryContext?: {instanceId?: string}) {
+  if (!await confirmLeave() || resolvingPluginId.value === pluginId) return;
+  const instanceId = retryContext ? retryContext.instanceId : contextForTool(pluginId);
   const current = ++commandRevision;
   resolvingPluginId.value = pluginId;
-  error.value = '';
+  error.value = ''; failedCommand.value = undefined;
   try {
-    const command = await invoke<ResolvedCommand>('resolve_extension_command', { pluginId, commandId, position: 'tools', locale: pluginLocale(), ...(contextForTool(pluginId) ? { context: { instanceId: contextForTool(pluginId) } } : {}) });
+    const command = await invoke<ResolvedCommand>('resolve_extension_command', { pluginId, commandId, position: 'tools', locale: pluginLocale(), ...(instanceId ? { context: { instanceId } } : {}) });
     if (current !== commandRevision) return;
-    commandContext.value = command;
+    commandContext.value = { ...command, ...(command.instanceId ? {} : instanceId ? { instanceId } : {}) };
     selected.value = command.workflow === 'viewer' ? BLUEPRINTS_TOOL_ID : command.pluginId;
     emit('navigate', { pluginId: selected.value, command, instanceId: gameContext.value, title: command.label });
-  } catch { if (current === commandRevision) error.value = t('navigation.loadError'); }
+  } catch { if (current === commandRevision) { error.value = t('navigation.loadError'); failedCommand.value = { pluginId, commandId, instanceId }; } }
   finally { if (current === commandRevision) resolvingPluginId.value = ''; }
+}
+function retry() {
+  const command = failedCommand.value;
+  if (command) void openCommand(command.pluginId, command.commandId, {instanceId: command.instanceId});
+  else void load();
 }
 function navigateBlueprint(value: { view: NonNullable<ToolLocation['blueprintView']>; title?: string }) {
   const command = value.view !== 'viewer' && commandContext.value?.workflow === 'viewer' && commandContext.value.blueprintId ? undefined : commandContext.value;
@@ -175,9 +184,15 @@ onMounted(load);
 onUnmounted(() => { ++revision; ++commandRevision; });
 </script>
 <template>
-  <div class="page-content tools-page">
+  <div
+    class="page-content tools-page"
+    :aria-busy="loading || !!resolvingPluginId"
+  >
     <ToolCatalog
       v-if="!selected"
+      :key="location?.instanceId ?? initialGameId"
+      :loading="loading"
+      :load-failed="!!error && !failedCommand"
       :plugins="toolCatalogPlugins"
       :game-id="location?.instanceId ?? initialGameId"
       :pending-plugin-id="resolvingPluginId"
@@ -202,13 +217,15 @@ onUnmounted(() => { ++revision; ++commandRevision; });
     >
       {{ error }} <button
         class="text-button"
-        @click="load"
+        :disabled="loading || !!resolvingPluginId"
+        @click="retry"
       >
         {{ t('navigation.retry') }}
       </button>
     </p>
     <LoadingIndicator
-      v-if="loading && selected"
+      v-if="showLoading"
+      :compact="!!toolCatalogPlugins.length"
       :label="t('navigation.loading')"
     />
     <div

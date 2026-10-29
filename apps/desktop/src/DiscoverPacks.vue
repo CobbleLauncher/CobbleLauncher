@@ -5,6 +5,8 @@ import MarketImage from "./MarketImage.vue";
 import { marketReturn } from './market-return';
 import MarketGallery from "./MarketGallery.vue";
 import VersionSelector from './VersionSelector.vue';
+import { beginMarketInstall, endMarketInstall, marketInstallPending, type MarketInstallResult } from './market-install-result';
+import { useDelayedBusy } from './market/use-delayed-busy';
 import { preferredRelease } from './version-selector';
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
@@ -16,7 +18,7 @@ import { marketWorkstate, rememberMarketWorkstate, restoreMarketScroll } from '.
 import { findLinkedProject, linkedVersionId, type FileInboxMarketLink } from './file-inbox-market';
 
 const props = defineProps<{ gameId: string; kind: LocalPackKind; locked: boolean; revision?: number; browseOnMount?: boolean; initialQuery?: string; sharedMode?: boolean; sharedRequest?: {serial:number;query:string}; savedRequest?: { serial: number; item: SavedMarketItem }; linkRequest?: FileInboxMarketLink }>();
-const emit = defineEmits<{ busy: [value: boolean]; installed: [packs: LocalPack[]] }>();
+const emit = defineEmits<{ busy: [value: boolean]; installed: [packs: LocalPack[], result: MarketInstallResult] }>();
 const label = computed(() => props.kind === 'resource_pack' ? '资源包' : '光影包');
 const root = ref<HTMLElement>();
 const detailReturn = marketReturn(root);
@@ -25,6 +27,7 @@ const submitted = ref('');
 const hits = ref<ModSearchHit[]>([]);
 const searched = ref(false);
 const searching = ref(false);
+const showSearching = useDelayedBusy(searching);
 const searchError = ref('');
 const linkProjectMissing = ref(false);
 const nextOffset = ref(0);
@@ -37,6 +40,9 @@ const loadingVersions = ref(false);
 const versionError = ref('');
 const installing = ref(false);
 const installError = ref('');
+const completedVersions = ref<Record<string, string>>({});
+const selectedInstalled = computed(() => !!selected.value && !!chosenVersion.value && completedVersions.value[selected.value.project_id] === chosenVersion.value.version_id);
+const installLocked = computed(() => props.locked || marketInstallPending(props.gameId));
 let searchRequest = 0;
 let versionRequest = 0;
 let failedOffset = 0;
@@ -83,15 +89,21 @@ function back() {
   ++versionRequest; selected.value = null; loadingVersions.value = false; versionError.value = ''; installError.value = ''; detailReturn.restore();
 }
 async function install() {
-  if (!selected.value || !chosenVersion.value || props.locked || installing.value) return;
+  if (!selected.value || !chosenVersion.value || installLocked.value || installing.value || selectedInstalled.value) return;
+  const id = props.gameId, kind = props.kind, projectId = selected.value.project_id, versionId = chosenVersion.value.version_id;
+  if (!beginMarketInstall(id)) return;
   installing.value = true; installError.value = ''; emit('busy', true);
   try {
-    const result = await invoke<LocalPack[]>('install_game_content_pack', { id: props.gameId, kind: props.kind, projectId: selected.value.project_id, versionId: chosenVersion.value.version_id });
-    if (!disposed) emit('installed', result);
+    let before: LocalPack[] | undefined;
+    try { const value = await invoke<LocalPack[]>('list_game_packs', { id, kind }); if (Array.isArray(value)) before = value; } catch { /* Installation does not depend on the optional result snapshot. */ }
+    const result = await invoke<LocalPack[]>('install_game_content_pack', { id, kind, projectId, versionId });
+    if (id === props.gameId && kind === props.kind) completedVersions.value[projectId] = versionId;
+    if (!disposed) emit('installed', result, { gameId: id, kind, provider: 'modrinth', projectIds: [projectId], versionIds: [versionId], contentIds: before && Array.isArray(result) ? result.filter(pack => !before.some(old => old.file_name === pack.file_name)).map(pack => pack.file_name) : [] });
   } catch (cause) { if (!disposed) installError.value = `安装${label.value}未完成：${String(cause)}`; }
-  finally { installing.value = false; emit('busy', false); }
+  finally { endMarketInstall(id); installing.value = false; emit('busy', false); }
 }
 watch(() => [props.gameId, props.kind], () => {
+  completedVersions.value = {};
   ++searchRequest; ++versionRequest; query.value = ''; submitted.value = ''; hits.value = [];
   selected.value = null; versions.value = []; versionId.value = ''; searched.value = false;
   searching.value = false; loadingVersions.value = false; hasMore.value = false;
@@ -127,9 +139,22 @@ onMounted(() => {
   <div
     ref="root"
     class="discover-content discover-local-packs"
+    :aria-busy="searching || installing"
   >
-    <p v-if="linkProjectMissing && !selected" role="status" class="setting-hint">{{ locale === 'zh-CN' ? '未在当前结果中找到该项目。可调整搜索或筛选。' : 'Project not found in these results. Try another search or filter.' }}</p>
-    <p v-if="selected && linkRequest?.version && !loadingVersions && !versionId && !versionError" role="status" class="setting-hint">{{ locale === 'zh-CN' ? '链接中的版本未在当前列表中找到，请手动选择版本。' : 'Linked version was not found here. Choose a version manually.' }}</p>
+    <p
+      v-if="linkProjectMissing && !selected"
+      role="status"
+      class="setting-hint"
+    >
+      {{ locale === 'zh-CN' ? '未在当前结果中找到该项目。可调整搜索或筛选。' : 'Project not found in these results. Try another search or filter.' }}
+    </p>
+    <p
+      v-if="selected && linkRequest?.version && !loadingVersions && !versionId && !versionError"
+      role="status"
+      class="setting-hint"
+    >
+      {{ locale === 'zh-CN' ? '链接中的版本未在当前列表中找到，请手动选择版本。' : 'Linked version was not found here. Choose a version manually.' }}
+    </p>
     <template v-if="selected">
       <button
         class="text-button"
@@ -204,10 +229,20 @@ onMounted(() => {
         <p class="setting-hint content-pack-use-hint">
           {{ kind === 'resource_pack' ? '安装后在游戏内选择资源包。' : '需要支持光影的游戏环境，安装后在游戏内选择。' }}
         </p>
-        <div class="plan-actions">
+        <p
+          v-if="selectedInstalled"
+          class="setting-hint"
+          role="status"
+        >
+          {{ t('market.selectedInstalled') }}
+        </p>
+        <div
+          v-else
+          class="plan-actions"
+        >
           <button
             class="primary-button"
-            :disabled="locked || installing || !chosenVersion"
+            :disabled="installLocked || installing || !chosenVersion"
             @click="install"
           >
             <span
@@ -281,7 +316,10 @@ onMounted(() => {
             artwork
           />
           <div class="mod-info">
-            <h3>{{ hit.title }}</h3><p class="mod-description">
+            <h3>{{ hit.title }}</h3><span
+              v-if="completedVersions[hit.project_id]"
+              class="mod-state"
+            >{{ t('market.alreadyInstalled') }}</span><p class="mod-description">
               {{ hit.description }}
             </p><p class="mod-meta">
               {{ hit.author }} · {{ downloadCount(hit.downloads) }} 次下载
@@ -312,19 +350,19 @@ onMounted(() => {
         </button>
       </div>
       <LoadingIndicator
-        v-else-if="searching"
+        v-else-if="showSearching"
         :label="t('market.searching')"
         :skeleton="!hits.length"
         :compact="!!hits.length"
       />
       <p
-        v-else-if="searched && !hits.length"
+        v-else-if="searched && !searching && !hits.length"
         class="content-empty"
       >
         没有找到适用的{{ label }}，换个关键词试试。
       </p>
       <button
-        v-else-if="hasMore"
+        v-else-if="hasMore && !searching"
         class="load-more secondary-button"
         @click="search(nextOffset)"
       >

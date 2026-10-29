@@ -30,5 +30,6 @@
   "restoreFailed": "Could not restore the backup. The editor is unchanged.",
   "operationLocked": "Wait for the current operation to finish.",
   "reading": "Loading file…",
-  "restoring": "Restoring…"
+  "restoring": "Restoring…",
+  "saveShortcut": "Save (Ctrl/⌘+S)"
 }

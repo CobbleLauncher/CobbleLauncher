@@ -6,6 +6,7 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { t } from './i18n';
 import AppIcon from './ui/AppIcon.vue';
 import LoadingIndicator from './ui/LoadingIndicator.vue';
+import SearchField from './ui/SearchField.vue';
 export type SavedServer = { id: string; name: string; address: string; can_connect: boolean };
 type SavedServers = { items: SavedServer[]; direct_connect: boolean };
 const props = defineProps<{ gameId: string; locked: boolean; running: boolean }>();
@@ -14,13 +15,21 @@ const servers = ref<SavedServer[]>([]);
 const supported = ref(true);
 const reading = ref(false);
 const error = ref('');
-const copied = ref<string | null>(null);
+const copying = ref(new Set<string>());
+const copied = ref(new Set<string>());
 const query = ref('');
 const filtered = computed(() => {
   const needle = query.value.trim().toLocaleLowerCase();
   return servers.value.filter(server => `${server.name} ${server.address}`.toLocaleLowerCase().includes(needle));
 });
 let request = 0;
+let gameGeneration = 0;
+const copyTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function clearCopyState() {
+  for (const timer of copyTimers.values()) clearTimeout(timer);
+  copyTimers.clear();
+  copying.value.clear(); copied.value.clear();
+}
 async function load() {
   const current = ++request;
   reading.value = true; error.value = '';
@@ -31,14 +40,33 @@ async function load() {
   finally { if (current === request) reading.value = false; }
 }
 async function copy(server: SavedServer) {
-  try { await writeText(server.address); copied.value = server.id; error.value = ''; }
-  catch { error.value = t('gameServers.copyError'); }
+  const generation = gameGeneration;
+  const previousTimer = copyTimers.get(server.id);
+  if (previousTimer) clearTimeout(previousTimer);
+  copyTimers.delete(server.id);
+  copying.value.add(server.id); copied.value.delete(server.id); error.value = '';
+  try {
+    await writeText(server.address);
+    if (generation !== gameGeneration) return;
+    copying.value.delete(server.id); copied.value.add(server.id);
+    copyTimers.set(server.id, setTimeout(() => {
+      if (generation === gameGeneration) copied.value.delete(server.id);
+      copyTimers.delete(server.id);
+    }, 1800));
+  } catch {
+    if (generation !== gameGeneration) return;
+    copying.value.delete(server.id); error.value = t('gameServers.copyError');
+  }
 }
 function join(server: SavedServer) {
   if (!props.locked && !props.running && server.can_connect) emit('play', server.id);
 }
-watch(() => props.gameId, () => { servers.value = []; query.value = ''; copied.value = null; void load(); }, { immediate: true });
-onUnmounted(() => { ++request; });
+watch(() => props.gameId, () => {
+  ++gameGeneration; clearCopyState();
+  servers.value = []; query.value = ''; error.value = '';
+  void load();
+}, { immediate: true });
+onUnmounted(() => { ++request; ++gameGeneration; clearCopyState(); });
 </script>
 <template>
   <section class="game-servers-panel">
@@ -56,12 +84,11 @@ onUnmounted(() => { ++request; });
       v-if="servers.length > 5"
       class="content-toolbar"
     >
-      <input
+      <SearchField
         v-model="query"
-        type="search"
-        :aria-label="t('gameServers.search')"
+        :label="t('gameServers.search')"
         :placeholder="t('gameServers.search')"
-      >
+      />
     </div>
     <p
       v-if="running && servers.length"
@@ -109,9 +136,14 @@ onUnmounted(() => { ++request; });
           <button
             class="text-button"
             :aria-label="t('gameServers.copyNamed', { name: server.name || server.address })"
+            :aria-busy="copying.has(server.id) || undefined"
+            :disabled="copying.has(server.id)"
             @click="copy(server)"
           >
-            <AppIcon :name="copied === server.id ? 'check' : 'copy'" />{{ copied === server.id ? t('gameServers.copied') : t('gameServers.copy') }}
+            <AppIcon
+              :name="copying.has(server.id) ? 'loader-circle' : copied.has(server.id) ? 'check' : 'copy'"
+              :class="{ 'ui-busy-icon': copying.has(server.id) }"
+            />{{ copied.has(server.id) ? t('gameServers.copied') : t('gameServers.copy') }}
           </button>
           <button
             v-if="server.can_connect && !running"
@@ -128,7 +160,7 @@ onUnmounted(() => { ++request; });
       v-else-if="!reading && !error"
       class="content-empty"
     >
-      {{ query ? t('gameServers.noMatches') : t('gameServers.empty') }}
+      {{ query.trim() ? t('gameServers.noMatches') : t('gameServers.empty') }}
     </p>
   </section>
 </template>

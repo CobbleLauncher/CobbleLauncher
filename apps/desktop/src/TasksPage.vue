@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, toRefs } from 'vue';
+import SearchField from './ui/SearchField.vue';
+import { usePageWorkspace } from './use-page-workspace';
 import { invoke } from '@tauri-apps/api/core';
 import type { CurseForgePackPreview } from './curseforge';
 import type { PackPreview } from './games';
@@ -28,11 +30,11 @@ function transferValue(task: TaskSnapshot): string {
   if (!detail) return '';
   return isActiveTask(task) ? `${bytes(detail.bytesPerSecond)}/s · ${t('tasks.activeDownloads', { count: detail.activeDownloads })}` : `${bytes(detail.bytesCompleted)} / ${bytes(detail.bytesTotal)}`;
 }
-const sorted = computed(() => [...props.tasks].sort((left, right) => Number(isActiveTask(right)) - Number(isActiveTask(left)) || right.updated_at - left.updated_at));
-const filter = ref<'all' | 'active' | 'failed'>('all');
-const search = ref('');
+// Active progress timestamps change frequently; creation order keeps actions under the pointer.
+const sorted = computed(() => [...props.tasks].sort((left, right) => Number(isActiveTask(right)) - Number(isActiveTask(left)) || (isActiveTask(left) && isActiveTask(right) ? right.created_at - left.created_at : right.updated_at - left.updated_at) || left.id.localeCompare(right.id)));
+const { filter, search } = toRefs(usePageWorkspace<{filter: 'all' | 'active' | 'failed'; search: string}>('task-history', undefined, () => ({ filter: 'all', search: '' })));
 const filterCounts = computed(() => ({ all: props.tasks.length, active: props.tasks.filter(isActiveTask).length, failed: props.tasks.filter(task => task.state === 'failed').length }));
-const showFilters = computed(() => props.tasks.length >= 4);
+const showFilters = computed(() => props.tasks.length >= 4 || !!search.value || filter.value !== 'all');
 const showSearch = showFilters;
 const visibleTasks = computed(() => {
   const query = search.value.trim().toLocaleLowerCase(locale.value);
@@ -44,10 +46,7 @@ const visibleTasks = computed(() => {
       .some(value => value.toLocaleLowerCase(locale.value).includes(query));
   });
 });
-watch(filterCounts, counts => {
-  if (props.tasks.length < 4 || (filter.value === 'active' && !counts.active) || (filter.value === 'failed' && !counts.failed)) filter.value = 'all';
-  if (props.tasks.length < 4) search.value = '';
-});
+function clearFilters() { search.value = ''; filter.value = 'all'; }
 function count(value: number): string { return new Intl.NumberFormat(locale.value).format(value); }
 function timestamp(value: number): string { return new Intl.DateTimeFormat(locale.value, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(value); }
 function percent(task: TaskSnapshot): number { return task.progress && task.progress.total > 0 ? Math.max(0, Math.min(100, task.progress.completed / task.progress.total * 100)) : 0; }
@@ -82,7 +81,10 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
         :disabled="loading"
         @click="emit('reload')"
       >
-        <AppIcon :name="loading ? 'loader-circle' : 'refresh-cw'" />
+        <AppIcon
+          :name="loading ? 'loader-circle' : 'refresh-cw'"
+          :class="{ 'ui-busy-icon': loading }"
+        />
         {{ loading ? t('tasks.loading') : t('tasks.refresh') }}
       </button>
     </div>
@@ -121,7 +123,7 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
           type="button"
           class="task-filter"
           :aria-pressed="filter === option"
-          :disabled="option !== 'all' && !filterCounts[option]"
+          :disabled="option !== 'all' && option !== filter && !filterCounts[option]"
           @click="filter = option"
         >
           {{ t(`tasks.filters.${option}`, { count: count(filterCounts[option]) }) }}
@@ -131,21 +133,12 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
         v-if="showSearch"
         class="task-search"
       >
-        <input
+        <SearchField
           v-model="search"
-          type="text"
-          :aria-label="t('tasks.search')"
+          :label="t('tasks.search')"
           :placeholder="t('tasks.search')"
-        >
-        <button
-          v-if="search"
-          class="text-button"
-          type="button"
-          :aria-label="t('tasks.clearSearch')"
-          @click="search = ''"
-        >
-          <AppIcon name="x" />
-        </button>
+          :clear-label="t('tasks.clearSearch')"
+        />
       </div>
     </div>
     <ul
@@ -306,12 +299,19 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
         />
       </li>
     </ul>
-    <p
-      v-else-if="tasks.length"
-      class="content-empty"
+    <div
+      v-else-if="showFilters || tasks.length"
+      class="content-empty task-empty-results"
+      role="status"
     >
-      {{ t('tasks.noMatches') }}
-    </p>
+      <p>{{ !search && filter !== 'all' ? t(`tasks.none.${filter}`) : t('tasks.noMatches') }}</p>
+      <button
+        class="text-button"
+        @click="clearFilters"
+      >
+        {{ t('tasks.clearFilters') }}
+      </button>
+    </div>
     <p
       v-else-if="!error && !loading"
       class="content-empty"
@@ -343,10 +343,9 @@ async function action(task: TaskSnapshot, operation: 'cancel' | 'retry' | 'conti
 .task-filter[aria-pressed="true"] { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px #00000008; font-weight: var(--ui-weight-medium); }
 .task-filter:disabled { opacity: .5; }
 .task-search { display: flex; flex: 1 1 180px; align-items: center; gap: var(--ui-space-2); min-width: 0; }
-.task-search input { flex: 1; min-width: 0; min-height: var(--ui-control-compact); padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--ui-radius-md); background: var(--panel); color: var(--ink); font: inherit; font-size: var(--ui-text-caption); }
-.task-search input:focus-visible { outline: var(--ui-focus-ring); outline-offset: 2px; }
-.task-search .text-button { flex: 0 0 auto; min-width: var(--ui-control-compact); padding: 4px; }
-.task-search .text-button :deep(svg) { width: var(--ui-icon-sm); height: var(--ui-icon-sm); }
+.task-search :deep(.search-field){width:100%}
+.task-empty-results p{margin:0 0 8px}
+
 .task-transfer-details ul { display: grid; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
 .task-progress .install-track>div { transition: width 240ms ease-out; }
 .task-progress-caption>span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

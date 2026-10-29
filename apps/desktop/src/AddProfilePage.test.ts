@@ -8,6 +8,17 @@ vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => true, invoke: vi.fn() })
 vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({ writeText: vi.fn() }));
 beforeEach(() => { vi.useFakeTimers(); vi.mocked(writeText).mockReset(); vi.mocked(invoke).mockImplementation(async (command) => command === 'begin_microsoft_login' ? { flow_id: 'flow', user_code: 'ABCD1234', expires_in: 600, interval: 5 } : null); });
 afterEach(() => { vi.useRealTimers(); });
+it('shows an actionable field error and only creates a corrected offline name', async () => {
+  const wrapper = mount(AddProfilePage, { props: { library: { profiles: [], active_id: null }, busy: false, error: '', ready: true } });
+  await wrapper.get('#profile-name').setValue('Alex 玩家');
+  await wrapper.get('#profile-name').trigger('blur');
+  expect(wrapper.get('#profile-name-feedback').text()).toContain('不含空格');
+  await wrapper.get('form').trigger('submit'); expect(wrapper.emitted('add')).toBeUndefined();
+  await wrapper.get('#profile-name').setValue('Alex_Builder');
+  expect(wrapper.get('#profile-name').attributes('aria-invalid')).toBe('false');
+  await wrapper.get('form').trigger('submit');
+  expect(wrapper.emitted('add')).toEqual([['Alex_Builder', null]]); wrapper.unmount();
+});
 it('copies the new code before opening the browser and allows another copy', async () => {
   const order: string[] = [];
   vi.mocked(writeText).mockImplementation(async () => { order.push('copy'); });

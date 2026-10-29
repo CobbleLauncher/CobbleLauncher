@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: MIT
 export const releasesPage='https://github.com/CobbleLauncher/CobbleLauncher/releases';
 export const releasesApi='https://api.github.com/repos/CobbleLauncher/CobbleLauncher/releases?per_page=50';
-export const releaseCacheKey='cobble-site-desktop-releases-v1';
+export const releaseCacheKey='cobble-site-desktop-releases-v2';
 export const releaseCacheTtl=30*60*1000;
 
 const specs=Object.freeze([
-  {os:'windows',arch:'x64',name:'Windows x64',file:'CobbleLauncher-windows-x64.zip'},
+  {os:'windows',arch:'x64',format:'installer',name:'Windows x64 Installer',file:'CobbleLauncher-windows-x64-setup.exe'},
+  {os:'windows',arch:'x64',format:'portable',name:'Windows x64',file:'CobbleLauncher-windows-x64.zip'},
   {os:'macos',arch:'arm64',name:'macOS Apple silicon',file:'CobbleLauncher-macos-arm64.tar.gz'},
   {os:'macos',arch:'x64',name:'macOS Intel',file:'CobbleLauncher-macos-x64.tar.gz'},
   {os:'linux',arch:'x64',name:'Linux x64',file:'CobbleLauncher-linux-x64.tar.gz'},
 ]);
-const windowsFallback={...specs[0],version:'v0.1.0-beta.1',prerelease:true,href:'https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.1/CobbleLauncher-windows-x64.zip'};
+const windowsFallback={...specs[1],version:'v0.1.0-beta.1',prerelease:true,href:'https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.1/CobbleLauncher-windows-x64.zip'};
 export const desktopReleases=Object.freeze([
+  {...specs[0],version:null,prerelease:false,href:null},
   windowsFallback,
-  ...specs.slice(1).map(spec=>({...spec,version:null,prerelease:false,href:null})),
+  ...specs.slice(2).map(spec=>({...spec,version:null,prerelease:false,href:null})),
 ]);
 
 // Detection chooses an OS only. Mac architecture is intentionally a user choice.
@@ -36,13 +38,13 @@ export function detectDesktopArch(nav={}){
 
 const words={
   zh:{choose:'选择桌面系统',other:'其他系统',unreleased:'尚未发布',versions:'查看版本页',download:'下载',preview:'预览版',beta:'Beta',
-    windows:'Windows x64',macArm:'macOS Apple 芯片',macIntel:'macOS Intel',linux:'Linux x64',portable:'便携版 ZIP',macNote:'macOS 预览包未公证，尚未实机验收。'},
+    windows:'Windows x64',installer:'安装程序',macArm:'macOS Apple 芯片',macIntel:'macOS Intel',linux:'Linux x64',portable:'便携版 ZIP',macNote:'macOS 预览包未公证，尚未实机验收。'},
   en:{choose:'Choose desktop OS',other:'Other systems',unreleased:'Not released yet',versions:'View releases',download:'Download',preview:'Preview',beta:'Beta',
-    windows:'Windows x64',macArm:'macOS Apple silicon',macIntel:'macOS Intel',linux:'Linux x64',portable:'Portable ZIP',macNote:'macOS previews are not notarized or hardware-tested.'},
+    windows:'Windows x64',installer:'Installer',macArm:'macOS Apple silicon',macIntel:'macOS Intel',linux:'Linux x64',portable:'Portable ZIP',macNote:'macOS previews are not notarized or hardware-tested.'},
 };
 
 function nameOf(item,text){
-  if(item.os==='windows')return text.windows;
+  if(item.os==='windows')return item.format==='installer'?`${text.windows} ${text.installer}`:item.format==='portable'?`${text.windows} · ${text.portable}`:text.windows;
   if(item.os==='linux')return text.linux;
   return item.arch==='arm64'?text.macArm:text.macIntel;
 }
@@ -70,7 +72,7 @@ export function selectReleaseAssets(releases){
   });
 }
 function mergeFallback(selected){
-  return selected.map(item=>item.href?item:item.os==='windows'?windowsFallback:{...item,version:null,prerelease:false,href:null});
+  return selected.map(item=>item.href?item:item.os==='windows'&&item.format==='portable'?windowsFallback:{...item,version:null,prerelease:false,href:null});
 }
 function validCacheItems(items){
   if(!Array.isArray(items))return null;
@@ -106,7 +108,11 @@ export function setupDownloads(doc,nav={},options={}){
     if(os==='unknown')return null;
     const arch=os==='macos'?'arm64':os==='linux'?detectDesktopArch(nav):'x64';
     if(arch==='unknown')return null;
-    return current.find(item=>item.os===os&&item.arch===arch)??null;
+    const candidates=current.filter(item=>item.os===os&&item.arch===arch);
+    return candidates.find(item=>item.format==='installer'&&item.href)
+      ??candidates.find(item=>item.format==='portable'&&item.href)
+      ??candidates.find(item=>item.href)
+      ??candidates[0]??null;
   }
   function close(restore=false){
     panel.hidden=true;for(const {toggle,main} of controls){toggle.setAttribute('aria-expanded','false');main.setAttribute('aria-expanded','false');}
@@ -130,12 +136,12 @@ export function setupDownloads(doc,nav={},options={}){
       const date=Number.isFinite(timestamp)?new Date(timestamp).toLocaleDateString(language==='en'?'en-US':'zh-CN',{year:'numeric',month:'numeric',day:'numeric'}):null;
       return date?`${date} · ${text.preview}`:text.preview;
     }
-    if(item.os==='windows')return `${item.version}${item.prerelease?` · ${text.beta}`:''} · ${text.portable}`;
+    if(item.os==='windows')return `${item.version}${item.prerelease?` · ${text.beta}`:''}`;
     return item.version;
   }
   function renderMenu(text){
     panel.setAttribute('aria-label',text.other);
-    const entries=current.map(item=>{
+    const entries=current.filter(item=>!(item.os==='windows'&&item.format==='installer'&&!item.href)).map(item=>{
       const link=doc.createElement('a');link.href=item.href??releasesPage;link.setAttribute('role','menuitem');link.tabIndex=-1;
       const title=doc.createElement('span');title.textContent=nameOf(item,text);
       const detail=doc.createElement('small');detail.textContent=detailOf(item,text);link.append(title,detail);return link;
@@ -150,7 +156,7 @@ export function setupDownloads(doc,nav={},options={}){
     for(const {main,toggle} of controls){
       main.href=selected?.href??releasesPage;
       const label=selected?.href
-        ? (selected.os==='windows'?`${text.windows}${selected.prerelease?` ${text.beta}`:''}`:selected.os==='macos'?`${nameOf(selected,text)} · ${text.preview}`:nameOf(selected,text))
+        ? (selected.os==='windows'?`${text.windows}${selected.format==='installer'?` ${text.installer}`:''}${selected.prerelease?` · ${text.beta}`:''}`:selected.os==='macos'?`${nameOf(selected,text)} · ${text.preview}`:nameOf(selected,text))
         : selected?`${nameOf(selected,text)} · ${text.unreleased}`:text.choose;
       main.textContent=label;
       main.setAttribute('aria-label',selected?.href?`${text.download} ${label}`:selected?`${label} · ${text.versions}`:text.choose);

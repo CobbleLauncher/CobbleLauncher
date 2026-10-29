@@ -63,7 +63,11 @@
   "editHome": "Edit home",
   "done": "Done",
   "resetHome": "Reset layout",
-  "sections": { "other": "Other games", "quick": "Quick actions", "favorites": "Saved projects" },
+  "sections": {
+    "other": "Other games",
+    "quick": "Quick actions",
+    "favorites": "Saved projects"
+  },
   "moveUp": "Move {name} up",
   "moveDown": "Move {name} down",
   "archived": "Archived",
@@ -95,5 +99,30 @@
   "quickActionFailed": "Could not open action",
   "savedMarket": "Saved projects",
   "marketFavorites": "Favorites ({count})",
-  "marketLater": "Install later ({count})"
+  "marketLater": "Install later ({count})",
+  "dashboard": {
+    "editGame": "Edit game",
+    "chooseGame": "Choose game",
+    "openWorlds": "All worlds",
+    "worldsFailed": "Could not read worlds",
+    "worldBackups": "Worlds & backups",
+    "noWorlds": "No worlds yet",
+    "multiplayer": "Play with friends",
+    "createInvite": "Create invitation",
+    "joinInvite": "Join invitation",
+    "chooseTools": "Choose tools",
+    "search": "Quick search",
+    "worlds": "Worlds",
+    "retry": "Retry",
+    "lastBackup": "Last backup {date}",
+    "noBackups": "No backups yet",
+    "backupUnavailable": "Backup status unavailable",
+    "pinTool": "Pin to home",
+    "unpinTool": "Unpin from home",
+    "configureTools": "Configure quick actions",
+    "unavailableTools": "{count} unavailable actions",
+    "chooseMore": "Choose more",
+    "manageLibrary": "Manage library",
+    "backToGame": "Back to game"
+  }
 }

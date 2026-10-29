@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { flushPromises, mount } from '@vue/test-utils';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import GameServersPanel from './GameServersPanel.vue';
 import { setLocale } from './i18n';
 const { invoke, writeText } = vi.hoisted(() => ({ invoke: vi.fn(), writeText: vi.fn() }));
@@ -11,6 +11,7 @@ beforeEach(() => {
   setLocale('en-US'); invoke.mockReset(); writeText.mockReset(); writeText.mockResolvedValue(undefined);
   invoke.mockResolvedValue({ items: [server], direct_connect: true });
 });
+afterEach(() => vi.useRealTimers());
 it('reads only the selected game and joins using its bound server ID', async () => {
   const wrapper = mount(GameServersPanel, { props: { gameId: 'abc', locked: false, running: false } });
   await flushPromises();
@@ -50,5 +51,64 @@ it('ignores an old request when the selected game changes', async () => {
   await wrapper.setProps({ gameId: 'def' }); await flushPromises();
   finish({ items: [server], direct_connect: true }); await flushPromises();
   expect(wrapper.text()).not.toContain('Friends');
+  wrapper.unmount();
+});
+it('keeps saved rows visible while refreshing them', async () => {
+  let finish!: (value: unknown) => void;
+  invoke.mockResolvedValueOnce({ items: [server], direct_connect: true });
+  invoke.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+  const wrapper = mount(GameServersPanel, { props: { gameId: 'abc', locked: false, running: false } });
+  await flushPromises();
+  await wrapper.get('.content-heading button').trigger('click');
+  expect(wrapper.text()).toContain('Friends');
+  expect(wrapper.find('.loading-indicator').exists()).toBe(false);
+  finish({ items: [], direct_connect: true }); await flushPromises();
+  expect(wrapper.text()).toContain('No saved servers');
+  wrapper.unmount();
+});
+it('filters a long list and offers a keyboard-accessible clear action', async () => {
+  const items = [server, ...Array.from({ length: 5 }, (_, index) => ({ ...server, id: `server-${index}`, name: `Other ${index}`, address: `other-${index}.example.org` }))];
+  invoke.mockResolvedValueOnce({ items, direct_connect: true });
+  const wrapper = mount(GameServersPanel, { props: { gameId: 'abc', locked: false, running: false } });
+  await flushPromises();
+  const search = wrapper.get('input[type="search"]');
+  expect(search.attributes('aria-label')).toBe('Search servers');
+  await search.setValue('missing');
+  expect(wrapper.text()).toContain('No matching servers');
+  const clear = wrapper.get('button[aria-label="Clear search"]');
+  await clear.trigger('click');
+  expect(wrapper.findAll('.saved-server-row')).toHaveLength(6);
+  wrapper.unmount();
+});
+it('shows pending and temporary copied states for one server', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  let finish!: () => void;
+  writeText.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve; }));
+  const wrapper = mount(GameServersPanel, { props: { gameId: 'abc', locked: false, running: false } });
+  await flushPromises();
+  const copyButton = wrapper.get('[aria-label="Copy address for Friends"]');
+  await copyButton.trigger('click');
+  expect(copyButton.attributes('aria-busy')).toBe('true');
+  expect(copyButton.attributes('disabled')).toBeDefined();
+  finish(); await flushPromises();
+  expect(copyButton.text()).toContain('Copied');
+  expect(copyButton.attributes('aria-busy')).toBeUndefined();
+  await vi.advanceTimersByTimeAsync(1800);
+  expect(copyButton.text()).toContain('Copy address');
+  wrapper.unmount();
+});
+it('ignores clipboard completion from the previous game', async () => {
+  let finish!: () => void;
+  writeText.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve; }));
+  const wrapper = mount(GameServersPanel, { props: { gameId: 'abc', locked: false, running: false } });
+  await flushPromises();
+  await wrapper.get('[aria-label="Copy address for Friends"]').trigger('click');
+  expect(wrapper.get('[aria-label="Copy address for Friends"]').attributes('aria-busy')).toBe('true');
+  await wrapper.setProps({ gameId: 'def' }); await flushPromises();
+  const button = wrapper.get('[aria-label="Copy address for Friends"]');
+  expect(button.attributes('aria-busy')).toBeUndefined();
+  finish(); await flushPromises();
+  expect(button.text()).toContain('Copy address');
+  expect(button.text()).not.toContain('Copied');
   wrapper.unmount();
 });

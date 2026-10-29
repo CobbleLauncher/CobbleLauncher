@@ -6,6 +6,7 @@ import MarketImage from "./MarketImage.vue";
 import { marketReturn } from './market-return';
 import MarketGallery from "./MarketGallery.vue";
 import VersionSelector from './VersionSelector.vue';
+import { useDelayedBusy } from './market/use-delayed-busy';
 import { preferredRelease } from './version-selector';
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke, isTauri } from '@tauri-apps/api/core';
@@ -29,6 +30,7 @@ const total = ref(0);
 const nextOffset = ref(0);
 const hasMore = ref(false);
 const searching = ref(false);
+const showSearching = useDelayedBusy(searching);
 const searched = ref(false);
 const searchError = ref('');
 const linkProjectMissing = ref(false);
@@ -123,9 +125,22 @@ onMounted(() => {
   <div
     ref="root"
     class="page-content discover-packs-page"
+    :aria-busy="searching || preparing"
   >
-    <p v-if="linkProjectMissing && !selected" role="status" class="setting-hint">{{ locale === 'zh-CN' ? '未在当前结果中找到该项目。可调整搜索或筛选。' : 'Project not found in these results. Try another search or filter.' }}</p>
-    <p v-if="selected && linkRequest?.version && !loadingVersions && !versionId && !versionError" role="status" class="setting-hint">{{ locale === 'zh-CN' ? '链接中的版本未在当前列表中找到，请手动选择版本。' : 'Linked version was not found here. Choose a version manually.' }}</p>
+    <p
+      v-if="linkProjectMissing && !selected"
+      role="status"
+      class="setting-hint"
+    >
+      {{ locale === 'zh-CN' ? '未在当前结果中找到该项目。可调整搜索或筛选。' : 'Project not found in these results. Try another search or filter.' }}
+    </p>
+    <p
+      v-if="selected && linkRequest?.version && !loadingVersions && !versionId && !versionError"
+      role="status"
+      class="setting-hint"
+    >
+      {{ locale === 'zh-CN' ? '链接中的版本未在当前列表中找到，请手动选择版本。' : 'Linked version was not found here. Choose a version manually.' }}
+    </p>
     <template v-if="selected">
       <button
         class="text-button"
@@ -360,7 +375,7 @@ onMounted(() => {
         </button>
       </div>
       <LoadingIndicator
-        v-else-if="searching"
+        v-else-if="showSearching"
         :label="t('market.searching')"
         :skeleton="!hits.length"
         :compact="!!hits.length"
@@ -372,13 +387,13 @@ onMounted(() => {
         {{ t('market.browsePacks') }}
       </p>
       <p
-        v-else-if="!hits.length"
+        v-else-if="!searching && !hits.length"
         class="content-empty"
       >
         {{ t('market.emptyPacks') }}
       </p>
       <div
-        v-else
+        v-else-if="hits.length"
         class="pack-results-footer"
       >
         <p class="mod-meta">

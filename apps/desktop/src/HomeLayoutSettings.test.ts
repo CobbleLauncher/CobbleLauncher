@@ -6,19 +6,14 @@ import { defaultHomeLayout, readHomeLayout, writeHomeLayout } from './home-layou
 import { setLocale } from './i18n';
 beforeEach(() => { localStorage.clear(); setLocale('en-US'); });
 afterEach(() => { localStorage.clear(); setLocale('zh-CN'); });
-it('edits the home preview by drag and keyboard without changing the real home until save', async () => {
+it('stages visibility until save and preserves legacy ordering', async () => {
+  writeHomeLayout({ ...defaultHomeLayout, order: ['favorites', 'other', 'quick'] });
   const changed = vi.fn(); window.addEventListener('cobble-home-layout-changed', changed);
   const wrapper = mount(HomeLayoutSettings);
-  await wrapper.get('[data-section="other"] .home-layout-drag').trigger('keydown', { key: 'ArrowDown' });
-  expect(wrapper.findAll('[data-section]').map(row => row.attributes('data-section'))).toEqual(['quick', 'other', 'favorites']);
-  expect(readHomeLayout()).toEqual(defaultHomeLayout); expect(changed).not.toHaveBeenCalled();
-  const transfer = { setData: vi.fn(), effectAllowed: '' };
-  await wrapper.get('[data-section="quick"] .home-layout-drag').trigger('dragstart', { dataTransfer: transfer });
-  await wrapper.get('[data-section="favorites"]').trigger('drop');
-  expect(wrapper.findAll('[data-section]').map(row => row.attributes('data-section'))).toEqual(['other', 'favorites', 'quick']);
   await wrapper.get('[role="switch"][aria-label="Show Saved projects"]').trigger('click');
+  expect(readHomeLayout().hidden).toEqual([]); expect(changed).not.toHaveBeenCalled();
   wrapper.vm.save(); await flushPromises();
-  expect(readHomeLayout()).toMatchObject({ order: ['other', 'favorites', 'quick'], hidden: ['favorites'] });
+  expect(readHomeLayout()).toMatchObject({ order: ['favorites', 'other', 'quick'], hidden: ['favorites'] });
   expect(changed).toHaveBeenCalledOnce();
   wrapper.unmount(); window.removeEventListener('cobble-home-layout-changed', changed);
 });
@@ -33,7 +28,7 @@ it('confirms defaults before staging them and lets discard restore saved layout'
   document.querySelector<HTMLButtonElement>('.confirmation-confirm')!.click(); await flushPromises();
   expect(wrapper.vm.dirty).toBe(true); expect(readHomeLayout().order[0]).toBe('favorites');
   wrapper.vm.cancel(); await flushPromises();
-  expect(wrapper.findAll('[data-section]')[0]!.attributes('data-section')).toBe('favorites');
+  expect(wrapper.get('[data-section="other"] [role="switch"]').attributes('data-state')).toBe('unchecked');
   expect(wrapper.vm.dirty).toBe(false); wrapper.unmount();
 });
 

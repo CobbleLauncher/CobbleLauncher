@@ -10,12 +10,23 @@ struct Preferences {
     background_check: bool,
     channel: Channel,
 }
-#[derive(Clone, Copy, Default, Deserialize, Serialize)]
+#[derive(Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum Channel {
-    #[default]
     Stable,
     Preview,
+}
+impl Default for Channel {
+    fn default() -> Self {
+        channel_for_version(env!("CARGO_PKG_VERSION"))
+    }
+}
+fn channel_for_version(version: &str) -> Channel {
+    if version.contains('-') {
+        Channel::Preview
+    } else {
+        Channel::Stable
+    }
 }
 #[derive(Serialize)]
 pub struct UpdateStatus {
@@ -192,10 +203,20 @@ pub async fn install_launcher_update(
 mod tests {
     use super::*;
     #[test]
-    fn updates_are_opt_in_and_stable_by_default() {
+    fn updates_are_opt_in_and_default_to_the_build_channel() {
         let settings: Preferences = serde_json::from_str("{}").unwrap();
         assert!(!settings.background_check);
-        assert!(matches!(settings.channel, Channel::Stable));
+        assert_eq!(
+            matches!(settings.channel, Channel::Preview),
+            env!("CARGO_PKG_VERSION").contains('-')
+        );
+        assert!(matches!(
+            channel_for_version("0.1.0-beta.2"),
+            Channel::Preview
+        ));
+        assert!(matches!(channel_for_version("0.1.0"), Channel::Stable));
+        let saved: Preferences = serde_json::from_str(r#"{"channel":"stable"}"#).unwrap();
+        assert!(matches!(saved.channel, Channel::Stable));
         assert!(serde_json::from_str::<Preferences>(r#"{"channel":"other"}"#).is_err());
     }
 

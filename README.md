@@ -4,9 +4,9 @@
 
 Cobble is an open-source launcher for Minecraft: Java Edition, built with Rust, Tauri and Vue. Keep your games separate, find compatible content, and get back to playing without digging through folders.
 
-**[Download Windows Beta](https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.1/CobbleLauncher-windows-x64.zip)** · [Website](https://cobble.yuzhes.com/) · [All releases](https://github.com/CobbleLauncher/CobbleLauncher/releases)
+**[Download Windows Beta](https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/CobbleLauncher-windows-x64-setup.exe)** · [Portable ZIP](https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/CobbleLauncher-windows-x64.zip) · [Website](https://cobble.yuzhes.com/) · [All releases](https://github.com/CobbleLauncher/CobbleLauncher/releases)
 
-The Windows x64 beta is available now. Extract the entire ZIP and open **Cobble Launcher.exe**. Microsoft Edge WebView2 is required. The build is unsigned. The [website](https://cobble.yuzhes.com/) checks GitHub Releases for the latest package for each supported system, with a menu for other systems.
+The Windows x64 beta is available as an installer or portable ZIP. The installer supports optional updates from the preview channel. For the portable version, extract the entire ZIP and open **Cobble Launcher.exe**; replace the application files manually when updating. Microsoft Edge WebView2 is required. Update packages have cryptographic signatures, but the Windows executables do not have an Authenticode certificate and Windows may show a publisher warning. The [website](https://cobble.yuzhes.com/) checks GitHub Releases for the latest package for each supported system, with a menu for other systems.
 
 macOS previews are built in CI for Apple Silicon and Intel. They use ad-hoc signatures and are **not notarized or tested on a physical Mac**. Custom plugin frontends are disabled, and the separate Mesh companion is not included. Linux remains an internal test package.
 
@@ -61,6 +61,10 @@ Online mode connects after the home screen is ready and reconnects in the backgr
 - Seed Compass supports Java Edition 1.12.2, 1.16.1/1.16.5, 1.17.1, 1.18.2, 1.19.2/1.19.4, 1.20.1/1.20.6 and 1.21.1/1.21.3 using [Cubiomes](https://github.com/Cubitect/cubiomes). Version 1.20.1 uses the upstream 1.20 generation family. Biomes, structures and height limits follow the selected version. Structure results are predictions with biome checks, not full terrain validation; custom generators and previously explored chunks may differ.
 - Portal planning compares coordinates; actual portal links depend on the game version and nearby portals. Material collection progress is entered manually. Log redaction recognizes common patterns; review the result before sharing.
 - Config Doctor restores individual fields only in supported JSON objects; other formats use a full-file preview and restore. Recovery's last clean launch starts with newly recorded exit-zero sessions; older sessions remain unknown. Recycled game originals occupy disk space until the system Recycle Bin is emptied. Language checks are bounded JSON checks, not a complete Minecraft resource-pack validator.
+
+## Feedback
+
+[Report a problem](https://github.com/CobbleLauncher/CobbleLauncher/issues/new?template=bug_report.yml) with your launcher version, operating system and the steps that reproduce it. Settings provides a diagnostic export; review it before attaching it to a public issue.
 
 ## Build and run
 

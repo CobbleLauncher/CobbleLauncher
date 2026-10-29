@@ -1,0 +1,26 @@
+name: Feature request / 功能建议
+description: Suggest an improvement for Cobble Launcher / 为 Cobble Launcher 提出改进建议
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do? / 你希望完成什么？
+      description: Describe the problem or task this would help with. / 请描述你想解决的问题或完成的事情。
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea / 你的想法
+      description: What change would help? / 什么改进会有帮助？
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Example or screenshot (optional) / 示例或截图（选填）
+      description: Remove personal information before posting. Never attach access tokens or game saves. / 提交前请移除个人信息。请勿附上访问令牌或游戏存档。
+    validations:
+      required: false

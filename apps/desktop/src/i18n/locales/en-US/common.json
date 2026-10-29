@@ -1,4 +1,10 @@
 {
+  "clearSearch": "Clear search",
+  "clearFilters": "Clear filters",
+  "saved": "Saved",
+  "undo": "Undo",
+  "updatedGames": "Updated {count} games",
+  "removedSaved": "Removed {name} from the list",
   "language": "Language",
   "system": "System language"
 }

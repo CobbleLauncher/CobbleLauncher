@@ -3,6 +3,8 @@
 import { computed, ref } from 'vue';
 import { t } from './i18n';
 import AppIcon from './ui/AppIcon.vue';
+import ValidatedTextField from './ui/ValidatedTextField.vue';
+import { profileNameError } from './profile-name';
 import { useMicrosoftLogin } from './use-microsoft-login';
 import type { ProfileLibrary } from './games';
 const props = defineProps<{ library: ProfileLibrary; busy: boolean; error: string; ready: boolean }>();
@@ -10,8 +12,7 @@ const emit = defineEmits<{ add: [name: string, note: string | null]; select: [id
 const mode = ref<'offline' | 'microsoft'>('offline');
 const name = ref('');
 const note = ref('');
-const attempted = ref(false);
-const valid = computed(() => /^[A-Za-z0-9_]{3,16}$/.test(name.value));
+const nameField = ref<InstanceType<typeof ValidatedTextField>>();
 const duplicate = computed(() => props.library.profiles.find((profile) => profile.kind === 'offline' && profile.name === name.value));
 function profileError(error: string) {
   const known: Record<string, string> = {
@@ -23,8 +24,7 @@ function profileError(error: string) {
   return known[error] ?? error;
 }
 function submit() {
-  attempted.value = true;
-  if (!valid.value || props.busy || !props.ready) return;
+  if (props.busy || !props.ready || !nameField.value?.validate()) return;
   if (duplicate.value) emit('select', duplicate.value.id);
   else emit('add', name.value, note.value.trim() || null);
 }
@@ -161,32 +161,20 @@ defineExpose({ cancelLogin });
     <template v-else>
       <form
         class="create-form"
+        novalidate
         @submit.prevent="submit"
       >
-        <div class="form-field">
-          <label for="profile-name">{{ t('profiles.gameName') }}</label><input
-            id="profile-name"
-            v-model="name"
-            autocomplete="off"
-            spellcheck="false"
-            maxlength="16"
-            :placeholder="t('profiles.namePlaceholder')"
-            :disabled="busy"
-            :aria-invalid="attempted && !valid"
-            aria-describedby="profile-name-help"
-          ><p
-            id="profile-name-help"
-            class="setting-hint"
-          >
-            {{ t('profiles.nameHelp') }}
-          </p><p
-            v-if="attempted && !valid"
-            class="settings-error"
-            role="alert"
-          >
-            {{ t('profiles.nameInvalid') }}
-          </p>
-        </div>
+        <ValidatedTextField
+          id="profile-name"
+          ref="nameField"
+          v-model="name"
+          :label="t('profiles.gameName')"
+          :hint="t('profiles.nameHelp')"
+          :validator="profileNameError"
+          :limit="16"
+          :placeholder="t('profiles.namePlaceholder')"
+          :disabled="busy"
+        />
         <p
           v-if="duplicate"
           class="profile-notice"
@@ -236,6 +224,7 @@ defineExpose({ cancelLogin });
   </div>
 </template>
 <style scoped>
+.profile-add-page{max-width:680px}
 .profile-add-page{font-size:var(--ui-text-body,14px);line-height:calc(var(--font-size-base,14px)*22/14)}.profile-add-page .profile-kind-option,.profile-add-page .profile-intro h2,.profile-add-page .microsoft-login h2,.profile-add-page .profile-form-actions button,.profile-add-page .form-field label,.profile-add-page .form-field input{font-size:var(--ui-text-body,14px);line-height:calc(var(--font-size-base,14px)*22/14)}.profile-add-page .setting-hint,.profile-add-page .field-note,.profile-add-page .profile-explanation,.profile-add-page .microsoft-code-help{font-size:var(--ui-text-caption,12px);line-height:calc(var(--font-size-base,14px)*18/14)}.profile-add-page .microsoft-user-code{font-size:var(--ui-text-body,14px);line-height:calc(var(--font-size-base,14px)*22/14);letter-spacing:2px}.profile-add-page .profile-intro{gap:14px;margin-bottom:24px}.profile-add-page .profile-kind-option[aria-pressed=true]{border-color:var(--ui-accent,var(--ui-focus))}.profile-add-page .profile-kind-options{margin-bottom:20px}.profile-add-page .microsoft-login{padding:20px}
 .profile-explanation summary{display:flex;align-items:center;gap:var(--ui-space-2);list-style:none;cursor:pointer}.profile-explanation summary::-webkit-details-marker{display:none}.profile-explanation summary::marker{content:''}.profile-explanation summary :deep(svg){width:14px;height:14px;flex:none;transition:transform .15s ease}.profile-explanation[open] summary :deep(svg){transform:rotate(90deg)}
 </style>

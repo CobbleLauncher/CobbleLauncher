@@ -1,10 +1,21 @@
 // SPDX-License-Identifier: MIT
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { isMarketSaved, savedMarketItems, toggleMarketSaved } from './market-saved';
+import { isMarketSaved, savedMarketItems, savedMarketUndo, toggleMarketSaved, undoMarketRemoval } from './market-saved';
 import type { ModSearchHit } from './games';
 
 const hit: ModSearchHit = { project_id: 'same-id', slug: 'one', title: 'One', description: '', author: '', downloads: 0 };
-beforeEach(() => { localStorage.clear(); savedMarketItems.value = []; });
+beforeEach(() => { localStorage.clear(); savedMarketItems.value = []; savedMarketUndo.value = null; });
+it('undoes only the removed collection entry and persists the result', () => {
+  toggleMarketSaved('modrinth', 'mod', hit, 'favorite');
+  toggleMarketSaved('modrinth', 'mod', hit, 'later');
+  toggleMarketSaved('modrinth', 'mod', hit, 'favorite');
+  expect(savedMarketUndo.value?.item.collection).toBe('favorite');
+  undoMarketRemoval();
+  expect(isMarketSaved('modrinth', 'mod', hit.project_id, 'favorite')).toBe(true);
+  expect(isMarketSaved('modrinth', 'mod', hit.project_id, 'later')).toBe(true);
+  expect(savedMarketUndo.value).toBeNull();
+  expect(JSON.parse(localStorage.getItem('cobble.market.saved.v2')!)).toHaveLength(2);
+});
 describe('market saved items', () => {
   it('scopes identical project IDs by provider and kind and never starts an install', () => {
     toggleMarketSaved('modrinth', 'mod', hit);

@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import type { Game } from './games';
@@ -8,12 +8,14 @@ import { locale, t } from './i18n';
 import AppIcon from './ui/AppIcon.vue';
 import AppIconButton from './ui/AppIconButton.vue';
 import LoadingIndicator from './ui/LoadingIndicator.vue';
+import SearchField from './ui/SearchField.vue';
 import ConfigDiagnostics from './ConfigDiagnostics.vue';
 import { configTextBytes, MAX_CONFIG_BYTES, type GameConfigFile, type GameConfigDocument, type GameConfigBackup } from './game-configs';
 const props = defineProps<{ game: Game; locked?: boolean }>();
 const emit = defineEmits<{ busy: [value: boolean] }>();
 const files = ref<GameConfigFile[]>([]); const query = ref(''); const offset = ref(0); const pageSize = 50;
 const document = ref<GameConfigDocument | null>(null); const draft = ref(''); const selectedId = ref('');
+const editor = ref<HTMLTextAreaElement>();
 const listing = ref(false); const reading = ref(false); const mutating = ref(false); const error = ref(''); const listError = ref(''); const saved = ref(false);
 const operation = ref<'save' | 'restore' | null>(null);
 const diagnosing = ref(false);
@@ -62,6 +64,15 @@ async function selectFile(id: string) {
   if (!await confirmLeave()) return;
   await readFile(id);
 }
+async function openSearchResult() {
+  if (mutating.value || diagnosing.value || restoreTarget.value) return;
+  const first = matched.value[0];
+  if (!first) return;
+  const version = context;
+  await selectFile(first.id);
+  if (disposed || context !== version || document.value?.id !== first.id) return;
+  await nextTick(); editor.value?.focus();
+}
 function revert() { if (document.value && !mutating.value) { draft.value = document.value.text; error.value = ''; saved.value = false; } }
 async function save(): Promise<boolean> {
   if (!canSave.value || !document.value) return !dirty.value;
@@ -85,6 +96,13 @@ async function confirmLeave(): Promise<boolean> {
 }
 function finishLeave(value: boolean) { leavePrompt.value = false; leaveResolver?.(value); leaveResolver = null; }
 async function saveAndLeave() { if (await save()) finishLeave(true); }
+function saveShortcut(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || event.shiftKey || !(event.ctrlKey || event.metaKey) || event.key.toLocaleLowerCase() !== 's') return;
+  event.preventDefault(); event.stopPropagation();
+  if (event.repeat || mutating.value || diagnosing.value || restoreTarget.value) return;
+  if (leavePrompt.value) void saveAndLeave();
+  else void save();
+}
 function discardAndLeave() { revert(); finishLeave(true); }
 async function requestRestore() {
   if (locked.value || mutating.value || !document.value || !backupId.value) return;
@@ -116,6 +134,7 @@ defineExpose({ canLeave, confirmLeave });
   <section
     class="game-configs-panel"
     :aria-busy="listing || reading || mutating"
+    @keydown="saveShortcut"
   >
     <p
       v-if="locked"
@@ -126,17 +145,13 @@ defineExpose({ canLeave, confirmLeave });
     </p>
     <div class="configs-layout">
       <aside class="config-files">
-        <label class="config-search"><AppIcon name="search" /><input
+        <SearchField
           v-model="query"
-          type="search"
-          :aria-label="t('gameConfigs.search')"
+          class="config-search"
+          :label="t('gameConfigs.search')"
           :placeholder="t('gameConfigs.search')"
-        ><AppIconButton
-          v-if="query"
-          icon="x"
-          :label="t('tools.clearSearch')"
-          @click="query = ''"
-        /></label>
+          @submit="openSearchResult"
+        />
         <LoadingIndicator
           v-if="listing"
           :label="t('gameConfigs.loading')"
@@ -217,6 +232,7 @@ defineExpose({ canLeave, confirmLeave });
             />
           </div>
           <textarea
+            ref="editor"
             v-model="draft"
             class="config-text"
             :aria-label="t('gameConfigs.editor', { name: document.name })"
@@ -236,6 +252,8 @@ defineExpose({ canLeave, confirmLeave });
             <button
               class="secondary-button"
               :disabled="!canSave"
+              :title="t('gameConfigs.saveShortcut')"
+              aria-keyshortcuts="Control+S Meta+S"
               @click="save"
             >
               <AppIcon
@@ -324,6 +342,7 @@ defineExpose({ canLeave, confirmLeave });
         <DialogOverlay class="config-dialog-overlay" /><DialogContent
           class="config-dialog"
           :aria-describedby="undefined"
+          @keydown="saveShortcut"
         >
           <DialogTitle>{{ t('gameConfigs.leaveTitle') }}</DialogTitle><p
             v-if="error"
@@ -335,6 +354,8 @@ defineExpose({ canLeave, confirmLeave });
             <button
               class="secondary-button"
               :disabled="!canSave"
+              :title="t('gameConfigs.saveShortcut')"
+              aria-keyshortcuts="Control+S Meta+S"
               @click="saveAndLeave"
             >
               <AppIcon
@@ -393,5 +414,5 @@ defineExpose({ canLeave, confirmLeave });
   </section>
 </template>
 <style scoped>
-.game-configs-panel{min-width:0}.configs-layout{display:grid;grid-template-columns:minmax(180px,260px) minmax(0,1fr);gap:20px;margin-top:14px}.config-files,.config-editor{min-width:0}.config-search{display:flex;gap:8px;align-items:center;padding:0 10px;min-height:40px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}.config-search>svg{flex:none;width:16px;height:16px}.config-search input{width:100%;min-width:0;flex:1;background:transparent;border:0;outline:0;font:inherit;font-size:14px;color:var(--ink)}.config-search input::-webkit-search-cancel-button,.config-search input::-webkit-search-decoration{appearance:none}.config-files ul{list-style:none;padding:0;margin:12px 0}.config-file{display:block;width:100%;padding:10px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ink);font:inherit;font-size:14px;text-align:left;overflow-wrap:anywhere;cursor:pointer}.config-file[aria-pressed=true]{background:var(--panel);border-color:var(--accent)}.config-editor-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.config-editor-heading h2{font-size:14px;margin:0;overflow-wrap:anywhere;min-width:0}.config-text{display:block;width:100%;min-height:360px;resize:vertical;box-sizing:border-box;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);font:14px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;tab-size:2}.config-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px}.config-actions button>svg{width:15px;height:15px;flex:none}.config-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}.config-backups{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:20px}.config-backups label{font-size:14px}.config-backups select{min-width:0;max-width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit;font-size:14px}.config-pagination{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:14px}.config-dialog-overlay{position:fixed;inset:0;background:#0006;z-index:100}.config-dialog{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(460px,calc(100vw - 40px));box-sizing:border-box;padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);z-index:101}.config-dialog h2{font-size:16px;margin:0}.config-dialog p{font-size:14px;line-height:1.6}@media(max-width:760px){.configs-layout{grid-template-columns:minmax(0,1fr)}.config-text{min-height:320px}}
+.game-configs-panel{min-width:0}.configs-layout{display:grid;grid-template-columns:minmax(180px,260px) minmax(0,1fr);gap:20px;margin-top:14px}.config-files,.config-editor{min-width:0}.config-files ul{list-style:none;padding:0;margin:12px 0}.config-file{display:block;width:100%;padding:10px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ink);font:inherit;font-size:14px;text-align:left;overflow-wrap:anywhere;cursor:pointer}.config-file[aria-pressed=true]{background:var(--panel);border-color:var(--accent)}.config-editor-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.config-editor-heading h2{font-size:14px;margin:0;overflow-wrap:anywhere;min-width:0}.config-text{display:block;width:100%;min-height:360px;resize:vertical;box-sizing:border-box;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);font:14px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;tab-size:2}.config-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px}.config-actions button>svg{width:15px;height:15px;flex:none}.config-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}.config-backups{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:20px}.config-backups label{font-size:14px}.config-backups select{min-width:0;max-width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit;font-size:14px}.config-pagination{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:14px}.config-dialog-overlay{position:fixed;inset:0;background:#0006;z-index:100}.config-dialog{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(460px,calc(100vw - 40px));box-sizing:border-box;padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--panel);z-index:101}.config-dialog h2{font-size:16px;margin:0}.config-dialog p{font-size:14px;line-height:1.6}@media(max-width:760px){.configs-layout{grid-template-columns:minmax(0,1fr)}.config-text{min-height:320px}}
 </style>

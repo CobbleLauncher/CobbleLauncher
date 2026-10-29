@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { locale, t } from './i18n';
 import AppIcon from './ui/AppIcon.vue';
 import SearchField from './ui/SearchField.vue';
@@ -16,14 +16,38 @@ export type ToolCatalogPlugin = {
   manifest: PluginIdentityManifest & { publisher?: string; capabilities?: string[] };
   commands: { id: string; label: string }[];
 };
-const props = defineProps<{ plugins: ToolCatalogPlugin[]; gameId?: string; pendingPluginId?: string }>();
+const props = defineProps<{ plugins: ToolCatalogPlugin[]; gameId?: string; pendingPluginId?: string; loading?: boolean; loadFailed?: boolean }>();
 const emit = defineEmits<{
   blueprints: [];
   plugin: [id: string];
   command: [pluginId: string, commandId: string];
   extensionDetails: [pluginId: string];
 }>();
-const workspace = usePageWorkspace('tools-catalog', props.gameId, () => ({ query: '', page: 1 }));
+const workspace = usePageWorkspace('tools-catalog', props.gameId, () => ({ query: '', page: 1, returnToolId: '', scrollTop: 0, restoreReturn: false }));
+const root = ref<HTMLElement>();
+function scrollContainer() { return root.value?.closest<HTMLElement>('.page-scroll, .app-content') ?? document.scrollingElement; }
+function rememberReturn(id: string) {
+  workspace.returnToolId = id;
+  workspace.scrollTop = scrollContainer()?.scrollTop ?? 0;
+  workspace.restoreReturn = true;
+}
+function openBlueprints() { rememberReturn('builtin:blueprints'); emit('blueprints'); }
+function openPlugin(id: string) { rememberReturn(id); emit('plugin', id); }
+function openCommand(pluginId: string, commandId: string) { rememberReturn(pluginId); emit('command', pluginId, commandId); }
+function openDetails(pluginId: string) { rememberReturn(pluginId); emit('extensionDetails', pluginId); }
+function restoreReturn() {
+  if (!workspace.restoreReturn || props.loading) return;
+  void nextTick(() => {
+    if (!workspace.restoreReturn || props.loading || props.loadFailed) return;
+    const action = [...(root.value?.querySelectorAll<HTMLButtonElement>('[data-tool-id]') ?? [])].find(button => button.dataset.toolId === workspace.returnToolId);
+    (action ?? root.value?.querySelector<HTMLInputElement>('input[type=search]'))?.focus({ preventScroll: true });
+    const scroll = scrollContainer();
+    if (scroll) scroll.scrollTop = workspace.scrollTop;
+    workspace.restoreReturn = false;
+  });
+}
+watch(() => props.loading, value => { if (!value) restoreReturn(); });
+onMounted(restoreReturn);
 const query = ref(workspace.query);
 function toolTone(plugin: ToolCatalogPlugin) {
   const metadata = [...(plugin.manifest.tags ?? []), ...(plugin.manifest.capabilities ?? []), plugin.manifest.id].join(' ').toLowerCase();
@@ -54,7 +78,7 @@ const filteredEntries = computed(() => [
   ...(showBlueprints.value ? [{ kind: 'blueprints' as const }] : []),
   ...filteredPlugins.value.map(plugin => ({ kind: 'plugin' as const, plugin })),
 ]);
-const pages = usePluginListPagination(filteredEntries, [query, () => props.plugins]);
+const pages = usePluginListPagination(filteredEntries, [query]);
 pages.page.value = workspace.page;
 watch(query, value => { workspace.query = value; });
 watch(pages.page, value => { workspace.page = value; });
@@ -62,7 +86,9 @@ watch(pages.page, value => { workspace.page = value; });
 
 <template>
   <section
+    ref="root"
     class="tool-catalog"
+    :aria-busy="loading || !!pendingPluginId"
     :aria-label="t('tools.title')"
   >
     <div class="tool-catalog-toolbar">
@@ -88,7 +114,8 @@ watch(pages.page, value => { workspace.page = value; });
             <button
               v-if="entry.kind === 'blueprints'"
               class="tool-card"
-              @click="emit('blueprints')"
+              data-tool-id="builtin:blueprints"
+              @click="openBlueprints"
             >
               <span
                 class="tool-card-icon"
@@ -104,9 +131,10 @@ watch(pages.page, value => { workspace.page = value; });
               v-else-if="entry.plugin.commands.length <= 1"
               class="tool-card"
               :aria-label="entry.plugin.manifest.name"
+              :data-tool-id="entry.plugin.manifest.id"
               :aria-busy="pendingPluginId === entry.plugin.manifest.id"
               :disabled="pendingPluginId === entry.plugin.manifest.id"
-              @click="entry.plugin.commands.length ? emit('command', entry.plugin.manifest.id, entry.plugin.commands[0]?.id ?? '') : emit('plugin', entry.plugin.manifest.id)"
+              @click="entry.plugin.commands.length ? openCommand(entry.plugin.manifest.id, entry.plugin.commands[0]?.id ?? '') : openPlugin(entry.plugin.manifest.id)"
             >
               <PluginIdentity
                 :manifest="entry.plugin.manifest"
@@ -130,6 +158,7 @@ watch(pages.page, value => { workspace.page = value; });
                 <button
                   class="tool-card tool-plugin-card"
                   :aria-label="entry.plugin.manifest.name"
+                  :data-tool-id="entry.plugin.manifest.id"
                   :aria-busy="pendingPluginId === entry.plugin.manifest.id"
                   :disabled="pendingPluginId === entry.plugin.manifest.id"
                 >
@@ -157,14 +186,14 @@ watch(pages.page, value => { workspace.page = value; });
                     v-for="command in entry.plugin.commands"
                     :key="command.id"
                     class="profile-menu-item"
-                    @select="emit('command', entry.plugin.manifest.id, command.id)"
+                    @select="openCommand(entry.plugin.manifest.id, command.id)"
                   >
                     {{ command.label }}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator class="profile-menu-separator" />
                   <DropdownMenuItem
                     class="profile-menu-item"
-                    @select="emit('extensionDetails', entry.plugin.manifest.id)"
+                    @select="openDetails(entry.plugin.manifest.id)"
                   >
                     <AppIcon name="settings" />{{ t('tools.manageExtension') }}
                   </DropdownMenuItem>
@@ -181,7 +210,7 @@ watch(pages.page, value => { workspace.page = value; });
             <ContextMenuItem
               v-if="entry.kind === 'blueprints'"
               class="profile-menu-item"
-              @select="emit('blueprints')"
+              @select="openBlueprints"
             >
               {{ t('tools.open') }}
             </ContextMenuItem>
@@ -191,21 +220,21 @@ watch(pages.page, value => { workspace.page = value; });
                 :key="command.id"
                 class="profile-menu-item"
                 :disabled="pendingPluginId === entry.plugin.manifest.id"
-                @select="emit('command', entry.plugin.manifest.id, command.id)"
+                @select="openCommand(entry.plugin.manifest.id, command.id)"
               >
                 {{ command.label }}
               </ContextMenuItem>
               <ContextMenuItem
                 v-if="!entry.plugin.commands.length"
                 class="profile-menu-item"
-                @select="emit('plugin', entry.plugin.manifest.id)"
+                @select="openPlugin(entry.plugin.manifest.id)"
               >
                 {{ t('tools.open') }}
               </ContextMenuItem>
               <ContextMenuSeparator class="profile-menu-separator" />
               <ContextMenuItem
                 class="profile-menu-item"
-                @select="emit('extensionDetails', entry.plugin.manifest.id)"
+                @select="openDetails(entry.plugin.manifest.id)"
               >
                 <AppIcon name="settings" />{{ t('tools.manageExtension') }}
               </ContextMenuItem>
@@ -214,13 +243,14 @@ watch(pages.page, value => { workspace.page = value; });
         </ContextMenuPortal>
       </ContextMenuRoot>
       <li
-        v-if="!showBlueprints && !filteredPlugins.length"
+        v-if="!loading && !loadFailed && !showBlueprints && !filteredPlugins.length"
         class="tool-empty"
       >
         {{ t('tools.noResults') }}
       </li>
     </ul>
     <PluginListPagination
+      v-if="!loading && !loadFailed"
       :page="pages.page.value"
       :page-count="pages.pageCount.value"
       :total="filteredEntries.length"

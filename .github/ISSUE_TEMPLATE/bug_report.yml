@@ -1,0 +1,44 @@
+name: Bug report / 问题反馈
+description: Report a problem in Cobble Launcher / 反馈 Cobble Launcher 中的问题
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Launcher version / 启动器版本
+      description: Include the beta version or commit if known. / 请填写 beta 版本号；如知道，也可填写 commit。
+      placeholder: 0.1.0-beta.2
+    validations:
+      required: true
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system / 操作系统
+      description: Include version and CPU architecture. / 请填写系统版本和处理器架构。
+      placeholder: Windows 11 24H2, x64
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce / 重现步骤
+      description: What did you do before the issue appeared? / 问题出现前你做了什么？
+      placeholder: 1. Open…
+    validations:
+      required: true
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: Expected and actual result / 预期结果与实际结果
+      description: What did you expect, and what happened? / 你原本预期什么，实际发生了什么？
+    validations:
+      required: true
+  - type: textarea
+    id: attachments
+    attributes:
+      label: Screenshots or diagnostics (optional) / 截图或诊断信息（选填）
+      description: Review attachments and remove personal information before posting. Never attach access tokens or game saves. / 提交前请检查并移除附件中的个人信息。请勿附上访问令牌或游戏存档。
+      placeholder: Drag and drop a screenshot or paste relevant diagnostic text.
+    validations:
+      required: false

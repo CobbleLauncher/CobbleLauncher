@@ -26,7 +26,7 @@ export type AppPage =
   | { view: 'extensions'; candidate?: ExtensionCandidate }
   | { view: 'move-games'; taskId?: string }
   | { view: 'extension-detail'; pluginId: string; title?: string }
-  | { view: 'details'; gameId: string; snapshotRestore?: SnapshotRestoreTarget; recoveryTarget?: RecoveryDetailTarget }
+  | { view: 'details'; gameId: string; section?: 'worlds' | 'screenshots'; worldFolder?: string; snapshotRestore?: SnapshotRestoreTarget; recoveryTarget?: RecoveryDetailTarget }
   | { view: 'running'; gameId: string }
   | { view: 'readiness'; gameId: string }
   | { view: 'mesh-group'; gameId: string; invitation?: string }

@@ -1,5 +1,2546 @@
 {
   "schema_version": 1,
   "name": "CobbleLauncher Official",
-  "plugins": []
+  "plugins": [
+    {
+      "manifest": {
+        "permissions": [
+          {
+            "permission": "launcher:resource/selected/read",
+            "extensions": [
+              "litematic",
+              "schem"
+            ]
+          }
+        ],
+        "id": "schematic-viewer",
+        "name": "Schematic Viewer",
+        "description": {
+          "en": "Preview blueprints and material lists",
+          "zh-CN": "预览蓝图和材料清单"
+        },
+        "tags": [
+          "blueprints",
+          "viewer"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "17d74778ef609a0e6c486fd26e792fa5edaeb9c96c44254d6ff5754b2bbb096f"
+        },
+        "version": "0.2.1",
+        "api_version": "1.0.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "viewer"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:viewer",
+              "version": "1.0.0"
+            }
+          ],
+          "optional": [
+            {
+              "id": "launcher:materials-import",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [
+          "schem",
+          "litematic"
+        ],
+        "component_sha256": "32b6c04b84b3d6e3c8fed3ee4481c371cb2469b7c868bbaff86a717dbac32cea"
+      },
+      "description": "预览蓝图和材料清单",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/schematic-viewer-0.2.1.zip",
+        "sha256": "f45d30168c8980a81bd2b6259ed47b238a067b46d6cfcbe4e02ea0156d957003",
+        "size": 100210
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "afc0c5d6fabac12ce8706422a187c963408750fce2f9dcc950ad1419ca465b4a"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:game-recovery/read"
+          },
+          {
+            "permission": "launcher:game-recovery/open-request"
+          },
+          {
+            "permission": "launcher:clipboard/write"
+          },
+          {
+            "permission": "launcher:exports/text"
+          },
+          {
+            "permission": "launcher:resource/selected/read",
+            "extensions": [
+              "log",
+              "txt"
+            ]
+          },
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:game-diagnostics/read"
+          },
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "mods",
+              "storage"
+            ]
+          },
+          {
+            "permission": "launcher:instances/copy-request"
+          },
+          {
+            "permission": "launcher:storage/private"
+          }
+        ],
+        "id": "crash-doctor",
+        "name": "Crash Doctor",
+        "description": {
+          "en": "Review logs, recent changes and recovery actions locally",
+          "zh-CN": "在本地检查日志、近期变更与恢复操作"
+        },
+        "tags": [
+          "diagnostics",
+          "logs",
+          "recovery"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "7a9b37d89d2f32a686c792d718bf7dc7f40a8c2ef12dc44c2097695ac8f5a00a"
+        },
+        "version": "0.7.0",
+        "api_version": "0.1.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.1.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [
+          "log",
+          "txt"
+        ],
+        "component_sha256": "84d9f9c8b5bda4e7e735f2321e0af5d9a18b6f12cb8cf6da28d7fd7e6ac60def"
+      },
+      "description": "在本地检查日志、近期变更与恢复操作",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/crash-doctor-0.7.0.zip",
+        "sha256": "dcf85e948d72cba4f3c441c470b9b822e8d4a86f6e644bf23332abbde00d7baa",
+        "size": 78030
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "0f7ceda287f4c06c2befff8bed7e8d14bd9927b7a53e4ea7dda7836e7d07eaac"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:resource/selected/read",
+            "extensions": [
+              "json",
+              "mrpack"
+            ]
+          },
+          {
+            "permission": "launcher:settings/read",
+            "keys": [
+              "global:page_size",
+              "global:show_dependencies"
+            ]
+          },
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "mods"
+            ]
+          },
+          {
+            "permission": "launcher:ui/webview"
+          }
+        ],
+        "id": "modpack-inspector",
+        "name": "Modpack Inspector",
+        "description": {
+          "en": "Explore installed Mods and declared dependencies; inspect local modpack files",
+          "zh-CN": "查看已安装模组及声明依赖，检查本地整合包文件"
+        },
+        "tags": [
+          "modpacks",
+          "inspection"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "f4bc2cef6a6af2f371fb7e878da44a3dcdec451dc61f60b2304cd3769e394a8f"
+        },
+        "version": "0.2.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [
+          "json",
+          "mrpack"
+        ],
+        "report_protocols": [
+          "cobble.mrpack-page@1"
+        ],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "modpack-inspector.inspect-pack",
+              "label": {
+                "en": "Modpack Inspector",
+                "zh-CN": "整合包检查器"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ]
+            }
+          ],
+          "settings": {
+            "categories": [
+              {
+                "id": "inspection",
+                "label": {
+                  "en": "Inspection",
+                  "zh-CN": "检查"
+                },
+                "fields": [
+                  {
+                    "id": "page_size",
+                    "type": "enum",
+                    "label": {
+                      "en": "Rows per page",
+                      "zh-CN": "每页行数"
+                    },
+                    "scope": "global",
+                    "advanced": false,
+                    "default": 50,
+                    "options": [
+                      {
+                        "value": 20,
+                        "label": {
+                          "en": "20"
+                        }
+                      },
+                      {
+                        "value": 50,
+                        "label": {
+                          "en": "50"
+                        }
+                      },
+                      {
+                        "value": 100,
+                        "label": {
+                          "en": "100"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "show_dependencies",
+                    "type": "boolean",
+                    "label": {
+                      "en": "Show dependencies",
+                      "zh-CN": "显示依赖"
+                    },
+                    "scope": "global",
+                    "advanced": false,
+                    "default": true
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "component_sha256": "5c5a7d7936b45f3ae8dcd43ac1857f0f7d88220fdffd6c1135794019e3752e3e"
+      },
+      "description": "查看已安装模组及声明依赖，检查本地整合包文件",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/modpack-inspector-0.2.0.zip",
+        "sha256": "d85302efaa465c6c16602187ce5ca6c35dfcc86156b0888b81530b2de0e57e2e",
+        "size": 205581
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "ed30e734182a96aeb05b83f0e216ce49b7cb60fad71f541ff30277b20905af1f"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:resource/selected/read",
+            "extensions": [
+              "json"
+            ]
+          }
+        ],
+        "id": "world-chronicle",
+        "name": "World Chronicle",
+        "description": {
+          "en": "A personal chronicle from Minecraft statistics",
+          "zh-CN": "从 Minecraft 统计回顾你的冒险"
+        },
+        "tags": [
+          "worlds",
+          "statistics"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "34bb8d1041906d30c416b4862b2792fe508d9b882c3e9ac5962c89eb8ea12993"
+        },
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [
+          "json"
+        ],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "world-chronicle.open",
+              "label": {
+                "en": "Open World Chronicle",
+                "zh-CN": "打开世界游玩年鉴"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ]
+            }
+          ]
+        },
+        "component_sha256": "22527ec4ef21759ed2f8446ad2e55e40d90df404b15443f2514431460ec99198"
+      },
+      "description": "从 Minecraft 统计回顾你的冒险",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/world-chronicle-0.1.0.zip",
+        "sha256": "c256febec0a34380bc8582bbaff6b2dc9446b4bd8e2f59eaab8dec6356eb788b",
+        "size": 61697
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "ef3a7cee731cd370970957949460917cf1ed00947a462bbb56f80254aef476e5"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "servers"
+            ]
+          },
+          {
+            "permission": "launcher:storage/private"
+          },
+          {
+            "permission": "launcher:clipboard/write"
+          }
+        ],
+        "id": "command-pocket",
+        "name": "Command Pocket",
+        "description": {
+          "en": "Save server command templates, fill parameters and copy commands",
+          "zh-CN": "按服务器保存指令模板、填写参数并复制指令"
+        },
+        "tags": [
+          "commands",
+          "creative"
+        ],
+        "version": "0.2.1",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "command-pocket.run",
+              "label": {
+                "en": "Open Command Pocket",
+                "zh-CN": "打开指令口袋"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ],
+              "icon": "puzzle",
+              "search_keywords": [
+                "Minecraft command",
+                "指令"
+              ],
+              "quick_entry": true,
+              "suggested_shortcut": "Ctrl+Shift+C"
+            }
+          ]
+        },
+        "component_sha256": "c6b1355d6413838402fc8d1b92bb7bd368cdf20000d84a547569c15687b0ce78"
+      },
+      "description": "按服务器保存指令模板、填写参数并复制指令",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/command-pocket-0.2.1.zip",
+        "sha256": "6ef667731d5b91986dc0a9e3129363c153ee5926809fcdf8c8c3eaa4c86a8684",
+        "size": 38401
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "a8f90c78736c296b71ec6a715c75d16a0815e844c42dac336442ce8951e8486f"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "worlds"
+            ]
+          },
+          {
+            "permission": "launcher:worlds/seed/read"
+          },
+          {
+            "permission": "launcher:clipboard/write"
+          }
+        ],
+        "id": "seed-compass",
+        "name": "Seed Compass",
+        "description": {
+          "en": "Local seed maps and biome or structure search",
+          "zh-CN": "本地种子地图与生物群系、结构搜索"
+        },
+        "tags": [
+          "worlds",
+          "seed",
+          "map"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "8fa86e682de3df530f372b2ab2ee8402aec9d0a9d5d330c81a509d017c25d6ec"
+        },
+        "version": "0.1.2",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ],
+          "optional": [
+            {
+              "id": "launcher:waypoint-import",
+              "version": "^0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "seed-compass.open",
+              "label": {
+                "en": "Open Seed Compass",
+                "zh-CN": "打开种子罗盘"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ]
+            }
+          ]
+        },
+        "component_sha256": "eb1728dbb3a73f088646676de5805a4d188e361661122db1a238a564c8cc289c"
+      },
+      "description": "本地种子地图与生物群系、结构搜索",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/seed-compass-0.1.2.zip",
+        "sha256": "ea073f69c3fc221b70f1eed9bb01f2cc3a741c235bb56e4281e176e87eb3973d",
+        "size": 41750
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "f301f1f05818621897b8f64e501ed71877d8e181e6fac419bba53d687890c612"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "worlds",
+              "servers"
+            ]
+          },
+          {
+            "permission": "launcher:storage/private"
+          },
+          {
+            "permission": "launcher:clipboard/write"
+          }
+        ],
+        "id": "coordinate-book",
+        "name": "Coordinate Book",
+        "description": {
+          "en": "Save locations, world notes and next-session plans",
+          "zh-CN": "保存地点、世界笔记与下次游玩计划"
+        },
+        "tags": [
+          "worlds",
+          "coordinates",
+          "utilities"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "af1701e3778204df983e0c4807e60be700db65b780848ee0aa1f51598ab12ced"
+        },
+        "version": "0.3.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            },
+            {
+              "id": "launcher:waypoint-import",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "coordinate-book.open",
+              "label": {
+                "en": "Open Coordinate Book",
+                "zh-CN": "打开坐标簿"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ]
+            }
+          ]
+        },
+        "component_sha256": "aa06df594895e8a23ec201f02e568ac416ae98d220b3592c48d4acbceb80b85c"
+      },
+      "description": "保存地点、世界笔记与下次游玩计划",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/coordinate-book-0.3.0.zip",
+        "sha256": "9f16a3f212db3c3e9176f9072c0e38f0630f07b72212873b02b299504f82d8e3",
+        "size": 44362
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "cb664d9f0351e94e159624686097f0bb5d602da601967dbe4814255362e12831"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:storage/private"
+          },
+          {
+            "permission": "launcher:clipboard/write"
+          },
+          {
+            "permission": "launcher:exports/text"
+          },
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "worlds"
+            ]
+          }
+        ],
+        "id": "material-planner",
+        "name": "Material Planner",
+        "description": {
+          "en": "Track blueprint material requirements and collection progress",
+          "zh-CN": "管理蓝图方块需求与材料收集进度"
+        },
+        "tags": [
+          "blueprints",
+          "materials",
+          "utilities"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "489dc27d6f878cd7e13f0316017d118594fe947824a43e22b6fb502178994a38"
+        },
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            },
+            {
+              "id": "launcher:materials-import",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "material-planner.open",
+              "label": {
+                "en": "Open Material Planner",
+                "zh-CN": "打开材料筹备清单"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ]
+            }
+          ]
+        },
+        "component_sha256": "9c508548cd1c502d8f368e5dd476311395ea121eb1bceb021fe45b268ad977e3"
+      },
+      "description": "管理蓝图方块需求与材料收集进度",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/material-planner-0.1.0.zip",
+        "sha256": "151558c7e7e5c9444a3702f0cd753f02c907bcf2c4e05a077920998d293205e1",
+        "size": 40742
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "6ba97832b6389313877e2f91056f4e5273663cf144f220d6549596c9cf1b7ecf"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:play-manifest/export"
+          }
+        ],
+        "id": "play-manifest",
+        "name": "Play Configuration",
+        "description": {
+          "en": "Share a reviewed game configuration as a Modrinth pack",
+          "zh-CN": "预览并分享开玩配置"
+        },
+        "tags": [
+          "packs",
+          "sharing",
+          "utilities"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "af1701e3778204df983e0c4807e60be700db65b780848ee0aa1f51598ab12ced"
+        },
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "play-manifest.open",
+              "label": {
+                "en": "Share play configuration",
+                "zh-CN": "分享开玩配置"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ]
+            }
+          ]
+        },
+        "component_sha256": "a007a9f1bc24a1698a6e31ffdd4dd187ca7d880229cf0fa42b25e6be07226106"
+      },
+      "description": "预览并分享开玩配置",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/play-manifest-0.1.0.zip",
+        "sha256": "eb04f8cc53e329b40585b39d79df421bc8d7ec1f7156effe9dcd5f79de887035",
+        "size": 35909
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "e164989152691cb28f33fe0c6ec7a1f3dfad06784525213fa7085e0aecb45844"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:resource/selected/read",
+            "extensions": [
+              "json",
+              "zip"
+            ]
+          },
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:exports/text"
+          }
+        ],
+        "id": "lang-doctor",
+        "name": "Language Doctor",
+        "description": {
+          "en": "Compare resource-pack translations and check language JSON",
+          "zh-CN": "对比资源包翻译并检查语言 JSON"
+        },
+        "tags": [
+          "translation",
+          "resource-packs"
+        ],
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [
+          "json",
+          "zip"
+        ],
+        "report_protocols": [
+          "cobble.lang-package@1"
+        ],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "lang-doctor.inspect",
+              "label": {
+                "en": "Check translations",
+                "zh-CN": "检查翻译"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                }
+              ]
+            }
+          ]
+        },
+        "component_sha256": "9a0490560fa9d40264570c800d3c0c588566e66fefb24c80f017309357309231"
+      },
+      "description": "对比资源包翻译并检查语言 JSON",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/lang-doctor-0.1.0.zip",
+        "sha256": "c354705170eb691eb7c59c78240b65d91935971a61acbbda2a46c84e2c3103b0",
+        "size": 103194
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "d221332d533793603c4daf7275436aaad7bd21ed230c5f7d4594037c2e7a2d18"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "storage"
+            ]
+          },
+          {
+            "permission": "launcher:instances/copy-request"
+          }
+        ],
+        "id": "trial-copy",
+        "name": "Update Trial Copy",
+        "description": {
+          "en": "Try updates in an independent game copy",
+          "zh-CN": "在独立游戏副本中试验更新"
+        },
+        "tags": [
+          "games",
+          "updates",
+          "utilities"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "af1701e3778204df983e0c4807e60be700db65b780848ee0aa1f51598ab12ced"
+        },
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "trial-copy.open",
+              "label": {
+                "en": "Create update trial copy",
+                "zh-CN": "创建更新试验副本"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ]
+            }
+          ]
+        },
+        "component_sha256": "2ce6b2e9d7cde0733f717455b582a59208dfe23002387e747cf654f94a99df70"
+      },
+      "description": "在独立游戏副本中试验更新",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/trial-copy-0.1.0.zip",
+        "sha256": "9c1e032eddfad80250b53743b7529f0c330d2fd31ede23f2c01c7367a2ea92e3",
+        "size": 35466
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "6f02de773c29b33307ab75291e7913f09d36fc308b2c5af6e184e28e202c6c9c"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:files/import-request"
+          }
+        ],
+        "id": "file-inbox",
+        "name": "File Inbox",
+        "description": {
+          "en": "Review selected files and choose an import or viewer",
+          "zh-CN": "查看所选文件并选择导入或查看方式"
+        },
+        "tags": [
+          "files",
+          "import"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "34bb8d1041906d30c416b4862b2792fe508d9b882c3e9ac5962c89eb8ea12993"
+        },
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            },
+            {
+              "id": "launcher:file-inbox",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "file-inbox.open",
+              "label": {
+                "en": "Open File Inbox",
+                "zh-CN": "打开文件投递"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                }
+              ]
+            }
+          ]
+        },
+        "component_sha256": "4ff97b2b5bf49c9510ec0f32219c8a4c1290de0597208a7ea0a7fa6497a28e54"
+      },
+      "description": "查看所选文件并选择导入或查看方式",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/file-inbox-0.1.0.zip",
+        "sha256": "ef46d19e1062fb47cd89b5d4683da55a84274bee34913eb9da6e12cb6b557614",
+        "size": 38114
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "c0a09d1367752f6d83b3d5756b288fbd4bf277b57551a82624aa452bd9861945"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:ai/chat"
+          },
+          {
+            "permission": "launcher:ai/configure"
+          },
+          {
+            "permission": "launcher:game-diagnostics/read"
+          },
+          {
+            "permission": "launcher:resource/selected/read",
+            "extensions": [
+              "log",
+              "txt"
+            ]
+          }
+        ],
+        "id": "ai-assistant",
+        "name": "AI Assistant",
+        "description": {
+          "en": "Ask questions using a configured AI service, with optional reviewed game diagnostics",
+          "zh-CN": "连接自选 AI 服务提问，可按需附加已预览的游戏诊断"
+        },
+        "tags": [
+          "assistant",
+          "diagnostics",
+          "utilities"
+        ],
+        "version": "0.1.0",
+        "api_version": "0.1.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.1.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [
+          "log",
+          "txt"
+        ],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "ai-assistant.open",
+              "label": {
+                "en": "AI Assistant",
+                "zh-CN": "AI 助手"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ]
+            }
+          ]
+        },
+        "component_sha256": "543898130ea57ff9c5a46428746a2c8d16f1ba7c2aa1a17f8966e236e36ee98e"
+      },
+      "description": "连接自选 AI 服务提问，可按需附加已预览的游戏诊断",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/ai-assistant-0.1.0.zip",
+        "sha256": "765f23ad46b0e2f6b6cfa7b0f7becda486d6c9e9f20d604d02c6027e90592023",
+        "size": 37762
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "8d55199b89950a0a741cfc467e0332cce27b58e438edfdf609ac0eb606045002"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:clipboard/write"
+          }
+        ],
+        "id": "anvil-planner",
+        "name": "Anvil Planner",
+        "description": {
+          "en": "Plan offline anvil enchantment order and level costs",
+          "zh-CN": "离线规划铁砧附魔顺序与等级消耗"
+        },
+        "tags": [
+          "enchantments",
+          "utilities"
+        ],
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "anvil-planner.open",
+              "label": {
+                "en": "Open Anvil Planner",
+                "zh-CN": "打开铁砧规划"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ],
+              "search_keywords": [
+                "anvil",
+                "enchant",
+                "铁砧",
+                "附魔"
+              ]
+            }
+          ]
+        },
+        "component_sha256": "a609d28b305d3412e743b72eaaec482f00f8af62d8936150b4a9698a7f3668cb"
+      },
+      "description": "离线规划铁砧附魔顺序与等级消耗",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/anvil-planner-0.1.0.zip",
+        "sha256": "d4e49383dbf6517155ab41f3a2b32e5d1a939a09d7f7ed282fed22859133a580",
+        "size": 40457
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "44d5df361d51fea3e4d0065d063ea728aba8541ca2b5601c0c2f2f145ea4c798"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:blueprints/generated-save"
+          }
+        ],
+        "id": "geometry-builder",
+        "name": "Geometry Builder",
+        "description": {
+          "en": "Build layered circles, ellipses, spheres and domes offline",
+          "zh-CN": "离线生成分层圆、椭圆、球和半球顶"
+        },
+        "tags": [
+          "building",
+          "blueprints",
+          "utilities"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "489dc27d6f878cd7e13f0316017d118594fe947824a43e22b6fb502178994a38"
+        },
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "geometry-builder.open",
+              "label": {
+                "en": "Open Geometry Builder",
+                "zh-CN": "打开几何建筑"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ]
+            }
+          ]
+        },
+        "component_sha256": "9c27239907d5ac5a5b68c27b1d0843e7c394497f813144ef120d852ccf6f3065"
+      },
+      "description": "离线生成分层圆、椭圆、球和半球顶",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/geometry-builder-0.1.0.zip",
+        "sha256": "006cad99dbe6160ca8890547e5e0047a1f294a16fadef8534d016d4c61ad06f5",
+        "size": 36258
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "permissions": [
+          {
+            "permission": "launcher:provider/https/get",
+            "origins": [
+              "https://www.mcschematic.top"
+            ]
+          }
+        ],
+        "id": "mcs-provider",
+        "name": "MCS Blueprint Provider",
+        "description": {
+          "en": "Browse and import public Minecraft blueprints",
+          "zh-CN": "浏览和导入公开 Minecraft 蓝图"
+        },
+        "tags": [
+          "blueprints",
+          "catalog"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "92342788adc6169582ac947439193fce4ad739c4ca71c01329a79ca4c3a3cbc5"
+        },
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "blueprint-provider"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:blueprint-provider",
+              "version": "0.2.0"
+            }
+          ],
+          "optional": [
+            {
+              "id": "launcher:viewer",
+              "version": "^1.0.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "provider_origins": [
+          "https://www.mcschematic.top"
+        ],
+        "component_sha256": "c522889d086700d3965b525c72c4fbf948c08520a4263791458c624bd170aba9"
+      },
+      "description": "浏览和导入公开 Minecraft 蓝图",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/mcs-provider-0.1.0.zip",
+        "sha256": "280e74923e406b33826726c0d9076a2c5609bfca5930d2eeab65f4505ff41769",
+        "size": 176841
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "permissions": [
+          {
+            "permission": "launcher:composer/draft"
+          },
+          {
+            "permission": "launcher:composer/context/selected-session"
+          }
+        ],
+        "id": "session-card",
+        "name": "Session Card",
+        "description": {
+          "en": "Draft a shareable card for your selected game session",
+          "zh-CN": "为当前游戏联机生成分享卡片"
+        },
+        "tags": [
+          "multiplayer",
+          "session",
+          "message"
+        ],
+        "version": "0.1.1",
+        "api_version": "0.1.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "message-composer"
+        ],
+        "composer_permissions": [
+          "draft",
+          "selected_session"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:message-composer",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "component_sha256": "3b0d0e9703046665b935b99dd31b27ed8b4f56a2afd0a374cfbdfcfda89f15c4"
+      },
+      "description": "为当前游戏联机生成分享卡片",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/session-card-0.1.1.zip",
+        "sha256": "888966a286ddd718c4e22d588186efe25ee97bdd51c9473779025ad25d52cec0",
+        "size": 23093
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "7f94868157a697ad17c678b533a83076e5802e3992fecabb62045382f56af338"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:resource/selected/read",
+            "extensions": [
+              "json",
+              "toml",
+              "properties",
+              "yaml",
+              "yml",
+              "txt"
+            ]
+          },
+          {
+            "permission": "launcher:settings/read",
+            "keys": [
+              "global:format",
+              "global:warn_duplicate_properties"
+            ]
+          },
+          {
+            "permission": "launcher:resource/selected-folder/read",
+            "extensions": [
+              "json",
+              "toml",
+              "properties",
+              "yaml",
+              "yml",
+              "txt"
+            ]
+          },
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:game-config/read"
+          },
+          {
+            "permission": "launcher:game-config/write"
+          },
+          {
+            "permission": "launcher:game-keybindings/read"
+          },
+          {
+            "permission": "launcher:game-keybindings/write"
+          }
+        ],
+        "id": "config-doctor",
+        "name": "Config Doctor",
+        "description": {
+          "en": "Check configuration syntax locally",
+          "zh-CN": "在本地检查配置语法"
+        },
+        "tags": [
+          "configs",
+          "diagnostics"
+        ],
+        "version": "0.3.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [
+          "json",
+          "toml",
+          "properties",
+          "yaml",
+          "yml",
+          "txt"
+        ],
+        "report_protocols": [
+          "cobble.config-folder@1"
+        ],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "config-doctor.check-config",
+              "label": {
+                "en": "Check config",
+                "zh-CN": "检查配置"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ]
+            }
+          ],
+          "settings": {
+            "form": {
+              "schema_version": 1,
+              "scope": "global",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "format": {
+                    "default": "auto",
+                    "enum": [
+                      "auto",
+                      "json",
+                      "toml",
+                      "properties",
+                      "yaml"
+                    ],
+                    "title": "Text file format",
+                    "type": "string"
+                  },
+                  "warn_duplicate_properties": {
+                    "default": true,
+                    "title": "Warn about repeated properties keys",
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "format",
+                  "warn_duplicate_properties"
+                ],
+                "type": "object"
+              },
+              "ui_schema": {
+                "elements": [
+                  {
+                    "scope": "#/properties/format",
+                    "type": "Control"
+                  },
+                  {
+                    "scope": "#/properties/warn_duplicate_properties",
+                    "type": "Control"
+                  }
+                ],
+                "type": "VerticalLayout"
+              },
+              "translations": {
+                "en": {
+                  "format.auto": "From file type",
+                  "format.json": "JSON",
+                  "format.label": "Text file format",
+                  "format.properties": "Java properties",
+                  "format.toml": "TOML",
+                  "format.yaml": "YAML",
+                  "warn_duplicate_properties.label": "Warn about repeated properties keys"
+                },
+                "zh-CN": {
+                  "format.auto": "按文件类型",
+                  "format.json": "JSON",
+                  "format.label": "文本文件格式",
+                  "format.properties": "Java properties",
+                  "format.toml": "TOML",
+                  "format.yaml": "YAML",
+                  "warn_duplicate_properties.label": "提示 properties 重复键"
+                }
+              }
+            }
+          }
+        },
+        "component_sha256": "8dec7d29ed56e0a17d6d71c09c5bf7846168e3f5c64ef2e3550c52413784f2e3"
+      },
+      "description": "在本地检查配置语法",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/config-doctor-0.3.0.zip",
+        "sha256": "e7552a332104b84ba1cbf65a0c6d962b5007a6e31c29368eff99d12c759e05e9",
+        "size": 449794
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "permissions": [
+          {
+            "permission": "launcher:resource/selected/read",
+            "extensions": [
+              "mcmeta",
+              "json",
+              "zip"
+            ]
+          }
+        ],
+        "id": "pack-metadata",
+        "name": "Pack Metadata",
+        "description": {
+          "en": "Inspect resource pack metadata",
+          "zh-CN": "检查资源包元数据"
+        },
+        "tags": [
+          "resourcepacks",
+          "metadata",
+          "diagnostics"
+        ],
+        "version": "0.1.1",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            }
+          ]
+        },
+        "file_extensions": [
+          "mcmeta",
+          "json",
+          "zip"
+        ],
+        "report_protocols": [
+          "cobble.pack-metadata@1"
+        ],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "pack-metadata.inspect",
+              "label": {
+                "en": "Inspect pack.mcmeta",
+                "zh-CN": "检查 pack.mcmeta"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                }
+              ]
+            }
+          ]
+        },
+        "component_sha256": "87cefda301f3495907c0d91e17f32a02b9f1437946c01ceb10f7e97c6f750d1e"
+      },
+      "description": "检查资源包元数据",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/pack-metadata-0.1.1.zip",
+        "sha256": "e3deef6327d8b7f1f88641f50868bd94b9d136b7422cf650fedc849ea350c05c",
+        "size": 38429
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "permissions": [
+          {
+            "permission": "launcher:images/selected/read"
+          },
+          {
+            "permission": "launcher:images/output/propose"
+          }
+        ],
+        "id": "screenshot-sheet",
+        "name": "Screenshot Sheet",
+        "description": {
+          "en": "Arrange selected screenshots into a contact sheet",
+          "zh-CN": "将所选截图排列为拼图"
+        },
+        "tags": [
+          "screenshots",
+          "images",
+          "layout"
+        ],
+        "version": "0.1.0",
+        "api_version": "0.1.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "image-layout"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:image-layout",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "component_sha256": "0999f6aed8b381b5d79c8db1ef10db945dbaa7fde92342d295342bcb5d7442cd"
+      },
+      "description": "将所选截图排列为拼图",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/screenshot-sheet-0.1.0.zip",
+        "sha256": "520d197882e768e60d150ff8637977d4b64ccded5e17780c7ac5fc3bf8914eae",
+        "size": 18573
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "1a12d13689eae3fd14ecf9ad5313a20cb62453a2fcab4dbbc26eba72b08cacef"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "mods"
+            ]
+          },
+          {
+            "permission": "launcher:ui/webview"
+          }
+        ],
+        "id": "mod-conflicts",
+        "name": "Mod conflicts",
+        "description": {
+          "en": "Find duplicate Mods and missing declared dependencies",
+          "zh-CN": "查找重复模组和缺失的已声明依赖"
+        },
+        "tags": [
+          "mods",
+          "inspection"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "b54d9bd6abb4a231e3e9bba8c8878442aeaccf1f3bc08761b6568b202efdb9a8"
+        },
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "mod-conflicts.inspect",
+              "label": {
+                "en": "Mod conflicts",
+                "zh-CN": "模组冲突"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ]
+            }
+          ]
+        },
+        "component_sha256": "cf7d2d131244bcd33f94965ebf4fe60667d21ef4ec2b3794904ca5a745c6c5cb"
+      },
+      "description": "查找重复模组和缺失的已声明依赖",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/mod-conflicts-0.1.0.zip",
+        "sha256": "5b38e44db4aa2cf69e10c3c2650259de4881a0d4c49a2b406eabacfd2990d2bb",
+        "size": 70505
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "450eef16cf075f5845a8aff90f511f4d7101866e26ca64c590f473dc88d1e372"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "packs"
+            ]
+          },
+          {
+            "permission": "launcher:ui/webview"
+          }
+        ],
+        "id": "resource-pack-stack",
+        "name": "Resource pack stack",
+        "description": {
+          "en": "Review active resource packs and missing entries",
+          "zh-CN": "检查资源包顺序和缺失条目"
+        },
+        "tags": [
+          "packs",
+          "inspection"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "2a3addb5f1ad3d31716f93c4534acbf508811b5c11b1f640a5748e905b074716"
+        },
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "resource-pack-stack.inspect",
+              "label": {
+                "en": "Resource pack stack",
+                "zh-CN": "资源包顺序"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ]
+            }
+          ]
+        },
+        "component_sha256": "7c61f157c85e639f1b5e2e61bc843735070045eb0ffefb367858ec331358504a"
+      },
+      "description": "检查资源包顺序和缺失条目",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/resource-pack-stack-0.1.0.zip",
+        "sha256": "12b3faaa506776fb156691fad439fcceee09c68145895600eddf8634d388981d",
+        "size": 63963
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "48440068ab327f73f71b91c3ae3261eb1af34c37662cc870c414ce79f2da5351"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "worlds"
+            ]
+          },
+          {
+            "permission": "launcher:world-snapshots/read"
+          },
+          {
+            "permission": "launcher:world-snapshots/restore-request"
+          }
+        ],
+        "id": "world-dashboard",
+        "name": "World Time Machine",
+        "description": {
+          "en": "Compare world snapshots and review recovery",
+          "zh-CN": "对比世界快照并查看恢复选项"
+        },
+        "tags": [
+          "worlds",
+          "snapshots",
+          "recovery"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "34bb8d1041906d30c416b4862b2792fe508d9b882c3e9ac5962c89eb8ea12993"
+        },
+        "version": "0.2.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "world-dashboard.inspect",
+              "label": {
+                "en": "Open World Time Machine",
+                "zh-CN": "打开世界时光机"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ]
+            }
+          ]
+        },
+        "component_sha256": "30560306148dfcd47df4de5cebf28bd425fe99868bba119490bed0095c550a8e"
+      },
+      "description": "对比世界快照并查看恢复选项",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/world-dashboard-0.2.0.zip",
+        "sha256": "8d65b989111eca4be04c9394e9ec67950ac23775d7f4142d937a74cac5dca4d4",
+        "size": 61871
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "9cd912629e1097ca3d795ba259116b129a5a1507cbd4ccf53fc2aea81441fb7b"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "backups"
+            ]
+          }
+        ],
+        "id": "backup-auditor",
+        "name": "Backup Auditor",
+        "description": {
+          "en": "Review retained world replacement backups",
+          "zh-CN": "检查保留的世界替换备份"
+        },
+        "tags": [
+          "backups",
+          "inspection"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "0940b8a5da0c9f53095cd17d41c524f42e65637953c0b7d2a838f3e170d771df"
+        },
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "backup-auditor.inspect",
+              "label": {
+                "en": "Review backups",
+                "zh-CN": "检查备份"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ]
+            }
+          ]
+        },
+        "component_sha256": "7fac32ad79606149f396468fc7b38187acaf6de84bd9cbfbf1e44ddf321cc3fb"
+      },
+      "description": "检查保留的世界替换备份",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/backup-auditor-0.1.0.zip",
+        "sha256": "d90e643f6617236c87203b8e8bc1e6db20181ee422b5b4a4fad3dad7fef5f748",
+        "size": 58409
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "4196a9577357f95f2fdc8aa2caf784e06371a70ce59eacd02bc1eff00a057706"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "datapacks"
+            ]
+          }
+        ],
+        "id": "datapack-auditor",
+        "name": "Datapack Auditor",
+        "description": {
+          "en": "Review datapacks in each world",
+          "zh-CN": "检查各世界的数据包"
+        },
+        "tags": [
+          "datapacks",
+          "worlds",
+          "inspection"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "204dbfc5a7f5a5e3b2df4bf1001c1774eec2b52382c1271ed9b8236f5dc985b3"
+        },
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "component_sha256": "c0329a83063bf4a3d5c5634a9fbfe1aaea780f98782246ba2986d32bac0e4372"
+      },
+      "description": "检查各世界的数据包",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/datapack-auditor-0.1.0.zip",
+        "sha256": "9a0a6e316c47b783ef4089794aad823e51c2f5d4d4df3abe61254fd75fc2af14",
+        "size": 60539
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "753fe5de39aba7edfc8ad49d72d32db6d8b57664a41e7981382ebb051c09fc31"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "servers"
+            ]
+          }
+        ],
+        "id": "serverbook-inspector",
+        "name": "Serverbook Inspector",
+        "description": {
+          "en": "Find duplicate or unnamed saved servers",
+          "zh-CN": "查找重复或未命名的服务器"
+        },
+        "tags": [
+          "servers",
+          "privacy",
+          "inspection"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "e4d835a21ac7a64c70ca5c54b53f9e1653a03a84f0f76728fbd31844bd355f03"
+        },
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "component_sha256": "ebf23b62f431c5afdd6953410bf04240c0b85255dc963dd9ef5f8250e4e6d58a"
+      },
+      "description": "查找重复或未命名的服务器",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/serverbook-inspector-0.1.0.zip",
+        "sha256": "c9fbbe5fce717b0a16d8c212fec3940415f40553cfe923d24e012410bf44777d",
+        "size": 58367
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "c14f4a1bc032fc640f5c0ad6720bdb61d0e08b40b51f24184410b69b2096d407"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "screenshots"
+            ]
+          }
+        ],
+        "id": "screenshot-timeline",
+        "name": "Screenshot Timeline",
+        "description": {
+          "en": "Group screenshots by date",
+          "zh-CN": "按日期整理截图清单"
+        },
+        "tags": [
+          "screenshots",
+          "timeline",
+          "report"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "dafcf0ec7428d5b2eb38e8cdf1925a51f8d42d99ad3dc9650a32f683e969ca75"
+        },
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "component_sha256": "47dcfbd4eae26908fa2af90a6474447509681a8caf0bbb59a31d0897ea36ba48"
+      },
+      "description": "按日期整理截图清单",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/screenshot-timeline-0.1.0.zip",
+        "sha256": "ae94b64a68bfb01c97759c66bf09b1d1e5f08ce8147a23a742341b28bd6b1972",
+        "size": 99282
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "1323486777250b6a734db117dfdce8a1ea4632c61b6184e1085d13c99c4641e9"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "options"
+            ]
+          }
+        ],
+        "id": "controls-auditor",
+        "name": "Controls Auditor",
+        "description": {
+          "en": "Find conflicting keybindings",
+          "zh-CN": "查找重复使用的按键"
+        },
+        "tags": [
+          "controls",
+          "keybindings",
+          "report"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "9ed57513d214b7073b4cf29a9952b25705da93adf534a84a5cb743658e1e04a0"
+        },
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "component_sha256": "564c69532730a09d35defd5bad1744a90759b5b5e41a6f5a71ae31feb6d829b4"
+      },
+      "description": "查找重复使用的按键",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/controls-auditor-0.1.0.zip",
+        "sha256": "0a962f3e7d5ed65b2a4e47041ccd8514171f86d730708b0dd6f083e578fea8e6",
+        "size": 112533
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "7e2a37d95609a6a7062bfc1cb3e23494981d80922f71c3c5fe6e96aa01d4f7f3"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "storage"
+            ]
+          },
+          {
+            "permission": "launcher:ui/webview"
+          },
+          {
+            "permission": "launcher:storage/cache/clear"
+          },
+          {
+            "permission": "launcher:instances/move-request"
+          }
+        ],
+        "id": "storage-lens",
+        "name": "Storage Lens",
+        "description": {
+          "en": "Review disk usage, clear public cache and move games safely",
+          "zh-CN": "查看磁盘占用、清理公开缓存并安全迁移游戏"
+        },
+        "tags": [
+          "storage",
+          "games"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "83b751257c8c439f9db2e41188a624b9823b2828cc0403af9f1a947c2f371e1e"
+        },
+        "version": "0.2.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "contributions": {
+          "schema_version": 1,
+          "commands": [
+            {
+              "id": "storage-lens.open",
+              "label": {
+                "en": "Open Storage",
+                "zh-CN": "打开磁盘整理"
+              },
+              "workflow": "report",
+              "menus": [
+                {
+                  "position": "tools",
+                  "when": "always"
+                },
+                {
+                  "position": "instance",
+                  "when": "instance_selected"
+                }
+              ]
+            }
+          ]
+        },
+        "component_sha256": "b8708e7271a32faeb6701380e8853df07a783d58acc38e176ba88607b0f122d4"
+      },
+      "description": "查看磁盘占用、清理公开缓存并安全迁移游戏",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/storage-lens-0.2.0.zip",
+        "sha256": "84fe1be7d1a45a292328a73a31e6a7f508517666ba7df56799656fc611e7fc87",
+        "size": 72462
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    },
+    {
+      "manifest": {
+        "frontend": {
+          "api_version": "0.1.0",
+          "entry": "ui/index.html",
+          "assets_sha256": "f59601f615ec720e19c514ec0474f960d6aea5a964c7bf26900551f234a9eaf4"
+        },
+        "permissions": [
+          {
+            "permission": "launcher:game-inspection/read",
+            "scopes": [
+              "runtime"
+            ]
+          },
+          {
+            "permission": "launcher:ui/webview"
+          }
+        ],
+        "id": "runtime-advisor",
+        "name": "Runtime Advisor",
+        "description": {
+          "en": "Review Java and memory settings",
+          "zh-CN": "检查 Java 与内存设置"
+        },
+        "tags": [
+          "runtime",
+          "java"
+        ],
+        "icon": {
+          "file": "icon.png",
+          "sha256": "718d736d678bd34cbc94211f5d3fc305c80f8a94b43fdb90524727f8e4e77966"
+        },
+        "version": "0.1.0",
+        "api_version": "0.2.0",
+        "publisher": "CobbleLauncher",
+        "capabilities": [
+          "report"
+        ],
+        "interfaces": {
+          "provides": [
+            {
+              "id": "launcher:report",
+              "version": "0.2.0"
+            },
+            {
+              "id": "launcher:web-frontend",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "file_extensions": [],
+        "component_sha256": "8c3b84e52758dba7f992695d7f8acc6e322cd4396701687fedb21df045a690eb"
+      },
+      "description": "检查 Java 与内存设置",
+      "package": {
+        "url": "https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/runtime-advisor-0.1.0.zip",
+        "sha256": "8ab72feffe6299ed26132d2891e59e6db7508b50eb71b26145b398413e18c7cf",
+        "size": 73698
+      },
+      "project_url": "https://github.com/CobbleLauncher/CobbleLauncher"
+    }
+  ]
 }

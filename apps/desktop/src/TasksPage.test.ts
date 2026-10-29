@@ -3,10 +3,11 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { invoke } from '@tauri-apps/api/core';
 import TasksPage from './TasksPage.vue';
+import { clearPageWorkspacesForTests } from './use-page-workspace';
 import type { TaskSnapshot } from './tasks';
 import { setLocale } from './i18n';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-afterEach(() => { vi.mocked(invoke).mockReset(); setLocale('zh-CN'); });
+afterEach(() => { clearPageWorkspacesForTests(); vi.mocked(invoke).mockReset(); setLocale('zh-CN'); });
 
 it('keeps personal settings conflicts recoverable without overwriting the new game', async () => {
   setLocale('en-US');
@@ -134,7 +135,7 @@ it('filters and searches task history while keeping active work first and retry 
   setLocale('en-US');
   const makeTask = (id: string, state: TaskSnapshot['state'], updatedAt: number, title: string, error: string | null = null): TaskSnapshot => ({
     id, game_id: null, game_name: 'Example', title, kind: 'game_install', state,
-    progress: null, error, can_retry: state === 'failed', created_at: 1, updated_at: updatedAt, has_result: false,
+    progress: null, error, can_retry: state === 'failed', created_at: updatedAt, updated_at: updatedAt, has_result: false,
   });
   const tasks = [
     makeTask('failed', 'failed', 8, 'Install Modpack', 'Network connection failed'),
@@ -165,7 +166,7 @@ it('filters and searches task history while keeping active work first and retry 
   expect(wrapper.findAll('.task-row')).toHaveLength(1);
   expect(wrapper.get('.task-row h2').text()).toBe('Update configuration');
   await wrapper.get('.task-search input').setValue('no matching task');
-  expect(wrapper.get('.content-empty').text()).toBe('No tasks match these filters.');
+  expect(wrapper.get('.content-empty p').text()).toBe('No tasks match these filters.');
   await wrapper.get('button[aria-label="Clear task search"]').trigger('click');
   expect(wrapper.findAll('.task-row')).toHaveLength(5);
   wrapper.unmount();
@@ -185,4 +186,23 @@ it('opens the migration wizard using the exact durable task identity', async () 
   await wrapper.findAll('button').find(button => button.text() === 'View move')!.trigger('click');
   expect(wrapper.emitted('open-migration')).toEqual([['root-move-42']]);
   expect(invoke).not.toHaveBeenCalled(); wrapper.unmount();
+});
+
+it('keeps active rows stable during progress and retains filters across completion and remount', async () => {
+  setLocale('en-US');
+  const task: TaskSnapshot = { id: 'older', game_id: 'game', game_name: 'Example', title: 'Older install', kind: 'game_install', state: 'running', progress: null, error: null, can_retry: false, created_at: 1, updated_at: 4, has_result: false };
+  const tasks = [task, {...task, id: 'newer', title: 'Newer install', created_at: 2, updated_at: 3}, {...task,id:'done1',state:'succeeded' as const}, {...task,id:'done2',state:'succeeded' as const}];
+  const wrapper = mount(TasksPage, {props: {tasks, loading: false, error: ''}});
+  expect(wrapper.get('.task-row h2').text()).toBe('Newer install');
+  await wrapper.setProps({tasks: tasks.map(item => item.id === 'older' ? {...item,updated_at:999} : item)});
+  expect(wrapper.get('.task-row h2').text()).toBe('Newer install');
+  await wrapper.get('.task-filter-group button:nth-child(2)').trigger('click');
+  await wrapper.setProps({tasks: tasks.map(item => ({...item,state:'succeeded'}))});
+  expect(wrapper.get('.task-filter[aria-pressed=true]').text()).toContain('Active');
+  expect(wrapper.get('.task-empty-results').text()).toContain('No active tasks.');
+  wrapper.unmount();
+  const returned = mount(TasksPage,{props:{tasks:[],loading:false,error:''}});
+  expect(returned.get('.task-filter[aria-pressed=true]').text()).toContain('Active');
+  await returned.get('.task-empty-results button').trigger('click');
+  expect(returned.find('.task-history-controls').exists()).toBe(false);returned.unmount();
 });

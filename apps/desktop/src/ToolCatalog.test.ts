@@ -106,3 +106,49 @@ it('restores the catalog search and page after leaving and reopening it for the 
   expect(reopened.get('nav[aria-label="Plugin list pages"]').text()).toContain('Page 2 of 2');
   reopened.unmount();
 });
+
+it('retains the saved search, page, scroll and opened card after an asynchronous catalog remount', async () => {
+  setLocale('en-US');
+  const plugins = Array.from({ length: 10 }, (_, index) => ({ ...plugin, manifest: { ...plugin.manifest, id: `async.${index}`, name: `Retained ${index}` } }));
+  const host = document.createElement('main'); host.className = 'page-scroll'; document.body.append(host);
+  const first = mount(ToolCatalog, { attachTo: host, props: { plugins, gameId: 'async-game' } });
+  await first.get('input[type="search"]').setValue('Retained');
+  await first.get('nav[aria-label="Plugin list pages"] button:last-child').trigger('click');
+  host.scrollTop = 380;
+  await first.get('[data-tool-id="async.9"]').trigger('click');
+  first.unmount(); host.scrollTop = 0;
+  const reopened = mount(ToolCatalog, { attachTo: host, props: { plugins: [], gameId: 'async-game', loading: true } });
+  expect(reopened.find('.tool-empty').exists()).toBe(false);
+  expect(reopened.find('.plugin-list-pagination').exists()).toBe(false);
+  await reopened.setProps({ plugins, loading: false }); await flushPromises();
+  expect(reopened.get('input[type="search"]').element).toHaveProperty('value', 'Retained');
+  expect(reopened.get('.plugin-list-pagination').text()).toContain('Page 2 of 2');
+  expect(document.activeElement).toBe(reopened.get('[data-tool-id="async.9"]').element);
+  expect(host.scrollTop).toBe(380);
+  reopened.unmount(); host.remove();
+});
+
+it('keeps the current page on metadata refresh and clamps only when that page disappears', async () => {
+  setLocale('en-US');
+  const plugins = Array.from({ length: 10 }, (_, index) => ({ ...plugin, manifest: { ...plugin.manifest, id: `refresh.${index}`, name: `Refresh ${index}` } }));
+  const wrapper = mount(ToolCatalog, {props: {plugins}});
+  await wrapper.get('.plugin-list-pagination button:last-child').trigger('click');
+  await wrapper.setProps({plugins: plugins.map(item => ({...item}))});
+  expect(wrapper.get('.plugin-list-pagination').text()).toContain('Page 2 of 2');
+  await wrapper.setProps({plugins: plugins.slice(0, 3)});
+  expect(wrapper.find('.plugin-list-pagination').exists()).toBe(false);
+  expect(wrapper.findAll('.tool-card')).toHaveLength(4);
+  wrapper.unmount();
+});
+
+it('shows an empty search only after a successful load rather than during loading or failure', async () => {
+  setLocale('en-US');
+  const wrapper = mount(ToolCatalog, {props: {plugins: [], loading: true}});
+  await wrapper.get('input[type="search"]').setValue('no match');
+  expect(wrapper.find('.tool-empty').exists()).toBe(false);
+  await wrapper.setProps({loading: false, loadFailed: true});
+  expect(wrapper.find('.tool-empty').exists()).toBe(false);
+  await wrapper.setProps({loadFailed: false});
+  expect(wrapper.get('.tool-empty').text()).toBe('No tools found.');
+  wrapper.unmount();
+});

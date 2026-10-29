@@ -133,3 +133,81 @@ it('keeps the leave prompt open with the actual save failure and preserves the d
   dialogButton('Keep editing').click(); await flushPromises(); expect(await decision).toBe(false);
   wrapper.unmount();
 });
+
+it('opens a searched file with Enter, honors IME and focuses the editor without clearing the search', async () => {
+  const wrapper = mount(GameConfigsPanel, { props: { game }, attachTo: document.body }); await flushPromises();
+  const search = wrapper.get('input[type="search"]');
+  await search.trigger('compositionstart'); await search.setValue('other.json');
+  await search.trigger('keydown', { key: 'Enter', isComposing: true }); await flushPromises();
+  expect(vi.mocked(invoke).mock.calls.some(([command]) => command === 'read_game_config')).toBe(false);
+  await search.trigger('compositionend'); await search.trigger('keydown', { key: 'Enter' }); await flushPromises();
+  expect(invoke).toHaveBeenCalledWith('read_game_config', { gameId: 'game', configId: 'config-b' });
+  expect(document.activeElement).toBe(wrapper.get('textarea').element);
+  expect((search.element as HTMLInputElement).value).toBe('other.json');
+  await wrapper.get('textarea').setValue('kept draft'); (search.element as HTMLInputElement).focus();
+  await search.trigger('keydown', { key: 'Escape' }); await flushPromises();
+  expect((search.element as HTMLInputElement).value).toBe('');
+  expect(wrapper.findAll('.config-file')).toHaveLength(2);
+  expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('kept draft');
+  wrapper.unmount();
+});
+
+it('keeps the existing dirty-file decision when opening a search result with Enter', async () => {
+  const wrapper = mount(GameConfigsPanel, { props: { game }, attachTo: document.body }); await flushPromises();
+  await wrapper.get('.config-file').trigger('click'); await flushPromises(); await wrapper.get('textarea').setValue('keep me');
+  const search = wrapper.get('input[type="search"]'); await search.setValue('other.json');
+  await search.trigger('keydown', { key: 'Enter' }); await flushPromises();
+  expect(invoke).not.toHaveBeenCalledWith('read_game_config', { gameId: 'game', configId: 'config-b' });
+  dialogButton('Keep editing').click(); await flushPromises();
+  expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('keep me');
+  await search.trigger('keydown', { key: 'Enter' }); await flushPromises();
+  dialogButton('Discard changes').click(); await flushPromises();
+  expect(wrapper.get('.config-editor h2').text()).toBe('other.json');
+  expect(document.activeElement).toBe(wrapper.get('textarea').element);
+  wrapper.unmount();
+});
+
+it('saves with Ctrl/Cmd+S, keeps a failed draft retryable and prevents overlapping shortcut saves', async () => {
+  let finish!: (value: GameConfigDocument) => void, attempts = 0;
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command !== 'save_game_config') return nativeRead(command, args);
+    if (++attempts === 1) throw 'CONFIG_IO';
+    return new Promise(resolve => { finish = resolve; });
+  });
+  const wrapper = mount(GameConfigsPanel, { props: { game }, attachTo: document.body }); await flushPromises();
+  await wrapper.get('.config-file').trigger('click'); await flushPromises(); await wrapper.get('textarea').setValue('shortcut draft');
+  const key = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true });
+  wrapper.get('textarea').element.dispatchEvent(key); await flushPromises();
+  expect(key.defaultPrevented).toBe(true); expect(wrapper.get('[role="alert"]').text()).toContain('Your edits are kept');
+  expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('shortcut draft');
+  await wrapper.get('textarea').trigger('keydown', { key: 'S', metaKey: true }); await flushPromises();
+  await wrapper.get('textarea').trigger('keydown', { key: 's', ctrlKey: true }); await flushPromises();
+  expect(attempts).toBe(2);
+  finish({ ...original, text: 'shortcut draft', revision: 'shortcut-saved' }); await flushPromises();
+  expect(wrapper.text()).toContain('Saved');expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+  expect((wrapper.vm as unknown as { canLeave(): boolean }).canLeave()).toBe(true);wrapper.unmount();
+});
+
+it('ignores save shortcuts for IME, repeats, Save As, clean text and running games', async () => {
+  const wrapper = mount(GameConfigsPanel, { props: { game } }); await flushPromises();
+  await wrapper.get('.config-file').trigger('click'); await flushPromises();
+  await wrapper.get('textarea').trigger('keydown', { key: 's', ctrlKey: true });
+  await wrapper.get('textarea').setValue('draft');
+  await wrapper.get('textarea').trigger('keydown', { key: 's', ctrlKey: true, isComposing: true });
+  await wrapper.get('textarea').trigger('keydown', { key: 's', ctrlKey: true, repeat: true });
+  await wrapper.get('textarea').trigger('keydown', { key: 's', ctrlKey: true, shiftKey: true });
+  await wrapper.setProps({ game: { ...game, launch_state: 'running' } });
+  await wrapper.get('textarea').trigger('keydown', { key: 's', metaKey: true }); await flushPromises();
+  expect(vi.mocked(invoke).mock.calls.some(([command]) => command === 'save_game_config')).toBe(false);
+  expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('draft');wrapper.unmount();
+});
+
+it('uses the same save-and-leave flow for a shortcut inside the unsaved changes dialog', async () => {
+  vi.mocked(invoke).mockImplementation(async (command, args) => command === 'save_game_config' ? { ...original, text: 'saved on exit', revision: 'revision-2' } : nativeRead(command, args));
+  const wrapper = mount(GameConfigsPanel, { props: { game }, attachTo: document.body }); await flushPromises();
+  await wrapper.get('.config-file').trigger('click'); await flushPromises(); await wrapper.get('textarea').setValue('saved on exit');
+  await wrapper.findAll('.config-file')[1]!.trigger('click'); await flushPromises();
+  dialogButton('Save').dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true })); await flushPromises();
+  expect(invoke).toHaveBeenCalledWith('save_game_config', { gameId: 'game', configId: 'config-a', text: 'saved on exit', expectedRevision: 'revision-1' });
+  expect(wrapper.get('.config-editor h2').text()).toBe('other.json');expect(document.body.querySelector('.config-dialog')).toBeNull();wrapper.unmount();
+});

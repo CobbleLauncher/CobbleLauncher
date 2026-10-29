@@ -86,6 +86,8 @@ fn main() {
             "read_game_config",
             "save_game_config",
             "restore_game_config_backup",
+            "get_home_world_summary",
+            "copy_game_screenshot",
             "list_game_screenshots",
             "get_game_screenshot",
             "open_game_screenshot",

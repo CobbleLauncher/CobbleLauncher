@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { createWorkspaceMotion } from './ui/workspace-motion';
+import type { MarketInstallResult } from './market-install-result';
 import { lazyPage } from './lazy-page';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -45,7 +47,7 @@ import { recoveryNavigationPage } from './recovery-navigation';
 import { usePluginNavigation } from './use-plugin-navigation';
 const SettingsPage = lazyPage(() => import('./SettingsPage.vue'));
 import LibraryHome from './LibraryHome.vue';
-import CommandStatus from './commands/CommandStatus.vue';
+import AppIcon from './ui/AppIcon.vue';
 import MeshStatusButton from './MeshStatusButton.vue';
 import AppNavigation from './AppNavigation.vue';
 import { activeSection, extensionDetailPage, backPage, enterPage, goToParent, initialNavigation, pageKey, rootPage, returnToGameDetails, toolPage, type AppPage, type ExtensionCandidate, type MainSection, type ToolLocation } from './navigation';
@@ -479,11 +481,19 @@ async function openBlueprintMarket(target: { gameId: string; query: string }) {
   discoverPacksVisited.value = true;
   showPage({ view: 'discover-packs', kind: 'mod', gameId: target.gameId, query: target.query });
 }
-async function locateMarketContent(id: string, kind: MarketKind) {
+const pendingMarketContent = ref<{ id: string; kind: MarketKind; files: string[] }>();
+watch([gameDetailsPage, () => page.value, pendingMarketContent], async ([panel, location, target]) => {
+  if (!target) return;
+  if (location.view !== 'details' || location.gameId !== target.id) { pendingMarketContent.value = undefined; return; }
+  if (!panel) return;
+  pendingMarketContent.value = undefined;
+  await panel.openContent(target.kind, target.files);
+}, { flush: 'post' });
+async function locateMarketContent(id: string, kind: MarketKind, result?: MarketInstallResult) {
   await locateTaskGame(id);
-  await nextTick();
-  if (page.value.view === 'details' && page.value.gameId === id) await gameDetailsPage.value?.openContent(kind);
+  if (page.value.view === 'details' && page.value.gameId === id) pendingMarketContent.value = { id, kind, files: result?.gameId === id ? result.contentIds : [] };
 }
+
 function openLocalImport() { initialPackPreview.value = null; showPage({view:'import'}); }
 function finishInboxReview() {
   inboxReviewRequest.value = null;
@@ -523,6 +533,14 @@ async function openSeedCompass() {
   const command = runningTools.commands.value.find(item => item.pluginId === 'seed-compass' && item.commandId === 'seed-compass.open');
   if (command) await openRunningTool(command);
   else await openExtensions({sourceId:'bundled',pluginId:'seed-compass'});
+}
+function openHomeSection(id: string, section: 'worlds' | 'screenshots', folderName?: string) {
+  if (games.value.find(game => game.id === id)?.status !== 'installed') return;
+  showPage({ view:'details',gameId:id,section,worldFolder: section === 'worlds' ? folderName : undefined });
+}
+function openHomeMesh(id: string, mode: 'host' | 'join') {
+  meshVisited.value = true;
+  showPage({ view:'mesh',gameId:id,initialMode:mode });
 }
 function manageGame(id: string, forceSettings = false) {
   const game = games.value.find(item => item.id === id);
@@ -626,9 +644,17 @@ function pageTitle(value:AppPage):string {
   }
 }
 const sharedHeading=ref<HTMLElement|null>(null);
+const workspaceMotion = createWorkspaceMotion();
+let motionDepth = 0;
+onUnmounted(workspaceMotion.cancel);
+async function configureHomeTools() { initialSettingsCategory.value = 'home-layout'; await navigate('settings'); }
 const workspacePositions = new Map<string, number>();
 let positionRevision = 0;
 watch(() => tasksOpen.value ? 'tasks' : pageKey(page.value), async (key, previous) => {
+  workspaceMotion.cancel();
+  const depth = navigation.value.parents.length;
+  const direction = depth > motionDepth ? 'forward' : depth < motionDepth ? 'back' : 'peer';
+  motionDepth = depth;
   const revision = ++positionRevision;
   if (previous) {
     workspacePositions.delete(previous);
@@ -641,6 +667,7 @@ watch(() => tasksOpen.value ? 'tasks' : pageKey(page.value), async (key, previou
   const heading=sharedHeading.value ?? [...document.querySelectorAll<HTMLElement>('.app-workspace h1')].find(element=>element.getClientRects().length>0);
   heading?.setAttribute('tabindex','-1');heading?.focus({ preventScroll: true });
   window.scrollTo(0, workspacePositions.get(key) ?? 0);
+  if (previous) workspaceMotion.play(document.querySelector<HTMLElement>(tasksOpen.value ? '.tasks-workspace' : '.workspace-content'), direction);
 });
 const theme = readTheme();
 const native = isTauri();
@@ -727,6 +754,7 @@ const shellCommands = useShellCommands({
   onError: message => { error.value = message; },
 });
 const desktopMenuActions = computed(() => workspaceActions(tasksOpen.value ? 'tasks' : view.value, shellCommands.commands.value));
+const commandAnchor = ref<HTMLElement>();
 const titlebarTask = computed(() => tasks.value.find(isActiveTask));
 const titlebarStatus = computed(() => {
   const task = titlebarTask.value;
@@ -781,6 +809,7 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
       v-if="shellCommands.paletteOpen.value"
       :open="shellCommands.paletteOpen.value"
       :commands="shellCommands.commands.value"
+      :anchor="commandAnchor"
       @close="shellCommands.closePalette"
       @error="error = $event"
     />
@@ -805,15 +834,42 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
           aria-hidden="true"
         ><i /><i /><i /><i /></span><span class="brand">cobble<span class="brand-dot">.</span></span>
       </div>
-      <CommandStatus
+      <div
         v-if="view !== 'first-run'"
-        :status="titlebarStatus"
-        :busy="!!titlebarTask"
-        :shortcut="shellCommands.shortcuts.value['palette.open']"
-        :open="shellCommands.paletteOpen.value"
-        @activate="shellCommands.openPalette"
-      />
+        ref="commandAnchor"
+        class="titlebar-command-slot"
+      >
+        <button
+          class="titlebar-search"
+          data-command-trigger
+          :inert="shellCommands.paletteOpen.value"
+          :class="{ 'titlebar-navigation-hidden': shellCommands.paletteOpen.value }"
+          :aria-label="t('home.dashboard.search')"
+          :title="`${t('home.dashboard.search')} (${shellCommands.shortcuts.value['palette.open'] ?? ''})`"
+          :aria-expanded="shellCommands.paletteOpen.value"
+          @click="shellCommands.openPalette"
+        >
+          <AppIcon name="search" />
+        </button>
+        <AppNavigation
+          compact
+          :active="selectedSection"
+          :disabled="navigationBusy"
+          :inert="shellCommands.paletteOpen.value"
+          :class="{ 'titlebar-navigation-hidden': shellCommands.paletteOpen.value }"
+          @navigate="navigate"
+        />
+      </div>
       <div class="titlebar-actions">
+        <button
+          v-if="view !== 'first-run'"
+          class="titlebar-icon-button titlebar-settings"
+          :aria-label="t('navigation.settings')"
+          :title="t('navigation.settings')"
+          @click="navigate('settings')"
+        >
+          <AppIcon name="settings" />
+        </button>
         <MeshStatusButton
           v-if="view !== 'first-run'"
           :active="selectedSection === 'mesh'"
@@ -827,6 +883,7 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
         <button
           v-if="view !== 'first-run'"
           class="tasks-button"
+          :title="titlebarStatus"
           :disabled="taskPreviewBusy"
           :aria-label="t('shell.openTasks')"
           :aria-expanded="tasksOpen"
@@ -876,24 +933,7 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
         </div>
       </div>
     </header>
-    <AppNavigation
-      v-if="view !== 'first-run'"
-      :active="selectedSection"
-      :disabled="navigationBusy"
-      @navigate="navigate"
-      @settings="navigate('settings')"
-    >
-      <ProfileSwitcher
-        :library="profileLibrary"
-        :busy="profileBusy"
-        :ready="profileReady"
-        :before-open="suspendToolView"
-        @open-change="profileMenuOpen = $event"
-        @select="selectProfile"
-        @add="openAddProfile"
-        @manage="openProfiles"
-      />
-    </AppNavigation>
+
     <main class="app-workspace">
       <p
         v-if="availableLauncherUpdate"
@@ -928,7 +968,10 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
           {{ tasksOpen ? t('shell.task') : pageTitle(page) }}
         </h1>
       </div>
-      <div v-show="!tasksOpen">
+      <div
+        v-show="!tasksOpen"
+        class="workspace-content"
+      >
         <CreatedGamePreferences
           v-if="view === 'library' && createdPreferenceGameId && games.some(game => game.id === createdPreferenceGameId && game.status === 'installed')"
           :key="createdPreferenceGameId"
@@ -939,6 +982,7 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
         <LibraryHome
           v-show="view === 'library'"
           :games="games"
+          :active="view === 'library' && !tasksOpen"
           :loading="gamesLoading"
           :error="gamesError"
           :profile-library="profileLibrary"
@@ -949,7 +993,11 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
           @select="librarySelection = $event"
           @saved-market="navigate('discover-packs')"
           @play="startGame"
-          @manage="manageGame"
+          @manage="manageGame($event, true)"
+          @section="openHomeSection"
+          @configure-tools="configureHomeTools"
+          @mesh="openHomeMesh"
+          @tools="navigate('tools')"
           @retry="retryGame"
           @retry-session-recovery="retryGameSessionRecovery"
           @reload="loadGames"
@@ -957,7 +1005,28 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
           @import-pack="openLocalImport"
           @import-launcher="showPage({ view: 'import-launcher' })"
           @receive-game="receiveGameTransfer"
-        />
+        >
+          <template #profile="{ game }">
+            <button
+              v-if="game.profile_id"
+              class="home-bound-player text-button"
+              @click="manageGame(game.id,true)"
+            >
+              <AppIcon name="user" />{{ effectiveProfile(game, profileLibrary)?.name ?? t('home.chooseProfile') }}
+            </button>
+            <ProfileSwitcher
+              v-else
+              :library="profileLibrary"
+              :busy="profileBusy"
+              :ready="profileReady"
+              :before-open="suspendToolView"
+              @open-change="profileMenuOpen = $event"
+              @select="selectProfile"
+              @add="openAddProfile"
+              @manage="openProfiles"
+            />
+          </template>
+        </LibraryHome>
         <GameRunningPage
           v-if="view === 'running' && selectedGame"
           :key="selectedGame.id"
@@ -1004,6 +1073,8 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
           :active="view === 'details' && !tasksOpen"
           :tasks="tasks"
           :game="selectedGame"
+          :initial-section="page.view === 'details' ? page.section : undefined"
+          :initial-world="page.view === 'details' ? page.worldFolder : undefined"
           :snapshot-restore="page.view === 'details' ? page.snapshotRestore : undefined"
           :recovery-target="page.view === 'details' ? page.recoveryTarget : undefined"
           :starting="starting.includes(selectedGame.id)"
@@ -1292,9 +1363,10 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
 </template>
 
 <style scoped>
-.titlebar{display:grid;grid-template-columns:minmax(0,1fr) minmax(160px,360px) minmax(0,1fr);gap:12px}
-.titlebar-actions{grid-column:3;display:flex;align-items:center;justify-self:end;min-width:0;gap:2px}
-.titlebar .drag-area{min-width:0;align-self:stretch}
-@media(max-width:960px){.titlebar{display:flex;gap:10px}.titlebar .drag-area{flex:0 0 auto;padding-left:14px}.titlebar .brand{display:none}.titlebar .command-status{flex:1}.titlebar-actions{flex-shrink:0;margin-left:auto}.titlebar .tasks-button{padding:0 8px}.titlebar .tasks-button>span:not(.task-count){display:none}.titlebar .window-controls button{width:34px}}
+.titlebar{display:grid;grid-template-columns:minmax(64px,1fr) minmax(0,400px) minmax(64px,1fr);gap:16px}
+.titlebar-command-slot{display:flex;align-items:center;gap:8px;height:36px;min-width:0;align-self:center}.titlebar-command-slot .main-navigation{flex:1;min-width:0}.titlebar-search{display:grid;place-items:center;flex:none;width:36px;height:36px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--ui-text-muted);transition:background 120ms,color 120ms,opacity 120ms}.titlebar-search:hover,.titlebar-search:focus-visible{background:var(--ui-surface-hover);color:var(--ui-text)}.titlebar-command-slot .main-navigation{transition:opacity 120ms,transform 160ms}.titlebar-navigation-hidden{opacity:0;transform:translateY(-3px);pointer-events:none}.titlebar-actions{grid-column:3;display:flex;align-items:center;justify-self:end;min-width:0;gap:2px}.titlebar .drag-area{min-width:0;align-self:stretch}.titlebar-icon-button{display:grid;place-items:center;width:34px;height:36px;border:0;border-radius:7px;background:transparent;color:var(--ui-text-muted);flex:none}.titlebar-icon-button:hover{background:var(--ui-surface-hover);color:var(--ui-text)}.titlebar .tasks-button>span:not(.task-count){display:none}.home-bound-player{display:flex;align-items:center;gap:8px;min-height:36px}
+@media(max-width:1100px){.titlebar{grid-template-columns:48px minmax(0,1fr) auto;gap:8px}.titlebar .brand{display:none}.titlebar .drag-area{padding-left:14px}.titlebar .window-controls button{width:30px}.titlebar .tasks-button{padding:0 6px}}
+@media(max-width:700px){.titlebar-command-slot{gap:2px}.titlebar{grid-template-columns:24px minmax(0,1fr) auto;gap:4px}.titlebar .drag-area{padding-left:6px}.titlebar-settings{display:none}.titlebar-icon-button{width:28px}.titlebar .window-controls button{width:26px}.titlebar .mesh-contact-summary{display:none}}
+@media(prefers-reduced-motion:reduce){.titlebar-command-slot .main-navigation,.titlebar-search{transition:none;transform:none}}[data-motion=reduced] .titlebar-command-slot .main-navigation,[data-motion=reduced] .titlebar-search{transition:none;transform:none}
 </style>
 

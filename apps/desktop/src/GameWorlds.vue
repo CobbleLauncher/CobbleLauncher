@@ -16,7 +16,7 @@ import AppIconButton from './ui/AppIconButton.vue';
 import AppIcon from './ui/AppIcon.vue';
 import LoadingIndicator from './ui/LoadingIndicator.vue';
 import { DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenuContent, DropdownMenuItem } from 'reka-ui';
-const props = defineProps<{ tasks?: TaskSnapshot[]; gameId: string; locked: boolean; revision?: number; snapshotRestore?: SnapshotRestoreTarget }>();
+const props = defineProps<{ tasks?: TaskSnapshot[]; gameId: string; locked: boolean; revision?: number; initialWorld?: string; snapshotRestore?: SnapshotRestoreTarget }>();
 const emit = defineEmits<{ busy: [value: boolean] }>();
 const worlds = ref<LocalWorld[]>([]);
 const recentBackups = ref<Record<string, string>>({});
@@ -119,6 +119,14 @@ function openWorldMenu(event: MouseEvent, folder: string) {
 }
 watch(() => props.gameId, () => { worldMenuOpen.value = null; datapackWorld.value = null; snapshotWorld.value = null; worlds.value = []; backups.value = []; query.value = ''; exported.value = null; actionError.value = null; restoreOpen.value = false; selectedBackup.value = null; restoreResult.value = false; lastRollback.value = null; rollbackError.value = ''; refresh(); }, { immediate: true });
 watch(() => props.revision, () => { restoreOpen.value = false; selectedBackup.value = null; restoreResult.value = false; lastRollback.value = null; rollbackError.value = ''; actionError.value = null; exported.value = null; refresh(); });
+let handledWorld = '';
+watch([() => props.initialWorld, worlds, reading], ([folder]) => {
+  if (!folder) { handledWorld = ''; return; }
+  if (reading.value || readError.value || worldBusy.value || handledWorld === `${props.gameId}:${folder}`) return;
+  const world = worlds.value.find(item => item.folder_name === folder);
+  if (!world) return;
+  handledWorld = `${props.gameId}:${folder}`; restoreOpen.value = false; datapackWorld.value = null; snapshotWorld.value = world;
+}, { immediate: true });
 let handledRestore: SnapshotRestoreTarget | undefined;
 watch([() => props.snapshotRestore, worlds, reading], ([target]) => {
   if (!target || target === handledRestore || reading.value || readError.value || worldBusy.value) return;

@@ -10,14 +10,16 @@ import { locale, t } from './i18n';
 import CurseForgePackPreparation from './CurseForgePackPreparation.vue';
 import CurseForgeInstallPlan from './CurseForgeInstallPlan.vue';
 import VersionSelector from './VersionSelector.vue';
-import type { Game } from './games';
+import type { MarketInstallResult } from './market-install-result';
+import { useDelayedBusy } from './market/use-delayed-busy';
+import type { Game, ManagedGameMod } from './games';
 import { mergeFiles, mergeProjects, type CurseForgePackPreview, type CurseForgeHit, type CurseForgeFile, type CurseForgeSearchPage, type CurseForgeFilePage } from './curseforge';
 import LoadingIndicator from './ui/LoadingIndicator.vue';
 import { isMarketSaved, toggleMarketSaved, type SavedMarketItem } from './market-saved';
 import { marketWorkstate, rememberMarketWorkstate, restoreMarketScroll } from './market-workstate';
 import { findLinkedProject, linkedVersionId, type FileInboxMarketLink } from './file-inbox-market';
-const props = defineProps<{kind: 'mod' | 'modpack'; game?: Game; locked?: boolean; initialQuery?: string; sharedMode?: boolean; sharedRequest?: { serial: number; query: string; minecraftVersion?: string; loader?: string }; savedRequest?: { serial: number; item: SavedMarketItem }; linkRequest?: FileInboxMarketLink}>();
-const emit = defineEmits<{busy: [value: boolean]; selectedCfPack: [preview: CurseForgePackPreview]; installed: []; availability: [value: boolean]}>();
+const props = defineProps<{kind: 'mod' | 'modpack'; game?: Game; locked?: boolean; installedRecords?: ManagedGameMod[]; initialQuery?: string; sharedMode?: boolean; sharedRequest?: { serial: number; query: string; minecraftVersion?: string; loader?: string }; savedRequest?: { serial: number; item: SavedMarketItem }; linkRequest?: FileInboxMarketLink}>();
+const emit = defineEmits<{busy: [value: boolean]; selectedCfPack: [preview: CurseForgePackPreview]; installed: [result: MarketInstallResult]; availability: [value: boolean]}>();
 const root = ref<HTMLElement>();
 const detailReturn = marketReturn(root);
 const query = ref('');
@@ -25,6 +27,7 @@ const minecraftVersion = ref(props.sharedMode ? props.sharedRequest?.minecraftVe
 const loader = ref(props.sharedMode ? props.sharedRequest?.loader ?? '' : '');
 const available = ref<boolean | null>(null);
 const busy = ref(false);
+const showBusy = useDelayedBusy(busy);
 const error = ref('');
 const linkProjectMissing = ref(false);
 const searched = ref(false);
@@ -56,10 +59,10 @@ async function availability() {
     }
   }
 }
-async function search(offset = 0, force = false) {
+async function search(offset = 0, force = false, retry = false) {
   failedOffset = offset;
   if ((busy.value && !force) || !available.value) return;
-  if (!offset) {
+  if (!offset && !retry) {
     const version = props.game?.version ?? minecraftVersion.value.trim();
     const selectedLoader = props.game?.loader_kind ?? loader.value;
     if (selectedLoader && !version) { error.value = t('curseforge.versionRequired'); return; }
@@ -90,7 +93,7 @@ async function loadFiles(offset = 0) {
     fileTotal.value = page.total_hits; fileNext.value = page.offset + page.files.length;
     if (props.linkRequest?.version) {
       if (!fileId.value) fileId.value = linkedVersionId(files.value, props.linkRequest.version);
-    } else if (!offset) fileId.value = files.value[0]?.file_id ?? '';
+    } else if (!offset && !files.value.some(file => file.file_id === fileId.value)) fileId.value = files.value[0]?.file_id ?? '';
   } catch { if (current === revision) error.value = t('curseforge.filesFailed'); }
   finally { if (current === revision) busy.value = false; }
 }
@@ -135,9 +138,22 @@ onUnmounted(() => { remember(); ++revision; });
   <div
     ref="root"
     class="curseforge-discover"
+    :aria-busy="busy || installing"
   >
-    <p v-if="linkProjectMissing && !selected" role="status" class="setting-hint">{{ locale === 'zh-CN' ? '未在当前结果中找到该项目。可调整搜索或筛选。' : 'Project not found in these results. Try another search or filter.' }}</p>
-    <p v-if="selected && linkRequest?.version && !busy && !fileId && !error" role="status" class="setting-hint">{{ locale === 'zh-CN' ? '链接中的文件未在已加载列表中找到，可加载更多或手动选择。' : 'Linked file was not found in the loaded list. Load more or choose one manually.' }}</p>
+    <p
+      v-if="linkProjectMissing && !selected"
+      role="status"
+      class="setting-hint"
+    >
+      {{ locale === 'zh-CN' ? '未在当前结果中找到该项目。可调整搜索或筛选。' : 'Project not found in these results. Try another search or filter.' }}
+    </p>
+    <p
+      v-if="selected && linkRequest?.version && !busy && !fileId && !error"
+      role="status"
+      class="setting-hint"
+    >
+      {{ locale === 'zh-CN' ? '链接中的文件未在已加载列表中找到，可加载更多或手动选择。' : 'Linked file was not found in the loaded list. Load more or choose one manually.' }}
+    </p>
     <div v-if="packPreview">
       <button
         class="text-button"
@@ -238,8 +254,9 @@ onUnmounted(() => { remember(); ++revision; });
             :project-id="selected.project_id"
             :file-id="chosen.file_id"
             :locked="!!locked"
+            :installed-records="installedRecords"
             @busy="installBusy"
-            @installed="emit('installed')"
+            @installed="emit('installed', $event)"
           />
         </template>
         <p
@@ -328,7 +345,10 @@ onUnmounted(() => { remember(); ++revision; });
               :preview="kind === 'modpack' && !!(hit.preview_url || hit.gallery?.[0])"
               :artwork="kind === 'modpack'"
             /><div class="mod-info">
-              <h2>{{ hit.title }}</h2><p class="mod-description">
+              <h2>{{ hit.title }}</h2><span
+                v-if="installedRecords?.some(record => record.project_id === hit.project_id)"
+                class="mod-state"
+              >{{ t('market.alreadyInstalled') }}</span><p class="mod-description">
                 {{ hit.description }}
               </p><p class="mod-meta">
                 {{ hit.author }}
@@ -368,7 +388,7 @@ onUnmounted(() => { remember(); ++revision; });
       </template>
     </template>
     <LoadingIndicator
-      v-if="busy"
+      v-if="showBusy"
       :label="t('curseforge.loading')"
       :skeleton="searched && !hits.length && available === true"
       :compact="!!hits.length || !!selected"
@@ -381,7 +401,7 @@ onUnmounted(() => { remember(); ++revision; });
       <p>{{ error }}</p><button
         class="text-button"
         :disabled="busy || installing"
-        @click="available === null ? availability() : selected ? loadFiles(failedOffset) : search(failedOffset)"
+        @click="available === null ? availability() : selected ? loadFiles(failedOffset) : search(failedOffset, false, true)"
       >
         {{ t('curseforge.retry') }}
       </button>

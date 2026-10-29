@@ -122,11 +122,12 @@ describe('shortcuts', () => {
     expect(readShortcuts()['plugin:viewer:open']).toBe('Ctrl+Shift+V');
     expect(saveShortcut('plugin:viewer:open', 'Ctrl+K')).toBe('conflict');
   });
-  it('ignores IME, editable targets, and modal priority', () => {
+  it('allows explicit search in editable targets while preserving IME and modal priority', () => {
     const input = document.createElement('input');
     const typed = new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true });
     Object.defineProperty(typed, 'target', { value: input });
-    expect(shortcutAction(typed, readShortcuts())).toBeNull();
+    expect(shortcutAction(typed, readShortcuts())).toBe('library.search');
+    expect(shortcutAction(typed, readShortcuts(), { modalOpen: true })).toBeNull();
     const palette = new KeyboardEvent('keydown', { key: 'k', ctrlKey: true });
     Object.defineProperty(palette, 'target', { value: input });
     expect(shortcutAction(palette, readShortcuts())).toBe('palette.open');

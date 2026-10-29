@@ -6,6 +6,8 @@ import { locale, t } from '../i18n';
 import type { PlayerProfile, ProfileLibrary } from '../games';
 import { useMicrosoftLogin } from '../use-microsoft-login';
 import LoadingIndicator from '../ui/LoadingIndicator.vue';
+import ValidatedTextField from '../ui/ValidatedTextField.vue';
+import { profileNameError } from '../profile-name';
 import AccountArtwork from './AccountArtwork.vue';
 import './account-setup.css';
 const props = defineProps<{ library: ProfileLibrary; busy: boolean; ready: boolean; error: string }>();
@@ -13,10 +15,9 @@ const emit = defineEmits<{ add: [name: string, note: string | null]; select: [id
 const scene = ref<'choose' | 'microsoft' | 'offline' | 'complete'>('choose');
 const zh = computed(() => locale.value === 'zh-CN');
 const name = ref('');
-const attempted = ref(false);
+const nameField = ref<InstanceType<typeof ValidatedTextField>>();
 const pendingName = ref<string | null>(null);
 const completed = ref<PlayerProfile | null>(null);
-const valid = computed(() => /^[A-Za-z0-9_]{3,16}$/.test(name.value));
 const duplicate = computed(() => props.library.profiles.find(profile => profile.kind === 'offline' && profile.name === name.value));
 function finish(library: ProfileLibrary) {
   const profile = library.profiles.find(item => item.id === library.active_id);
@@ -31,8 +32,7 @@ watch(() => props.library, library => {
   if (pendingName.value && library.profiles.some(profile => profile.id === library.active_id && profile.name === pendingName.value && profile.kind === 'offline')) { pendingName.value = null; finish(library); }
 });
 function submit() {
-  attempted.value = true;
-  if (!valid.value || props.busy || !props.ready) return;
+  if (props.busy || !props.ready || !nameField.value?.validate()) return;
   pendingName.value = name.value;
   if (duplicate.value) emit('select', duplicate.value.id); else emit('add', name.value, null);
 }
@@ -110,31 +110,23 @@ defineExpose({ cancelLogin });
           <form
             id="guided-offline-profile"
             class="account-scene-content"
+            novalidate
             @submit.prevent="submit"
           >
             <h1>{{ zh ? '给自己取个名字' : 'Choose your player name' }}</h1>
             <p>{{ zh ? '它会显示在游戏里。' : 'This is the name other players see.' }}</p>
-            <label for="guided-player-name">{{ zh ? '游戏名称' : 'Player name' }}</label>
-            <input
+            <ValidatedTextField
               id="guided-player-name"
+              ref="nameField"
               v-model="name"
               data-scene-focus
-              autocomplete="off"
-              spellcheck="false"
-              maxlength="16"
+              :label="t('profiles.gameName')"
+              :hint="t('profiles.nameHelp')"
+              :validator="profileNameError"
+              :limit="16"
               placeholder="Alex"
               :disabled="busy"
-              :aria-invalid="attempted && !valid"
-              aria-describedby="guided-name-help"
-            >
-            <small id="guided-name-help">{{ t('profiles.nameHelp') }}</small>
-            <p
-              v-if="attempted && !valid"
-              class="settings-error"
-              role="alert"
-            >
-              {{ t('profiles.nameInvalid') }}
-            </p>
+            />
             <p
               v-if="duplicate"
               class="account-note"

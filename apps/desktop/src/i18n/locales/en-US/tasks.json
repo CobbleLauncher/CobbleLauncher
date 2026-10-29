@@ -30,7 +30,11 @@
   "locateGame": "View game",
   "empty": "No tasks yet.",
   "filterHistory": "Filter task history",
-  "filters": { "all": "All · {count}", "active": "Active · {count}", "failed": "Failed · {count}" },
+  "filters": {
+    "all": "All · {count}",
+    "active": "Active · {count}",
+    "failed": "Failed · {count}"
+  },
   "search": "Search tasks",
   "clearSearch": "Clear task search",
   "noMatches": "No tasks match these filters.",
@@ -47,7 +51,10 @@
   "activeDownloads": "{count} downloads",
   "reusedFiles": "Reused {count} files",
   "actionError": "Action failed: {cause}",
-  "sources": { "official": "Official", "custom": "Custom source" },
+  "sources": {
+    "official": "Official",
+    "custom": "Custom source"
+  },
   "states": {
     "queued": "Waiting",
     "running": "Running",
@@ -93,5 +100,10 @@
     "world-commit": "Saving world",
     "world-complete": "World restored"
   },
-  "automaticBackup": "Automatic world backup"
+  "automaticBackup": "Automatic world backup",
+  "clearFilters": "Show all tasks",
+  "none": {
+    "active": "No active tasks.",
+    "failed": "No failed tasks."
+  }
 }

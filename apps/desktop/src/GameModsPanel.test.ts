@@ -29,6 +29,38 @@ const game = { id: 'game', name: 'Game', version: '1.21.1', loader_version: '0.1
 function localMods(count: number) {
   return Array.from({ length: count }, (_, index) => ({ file_name: `mod-${String(index).padStart(4, '0')}.jar`, name: `Fixture Mod ${String(index).padStart(4, '0')}`, version: '1', authors: [], loader: 'fabric', enabled: true, description: null }));
 }
+it('reveals newly installed content across filters and pagination without batch-selecting it', async () => {
+  setLocale('en-US');
+  vi.mocked(invoke).mockImplementation(async command => command === 'list_game_mods' ? localMods(75) : []);
+  const wrapper = mount(GameModsPanel, { props: { game, locked: false }, attachTo: document.body, global: { stubs: { ModUpdates: true, InstalledModDetails: true } } });
+  await flushPromises();
+  await wrapper.get('input[type=search]').setValue('0001');
+  const originalScroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+  await wrapper.setProps({reveal: {request: 1, files: ['mod-0074.jar']}}); await flushPromises();
+  expect((wrapper.get('input[type=search]').element as HTMLInputElement).value).toBe('');
+  expect(wrapper.get('.content-recent').attributes('data-content-file')).toBe('mod-0074.jar');
+  expect(document.activeElement).toBe(wrapper.get('.content-recent').element);
+  expect(wrapper.findAll('input[type=checkbox]:checked')).toHaveLength(0);
+  if (originalScroll) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScroll); else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+  wrapper.unmount();
+});
+it('retains Mod rows and search during refresh and offers clear filters on an empty match', async () => {
+  setLocale('en-US');
+  vi.mocked(invoke).mockImplementation(async command => command === 'list_game_mods' ? localMods(2) : []);
+  const wrapper = mount(GameModsPanel, { props: { game, locked: false }, global: { stubs: { ModUpdates: true, InstalledModDetails: true } } }); await flushPromises();
+  await wrapper.get('input[type=search]').setValue('0001');
+  let resolve!: (mods: ReturnType<typeof localMods>) => void;
+  vi.mocked(invoke).mockImplementation(async command => command === 'list_game_mods' ? new Promise(done => { resolve = done; }) : []);
+  const pending = wrapper.vm.refreshContent(); await flushPromises();
+  expect(wrapper.findAll('.mod-row')).toHaveLength(1);
+  expect(wrapper.get('.mod-list').attributes('aria-busy')).toBe('true');
+  resolve(localMods(3)); await pending; await flushPromises();
+  expect(wrapper.findAll('.mod-row')).toHaveLength(1);
+  await wrapper.get('input[type=search]').setValue('not-present');
+  await wrapper.findAll('button').find(button => button.text() === 'Clear filters')!.trigger('click');
+  expect(wrapper.findAll('.mod-row')).toHaveLength(3); wrapper.unmount();
+});
 
 it('renders one page and can search for a mod beyond the first page', async () => {
   setLocale('en-US');

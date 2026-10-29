@@ -109,7 +109,7 @@ it('keeps the current gallery during same-page refresh and reuses unchanged thum
   await wrapper.findAll('button').find(button => button.text() === 'Refresh')!.trigger('click'); await flushPromises();
   expect(wrapper.findAll('.screenshot-card')).toHaveLength(1);
   expect(wrapper.get('.screenshot-card img').attributes('src')).toBe(image.data_url);
-  expect(wrapper.get('.loading-indicator').text()).toBe('Loading screenshots…');
+  expect(wrapper.find('.loading-indicator').exists()).toBe(false);
   refresh({ items: [item, { ...item, id: 'new-image', name: 'new.png' }], total: 2, next_offset: null }); await flushPromises();
   expect(wrapper.findAll('.screenshot-card')).toHaveLength(2);
   const imageCalls = vi.mocked(invoke).mock.calls.filter(([command]) => command === 'get_game_screenshot');
@@ -200,5 +200,67 @@ it('offers preview and sheet selection from the screenshot context menu', async 
   await selection.trigger('click'); await flushPromises();
   expect((wrapper.get('.screenshot-selection-toggle input').element as HTMLInputElement).checked).toBe(true);
   expect(vi.mocked(invoke).mock.calls.filter(([command, args]) => command === 'get_game_screenshot' && (args as { thumbnail: boolean }).thumbnail === false)).toHaveLength(0);
+  wrapper.unmount();
+});
+
+it('zooms only the selected preview, resets to fit, and supports keyboard shortcuts', async () => {
+  const second = { ...item, id: 'second', name: 'second.png' };
+  vi.mocked(invoke).mockImplementation(async command => command === 'list_game_screenshots' ? { items: [item, second], total: 2, next_offset: null } : image);
+  const wrapper = mountGallery(); await flushPromises();
+  expect(wrapper.get('.screenshot-card img').attributes()).toMatchObject({ loading: 'lazy', decoding: 'async' });
+  await wrapper.get('.screenshot-card').trigger('click'); await flushPromises();
+  const fitWidth = dialog().get('img').element.style.width;
+  await dialog().get('button[aria-label="Zoom in"]').trigger('click');
+  expect(dialog().get('img').element.style.width).toBe('400px');
+  await dialog().trigger('keydown', { key: '+' });
+  expect(dialog().get('img').element.style.width).toBe('500px');
+  await dialog().trigger('keydown', { key: '0' });
+  expect(dialog().get('img').element.style.width).toBe('320px');
+  await dialog().trigger('keydown', { key: '-' });
+  expect(dialog().get('img').element.style.width).toBe('256px');
+  await dialog().trigger('keydown', { key: 'f' });
+  expect(dialog().get('img').element.style.width).toBe(fitWidth);
+  expect(dialog().get('.screenshot-zoom button[aria-pressed]').attributes('aria-pressed')).toBe('true');
+  await dialog().get('button[aria-label="Zoom in"]').trigger('click');
+  await dialog().trigger('keydown', { key: 'ArrowRight' }); await flushPromises();
+  expect(dialog().get('img').element.style.width).toBe(fitWidth);
+  expect(vi.mocked(invoke).mock.calls.filter(([command, args]) => command === 'get_game_screenshot' && !(args as {thumbnail:boolean}).thumbnail)).toHaveLength(2);
+  wrapper.unmount();
+});
+
+it('keeps the prior image while browsing and never copies that stale preview for the next selection', async () => {
+  let finish!: (value: unknown) => void;
+  const second = { ...item, id: 'second', name: 'second.png' };
+  vi.mocked(invoke).mockImplementation(async (command, args) => command === 'list_game_screenshots' ? { items: [item, second], total: 2, next_offset: null } : command === 'get_game_screenshot' && !(args as {thumbnail:boolean}).thumbnail && (args as {screenshotId:string}).screenshotId === second.id ? new Promise(resolve => { finish = resolve; }) : image);
+  const wrapper = mountGallery(); await flushPromises();
+  await wrapper.get('.screenshot-card').trigger('click'); await flushPromises();
+  await dialog().trigger('keydown', { key: 'ArrowRight' }); await flushPromises();
+  expect(dialog().get('img').attributes('src')).toBe(image.data_url);
+  expect(dialog().get('.screenshot-viewport').attributes('aria-busy')).toBe('true');
+  expect(dialog().find('.loading-indicator').exists()).toBe(false);
+  const copy = dialog().findAll('button').find(button => button.text() === 'Copy image')!;
+  expect(copy.attributes('disabled')).toBeDefined();
+  await copy.trigger('click');
+  expect(invoke).not.toHaveBeenCalledWith('copy_game_screenshot', expect.anything());
+  finish({ ...image, data_url: 'data:image/png;base64,bmV4dA==' }); await flushPromises();
+  await dialog().findAll('button').find(button => button.text() === 'Copy image')!.trigger('click'); await flushPromises();
+  expect(invoke).toHaveBeenCalledWith('copy_game_screenshot', { id: 'game-a', screenshotId: second.id });
+  expect(dialog().text()).toContain('Image copied');
+  await dialog().get('button[aria-label="Open screenshots folder"]').trigger('click');
+  expect(invoke).toHaveBeenCalledWith('open_game_screenshots_folder', { id: 'game-a' });
+  wrapper.unmount();
+});
+
+it('reports a failed native image copy without claiming clipboard success', async () => {
+  vi.mocked(invoke).mockImplementation(async command => {
+    if (command === 'list_game_screenshots') return { items: [item], total: 1, next_offset: null };
+    if (command === 'copy_game_screenshot') throw new Error('Clipboard unavailable');
+    return image;
+  });
+  const wrapper = mountGallery(); await flushPromises();
+  await wrapper.get('.screenshot-card').trigger('click'); await flushPromises();
+  await dialog().findAll('button').find(button => button.text() === 'Copy image')!.trigger('click'); await flushPromises();
+  expect(dialog().get('[role="alert"]').text()).toContain('Could not copy image. Try again.');
+  expect(dialog().text()).not.toContain('Image copied');
   wrapper.unmount();
 });

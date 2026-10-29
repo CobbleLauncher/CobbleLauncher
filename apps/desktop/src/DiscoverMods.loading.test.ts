@@ -19,12 +19,15 @@ const firstPage: ModSearchPage = {
 };
 
 beforeEach(() => setLocale('en-US'));
-afterEach(() => { vi.clearAllMocks(); setLocale('zh-CN'); });
+afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); setLocale('zh-CN'); });
 
-it('shows a skeleton for the first search and compact feedback while loading another page', async () => {
+it('delays visual loading for fast searches and preserves rows during slow pagination', async () => {
+  vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
   let finishFirst!: (result: ModSearchPage) => void;
   vi.mocked(invoke).mockReturnValue(new Promise<ModSearchPage>(resolve => { finishFirst = resolve; }) as never);
   const wrapper = mount(DiscoverMods, { props: { game, locked: false } });
+  expect(wrapper.find('[role="status"]').exists()).toBe(false);
+  await vi.advanceTimersByTimeAsync(140);
   expect(wrapper.get('[role="status"]').attributes('aria-live')).toBe('polite');
   expect(wrapper.get('[role="status"]').text()).toContain('Searching');
   expect(wrapper.findAll('.skeleton-row')).toHaveLength(3);
@@ -36,6 +39,8 @@ it('shows a skeleton for the first search and compact feedback while loading ano
   let finishNext!: (result: ModSearchPage) => void;
   vi.mocked(invoke).mockReturnValue(new Promise<ModSearchPage>(resolve => { finishNext = resolve; }) as never);
   await wrapper.get('.load-more').trigger('click');
+  expect(wrapper.find('.loading-indicator').exists()).toBe(false);
+  await vi.advanceTimersByTimeAsync(140);
   expect(wrapper.get('.loading-indicator.compact').text()).toContain('Searching');
   expect(wrapper.text()).toContain('First Mod');
 

@@ -90,7 +90,7 @@ watch(open, value => {
 .settings-disclosure-has-icon>.settings-disclosure-region>.settings-disclosure-motion>.settings-disclosure-clip>.settings-disclosure-content{padding-inline-start:var(--ui-space-6)}
 .settings-disclosure-motion{display:grid;grid-template-rows:1fr;opacity:1}
 .settings-disclosure-clip{min-height:0;overflow:hidden}
-.disclosure-expand-enter-active,.disclosure-expand-leave-active{transition:grid-template-rows var(--ui-duration-normal,160ms) var(--ui-easing,ease-out),opacity var(--ui-duration-fast,120ms) var(--ui-easing,ease-out)}
+.disclosure-expand-enter-active,.disclosure-expand-leave-active{transition:grid-template-rows 180ms var(--ui-easing,ease-out),opacity var(--ui-duration-fast,120ms) var(--ui-easing,ease-out)}
 .disclosure-expand-enter-from,.disclosure-expand-leave-to{grid-template-rows:0fr;opacity:0}
 .settings-disclosure-content :deep(.settings-row:last-child){border-bottom:0}
 .settings-disclosure summary{list-style:none}.settings-disclosure summary::-webkit-details-marker{display:none}
@@ -102,4 +102,5 @@ watch(open, value => {
   .settings-disclosure-content,.settings-disclosure-has-icon>.settings-disclosure-region>.settings-disclosure-motion>.settings-disclosure-clip>.settings-disclosure-content{padding-inline-start:var(--ui-space-3)}
 }
 @media(prefers-reduced-motion:reduce){.disclosure-expand-enter-active,.disclosure-expand-leave-active,.settings-disclosure-chevron{transition:none}}
+[data-motion="reduced"] .disclosure-expand-enter-active,[data-motion="reduced"] .disclosure-expand-leave-active,[data-motion="reduced"] .settings-disclosure-chevron{transition:none}
 </style>

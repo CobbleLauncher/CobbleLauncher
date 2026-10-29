@@ -5,6 +5,8 @@
     "main"
   ],
   "permissions": [
+    "allow-get-home-world-summary",
+    "allow-copy-game-screenshot",
     "allow-preview-game-change-export",
     "allow-export-game-change",
     "allow-import-game-change",

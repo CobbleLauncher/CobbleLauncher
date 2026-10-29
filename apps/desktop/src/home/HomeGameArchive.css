@@ -1,0 +1,150 @@
+/* SPDX-License-Identifier: MIT */
+.home-game-archive {
+  position:absolute; inset:0; z-index:4; display:flex; flex-direction:column;
+  gap:14px; padding:16px; border:0; border-radius:inherit;
+  background:linear-gradient(145deg,var(--ui-surface-1),var(--ui-surface-2));
+  overflow:hidden; isolation:isolate;
+}
+.home-archive-header,.home-archive-footer {
+  display:flex; align-items:center; justify-content:space-between; gap:10px; flex:none;
+}
+.home-archive-header button,.home-archive-footer button {
+  display:flex; align-items:center; gap:7px; min-height:var(--ui-control-height);
+  font-size:var(--ui-text-caption); padding:4px;
+}
+.home-archive-count,.home-archive-pages {
+  color:var(--ui-text-muted); font-size:var(--ui-text-caption); font-variant-numeric:tabular-nums;
+}
+.home-archive-stack {
+  position:relative; flex:1; min-height:300px; container-type:inline-size;
+  perspective:1100px; perspective-origin:50% 40%; overflow:hidden;
+  --sheet-width:clamp(190px,66cqw,340px);
+  --sheet-height:calc(var(--sheet-width) * 9 / 16);
+  --depth-step:min(64px,9cqw);
+  --fan-x:min(18px,3cqw);
+  --fan-y:min(7px,1.4cqw);
+  --fan-depth:min(26px,4.3cqw);
+  --archive-depth:calc((var(--archive-count) - 1) * var(--depth-step) + 24px);
+  background:radial-gradient(ellipse at 50% 65%,color-mix(in srgb,var(--ui-accent) 12%,transparent),transparent 66%);
+}
+.home-archive-scene {
+  position:absolute;
+  width:var(--sheet-width); height:var(--sheet-height);
+  left:calc(50% - var(--sheet-width) / 2 - var(--archive-depth) * .16 - 6px);
+  top:calc(50% - var(--sheet-height) / 2 + var(--archive-depth) * .14);
+  transform-style:preserve-3d;
+  transform:rotateX(-12deg) rotateY(-18deg);
+  transition:transform 180ms cubic-bezier(.2,.75,.2,1);
+}
+.home-archive-card {
+  position:absolute; inset:0; width:100%; height:100%; aspect-ratio:16/9;
+  padding:0; border:0; background:none; color:var(--ui-text); font:inherit; text-align:left;
+  transform:translate3d(calc(var(--archive-index) * 7px),calc(var(--archive-index) * -16px + var(--front-open,0) * var(--front-travel,40px)),calc(var(--archive-index) * var(--depth-step) * -1)) rotateX(calc(var(--front-open,0) * 48deg));
+  transform-origin:center bottom;
+  transform-style:preserve-3d; transition:opacity 180ms ease; backface-visibility:hidden;
+}
+.home-archive-face {
+  position:absolute; inset:0; display:grid; grid-template-columns:1fr auto; grid-template-rows:1fr auto;
+  gap:6px; padding:12px; border:1px solid color-mix(in srgb,var(--ui-border-strong) 80%,#fff); border-radius:8px;
+  background:linear-gradient(135deg,color-mix(in srgb,var(--ui-surface-1) 84%,transparent),color-mix(in srgb,var(--ui-accent) 10%,transparent));
+  box-shadow:inset 1px 1px #ffffff75,inset -1px -1px #ffffff20,0 2px 0 color-mix(in srgb,var(--ui-border-strong) 55%,transparent);
+  transform:translate3d(calc(var(--drift-x,0px) + var(--fan-offset,0) * var(--fan-x)),calc(var(--drift-y,0px) - var(--fan-offset,0) * var(--fan-y)),calc(var(--fan-offset,0) * var(--fan-depth) * -1)) rotateX(var(--tilt-x,0deg)) rotateY(var(--tilt-y,0deg));
+  transition:background-color 180ms ease,border-color 180ms ease,box-shadow 180ms ease;
+  overflow:hidden; pointer-events:none;
+}
+/* Reflection bands follow the sheet; input changes preview, never game selection. */
+.home-archive-face::after {
+  content:""; position:absolute; inset:-30%; pointer-events:none;
+  transform:translateX(var(--glint-x,0%));
+  background:linear-gradient(114deg,transparent 12%,#ffffff25 13%,#ffffff06 35%,transparent 36%,transparent 72%,#ffffff30 73%,transparent 76%);
+}
+.home-archive-card:not(.is-highlighted) { opacity:.4; }
+.home-archive-card.is-before-highlighted { opacity:.22; pointer-events:none; }
+.home-archive-card.is-before-highlighted .home-archive-tab { visibility:hidden; }
+.home-archive-card.is-highlighted .home-archive-face {
+  border-color:var(--ui-focus);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ui-focus) 65%,transparent),inset 1px 1px #ffffff75,0 8px 24px #00000014;
+  background-color:color-mix(in srgb,var(--ui-surface-1) 92%,transparent);
+}
+.home-archive-card:focus-visible { outline:2px solid var(--ui-focus); outline-offset:3px; }
+.home-archive-tab {
+  position:absolute; top:10px; right:12px; left:12px;
+  display:flex; justify-content:flex-end; gap:8px; font-size:var(--ui-text-caption);
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+}
+.home-archive-number { font-variant-numeric:tabular-nums; font-weight:600; }
+.home-archive-card.is-highlighted .home-archive-tab { visibility:hidden; }
+.home-archive-card:not(.is-highlighted) .home-archive-glyph,
+.home-archive-card:not(.is-highlighted) .home-archive-caption,
+.home-archive-card:not(.is-highlighted) .home-archive-selected { visibility:hidden; }
+.home-archive-cover {
+  position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.2; pointer-events:none;
+}
+.home-archive-glyph {
+  width:32px; height:32px; align-self:center; display:grid; place-items:center;
+  border-radius:8px; overflow:hidden; --block-top:#b4d889; --block-left:#8ba85e; --block-right:#668244;
+}
+.home-archive-glyph img,.home-archive-glyph svg { width:100%; height:100%; object-fit:cover; stroke:none; }
+.block-top { fill:var(--block-top); }.block-left { fill:var(--block-left); }.block-right { fill:var(--block-right); }
+[data-preset=stone] .home-archive-glyph { --block-top:#bfc5c3; --block-left:#969f9e; --block-right:#748080; }
+[data-preset=dirt] .home-archive-glyph { --block-top:#c4a17c; --block-left:#aa8059; --block-right:#856344; }
+[data-preset=oak] .home-archive-glyph { --block-top:#d6bd83; --block-left:#b99a61; --block-right:#997d4a; }
+[data-preset=water] .home-archive-glyph { --block-top:#91c5df; --block-left:#6cabc9; --block-right:#4888ad; }
+[data-preset=lava] .home-archive-glyph { --block-top:#efb470; --block-left:#dc8f4f; --block-right:#bc6939; }
+[data-preset=end] .home-archive-glyph { --block-top:#c3b1df; --block-left:#a38abd; --block-right:#82689c; }
+.home-archive-caption { grid-row:2; grid-column:1/-1; display:grid; gap:5px; min-width:0; }
+.home-archive-caption strong {
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  overflow-wrap:anywhere; font-size:var(--ui-text-label); font-weight:600; line-height:1.4;
+}
+.home-archive-caption>span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ui-text-muted); font-size:var(--ui-text-caption); }
+.home-archive-selected { grid-column:2; grid-row:1; color:var(--ui-focus); }
+.home-archive-pages { display:flex; align-items:center; gap:4px; white-space:nowrap; }
+.home-archive-pages button { width:32px; justify-content:center; }
+.home-archive-previous { transform:rotate(180deg); }
+.home-archive-empty { display:grid; place-items:center; flex:1; color:var(--ui-text-muted); font-size:var(--ui-text-label); }
+@media(prefers-reduced-motion:reduce) {
+  .home-archive-stack { overflow:auto; perspective:none; min-height:0; background:none; }
+  .home-archive-scene { position:static; display:grid; gap:8px; width:auto; height:auto; transform:none; }
+  .home-archive-tab { display:none; }
+  .home-archive-card { position:relative; width:100%; height:auto; aspect-ratio:auto; transform:none; opacity:1!important; transition:none; pointer-events:auto; }
+  .home-archive-face { position:relative; min-height:78px; grid-template-columns:auto 1fr auto; grid-template-rows:auto; padding:14px; transform:none!important; transition:none; }
+  .home-archive-caption { grid-column:2; grid-row:1; align-self:center; }
+  .home-archive-selected { grid-column:3; }
+  .home-archive-card:not(.is-highlighted) :is(.home-archive-glyph,.home-archive-caption,.home-archive-selected) { visibility:visible; }
+}
+[data-motion=reduced] .home-archive-stack { overflow:auto; perspective:none; min-height:0; background:none; }
+[data-motion=reduced] .home-archive-scene { position:static; display:grid; gap:8px; width:auto; height:auto; transform:none; }
+[data-motion=reduced] .home-archive-tab { display:none; }
+[data-motion=reduced] .home-archive-card { position:relative; width:100%; height:auto; aspect-ratio:auto; transform:none; opacity:1!important; transition:none; pointer-events:auto; }
+[data-motion=reduced] .home-archive-face { position:relative; min-height:78px; grid-template-columns:auto 1fr auto; grid-template-rows:auto; padding:14px; transform:none!important; transition:none; }
+[data-motion=reduced] .home-archive-caption { grid-column:2; grid-row:1; align-self:center; }
+[data-motion=reduced] .home-archive-selected { grid-column:3; }
+[data-motion=reduced] .home-archive-card:not(.is-highlighted) :is(.home-archive-glyph,.home-archive-caption,.home-archive-selected) { visibility:visible; }
+
+/* Opening/closing connects the archive to the original 2D game cover. */
+.home-archive-turn-enter-active .home-archive-scene,
+.home-archive-turn-leave-active .home-archive-scene {
+  transition:transform 360ms cubic-bezier(.2,.75,.2,1);
+}
+.home-archive-turn-enter-active .home-archive-card,
+.home-archive-turn-leave-active .home-archive-card {
+  transition:transform 360ms cubic-bezier(.2,.75,.2,1),opacity 260ms ease;
+}
+:is(.home-archive-turn-enter-from,.home-archive-turn-leave-to) .home-archive-scene {
+  transform:translate(var(--archive-origin-x,0px),var(--archive-origin-y,0px)) scale(var(--archive-origin-scale-x,1),var(--archive-origin-scale-y,1));
+}
+:is(.home-archive-turn-enter-from,.home-archive-turn-leave-to) :is(.home-archive-card,.home-archive-face) { transform:translateZ(0); }
+:is(.home-archive-turn-enter-from,.home-archive-turn-leave-to) .home-archive-card:not(.is-current) { opacity:0; }
+:is(.home-archive-turn-enter-active,.home-archive-turn-leave-active) .home-archive-stack { pointer-events:none; overflow:visible; }
+@media(prefers-reduced-motion:reduce) {
+  .home-archive-scene,.home-archive-card { transition:none!important; transform:none!important; }
+}
+[data-motion=reduced] :is(.home-archive-scene,.home-archive-card) { transition:none!important; transform:none!important; }
+
+@media(prefers-reduced-motion:reduce) {
+  .home-archive-face { background:var(--ui-surface-1); box-shadow:none; }
+  .home-archive-face::after { display:none; }
+}
+[data-motion=reduced] .home-archive-face { background:var(--ui-surface-1); box-shadow:none; }
+[data-motion=reduced] .home-archive-face::after { display:none; }

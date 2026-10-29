@@ -9,6 +9,7 @@ use std::{
     path::Path,
     sync::OnceLock,
 };
+use tauri_plugin_clipboard_manager::ClipboardExt;
 const MAX_FILES: usize = 10_000;
 const MAX_SOURCE: u64 = 32 * 1024 * 1024;
 const MAX_PIXELS: u64 = 32 * 1024 * 1024;
@@ -231,7 +232,7 @@ fn unchanged(path: &Path, screenshot: &Screenshot) -> bool {
             && entry(screenshot.name.clone(), &metadata).id == screenshot.id
     })
 }
-fn normalize(bytes: &[u8], thumbnail: bool) -> Result<ScreenshotPreview, String> {
+fn decode_image(bytes: &[u8]) -> Result<image::DynamicImage, String> {
     let format = image::guess_format(bytes).map_err(|_| "Screenshot is not a supported image")?;
     if !matches!(
         format,
@@ -265,6 +266,10 @@ fn normalize(bytes: &[u8], thumbnail: bool) -> Result<ScreenshotPreview, String>
     let mut image = image::DynamicImage::from_decoder(decoder)
         .map_err(|_| "Cannot decode screenshot within preview limits")?;
     image.apply_orientation(orientation);
+    Ok(image)
+}
+fn normalize(bytes: &[u8], thumbnail: bool) -> Result<ScreenshotPreview, String> {
+    let image = decode_image(bytes)?;
     let dimensions = (image.width(), image.height());
     let maximum = if thumbnail { 320 } else { 1280 };
     let preview = if image.width() > maximum || image.height() > maximum {
@@ -344,6 +349,51 @@ fn preview(
 fn owned_game(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
     ensure_registered_game(app, id)?;
     game_directory(app, id)
+}
+/// Decode original pixels only after a user selects an exact, still-current handle.
+fn clipboard_image(game: &Path, id: &str) -> Result<image::RgbaImage, String> {
+    let (path, screenshot) = selected(game, id)?;
+    if screenshot.size_bytes > MAX_SOURCE {
+        return Err("Screenshot exceeds the 32 MiB clipboard limit".into());
+    }
+    let _work = IMAGE_WORK
+        .lock()
+        .map_err(|_| "Screenshot decoder unavailable")?;
+    let mut bytes = Vec::new();
+    fs::File::open(&path)
+        .map_err(|_| "Cannot read screenshot")?
+        .take(MAX_SOURCE + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "Cannot read screenshot")?;
+    if bytes.len() as u64 > MAX_SOURCE || !unchanged(&path, &screenshot) {
+        return Err("Screenshot changed or exceeds clipboard limits".into());
+    }
+    let image = decode_image(&bytes)?.into_rgba8();
+    if !unchanged(&path, &screenshot) {
+        return Err("Screenshot changed; refresh the gallery".into());
+    }
+    Ok(image)
+}
+#[tauri::command]
+pub async fn copy_game_screenshot(
+    app: AppHandle,
+    id: String,
+    screenshot_id: String,
+) -> Result<(), String> {
+    let permit = PREVIEW_REQUESTS
+        .try_acquire()
+        .map_err(|_| "Screenshot previews are busy; retry shortly")?;
+    let game = owned_game(&app, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        let image = clipboard_image(&game, &screenshot_id)?;
+        let pixels = tauri::image::Image::new(image.as_raw(), image.width(), image.height());
+        app.clipboard()
+            .write_image(&pixels)
+            .map_err(|_| "Cannot copy screenshot".into())
+    })
+    .await
+    .map_err(|_| "Screenshot copy failed")?
 }
 /// Reuse the authorized bounded thumbnail/cache path; pixels stay in native memory.
 pub(super) fn sheet_image(
@@ -510,6 +560,21 @@ mod tests {
                 .unwrap_err()
                 .contains("32 MiB")
         );
+    }
+    #[test]
+    fn clipboard_decodes_original_pixels_and_rejects_foreign_or_stale_handles() {
+        let root = screenshot_root();
+        let foreign = screenshot_root();
+        let path = root.path().join("screenshots/original.png");
+        fs::write(&path, png(1600, 900)).unwrap();
+        let item = page(root.path(), 0, 40).unwrap().items.remove(0);
+        let image = clipboard_image(root.path(), &item.id).unwrap();
+        assert_eq!(image.dimensions(), (1600, 900));
+        assert_eq!(image.get_pixel(0, 0).0, [35, 90, 150, 255]);
+        assert!(clipboard_image(foreign.path(), &item.id).is_err());
+        assert!(clipboard_image(root.path(), "../original.png").is_err());
+        fs::write(&path, png(16, 9)).unwrap();
+        assert!(clipboard_image(root.path(), &item.id).is_err());
     }
     #[test]
     fn preview_cache_has_bounded_entry_and_byte_budgets() {

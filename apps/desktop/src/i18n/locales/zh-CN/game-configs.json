@@ -30,5 +30,6 @@
   "restoreFailed": "恢复失败，编辑器内容未变。",
   "operationLocked": "请等待当前操作完成。",
   "reading": "正在读取文件…",
-  "restoring": "正在恢复…"
+  "restoring": "正在恢复…",
+  "saveShortcut": "保存（Ctrl/⌘+S）"
 }

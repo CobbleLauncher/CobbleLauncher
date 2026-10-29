@@ -99,7 +99,7 @@ export function shortcutAction(event: KeyboardEvent, shortcuts: ShortcutMap, opt
   const shortcut = shortcutFromEvent(event);
   if (!shortcut) return null;
   const id = Object.keys(shortcuts).find(candidate => shortcuts[candidate] === shortcut) ?? null;
-  if (!id || (editableTarget(event.target) && id !== 'palette.open') || (options.paletteOpen && id !== 'palette.open')) return null;
+  if (!id || (editableTarget(event.target) && id !== 'palette.open' && id !== 'library.search') || (options.paletteOpen && id !== 'palette.open')) return null;
   return id;
 }
 

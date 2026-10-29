@@ -10,6 +10,7 @@ import type { MarketKind } from './market';
 import GameModsPanel from './GameModsPanel.vue';
 import GameModHistory from './GameModHistory.vue';
 import GameImportResult from './GameImportResult.vue';
+import type { ContentReveal } from './content-reveal';
 import type { ModsActivity } from './game-mods';
 import GameRuntimeSettings from './GameRuntimeSettings.vue';
 import SettingsSection from './ui/settings/SettingsSection.vue';
@@ -17,6 +18,7 @@ import SettingsRow from './ui/settings/SettingsRow.vue';
 import GameAppearancePanel from './GameAppearancePanel.vue';
 import AppIcon from './ui/AppIcon.vue';
 import SelectField from './ui/SelectField.vue';
+import ValidatedTextField from './ui/ValidatedTextField.vue';
 import { isGamePageTab, type GamePageTab } from './game-detail-tabs';
 import LocalPacks from './LocalPacks.vue';
 import GameWorlds from './GameWorlds.vue';
@@ -34,7 +36,7 @@ import InstanceExtensionSettings from './InstanceExtensionSettings.vue';
 import type { ResolvedCommand } from './extensions/contributions';
 import type { RecoveryDetailTarget } from './recovery-navigation';
 
-const props = defineProps<{ tasks?: TaskSnapshot[]; active?: boolean; snapshotRestore?: SnapshotRestoreTarget; recoveryTarget?: RecoveryDetailTarget; game: Game; starting: boolean; profile: PlayerProfile | null; library: ProfileLibrary }>();
+const props = defineProps<{ tasks?: TaskSnapshot[]; initialSection?: 'worlds' | 'screenshots'; initialWorld?: string; active?: boolean; snapshotRestore?: SnapshotRestoreTarget; recoveryTarget?: RecoveryDetailTarget; game: Game; starting: boolean; profile: PlayerProfile | null; library: ProfileLibrary }>();
 const emit = defineEmits<{ play: [id: string]; openGame: [id: string]; retrySessionRecovery: [id: string]; serverPlay: [id: string, serverId: string]; renamed: [game: Game]; profileChanged: [game: Game]; action: [action: GameAction]; exchange: [mode: 'export' | 'import' | 'transfer']; contentBusy: [value: boolean]; market: [kind: MarketKind]; extensions: []; mesh: []; readiness: []; login: []; extensionCommand: [command: ResolvedCommand] }>();
 const iconUrl = ref<string | null>(null);
 watch(() => [props.game.id, props.game.icon_ref] as const, async ([id, iconRef], _previous, onCleanup) => {
@@ -91,7 +93,10 @@ async function selectPageTab(value: GamePageTab) {
 }
 function requestPageTab(value: unknown) { if (isGamePageTab(value)) void selectPageTab(value); }
 async function openMods() { if (await selectPageTab('content')) { contentType.value = supportsMods.value ? 'mod' : 'resource_pack'; modsPanel.value?.showInstalled(); } }
-async function openContent(kind: MarketKind) {
+const contentReveal = ref<(ContentReveal & { kind: MarketKind })>();
+let revealRequest = 0;
+async function openContent(kind: MarketKind, files: string[] = []) {
+  contentReveal.value = { kind, files, request: ++revealRequest };
   if (kind === 'mod') return openMods();
   if ((kind === 'resource_pack' || kind === 'shader_pack') && await selectPageTab('content')) contentType.value = kind;
 }
@@ -118,7 +123,7 @@ async function bindProfile(value: string) {
 }
 const editingName = ref(false);
 const editedName = ref('');
-const nameInput = ref<HTMLInputElement | null>(null);
+const nameInput = ref<InstanceType<typeof ValidatedTextField>>();
 const actionBusy = ref(false);
 const actionError = ref('');
 const actionStatus = ref('');
@@ -130,14 +135,13 @@ async function editName() {
   actionStatus.value = '';
   editingName.value = true;
   await nextTick();
-  nameInput.value?.focus();
-  nameInput.value?.select();
+  nameInput.value?.focus(true);
 }
 async function saveName() {
   if (actionBusy.value || locked.value) return;
   actionError.value = '';
+  if (!nameInput.value?.validate()) return;
   const name = editedName.value.trim();
-  if (!name || name.length > 80) { actionError.value = t('gameDetails.nameInvalid'); return; }
   actionBusy.value = true;
   try {
     const game = await invoke<Game>('rename_game', { id: props.game.id, name });
@@ -171,14 +175,18 @@ async function play() { if (playDisabled.value || !await confirmLeave() || playD
 async function playServer(serverId: string) { if (playDisabled.value || !await confirmLeave() || playDisabled.value) return; emit('serverPlay', props.game.id, serverId); }
 async function refreshContent() { contentRevision.value++; await modsPanel.value?.refreshContent(); }
 defineExpose({ refreshContent, canLeave, confirmLeave, openMods, openContent, selectPageTab });
-watch(() => props.game.id, () => { pageTab.value = 'content'; historyOpen.value = false; runtimeVisited.value = false; worldsVisited.value = false; screenshotsVisited.value = false; configsVisited.value = false; configBusy.value = false; contentType.value = supportsMods.value ? 'mod' : 'resource_pack'; visitedPacks.value = supportsMods.value ? [] : ['resource_pack']; modsActivity.value = {busy: false, installing: false, updating: false, recognizing: false}; }, { immediate: true });
+watch(() => props.game.id, () => { contentReveal.value = undefined; pageTab.value = 'content'; historyOpen.value = false; runtimeVisited.value = false; worldsVisited.value = false; screenshotsVisited.value = false; configsVisited.value = false; configBusy.value = false; contentType.value = supportsMods.value ? 'mod' : 'resource_pack'; visitedPacks.value = supportsMods.value ? [] : ['resource_pack']; modsActivity.value = {busy: false, installing: false, updating: false, recognizing: false}; }, { immediate: true });
+watch(() => [props.game.id, props.initialSection], () => { if (props.initialSection) void selectPageTab(props.initialSection); }, { immediate:true });
 watch(() => props.snapshotRestore, target => { if (target) void selectPageTab('worlds'); }, { immediate: true });
 function profileKindLabel(profile: PlayerProfile) { return t(profile.kind === 'microsoft' ? 'profiles.kindMicrosoft' : 'profiles.kindOffline'); }
 const playLabel = computed(() => {
   if (props.game.launch_state === 'verifying') return t('gameDetails.sessionVerifying');
   if (props.game.launch_state === 'recovery_failed') return t('gameDetails.retrySessionCheck');
   if (repairingGame.value) return t('tasks.repairGame');
-  if (screenshotBusy.value) return t('gameDetails.playAction');
+  if (screenshotBusy.value) return t('gameDetails.screenshotsBusy');
+  if (historyBusy.value || recoveryBusy.value) return t('gameDetails.historyBusy');
+  if (packPreviewBusy.value) return t('gameDetails.previewBusy');
+  if (profileBindingBusy.value) return t('gameDetails.profileBusy');
   if (configBusy.value) return t('gameDetails.configBusy');
   if (worldExportBusy.value) return t('gameDetails.worldBusy');
   if (packMutationBusy.value) return t('gameDetails.contentBusy');
@@ -418,19 +426,20 @@ watch(() => [props.game.id, props.recoveryTarget, props.active] as const, async 
     <form
       v-if="editingName"
       class="rename-form"
+      novalidate
       @submit.prevent="saveName"
       @keydown.esc="!actionBusy && (editingName = false)"
     >
-      <label for="edited-game-name">{{ t('gameDetails.name') }}</label>
+      <ValidatedTextField
+        id="edited-game-name"
+        ref="nameInput"
+        v-model="editedName"
+        :label="t('gameDetails.name')"
+        :limit="80"
+        :validator="value => !value.trim() || value.trim().length > 80 ? t('gameDetails.nameInvalid') : null"
+        :disabled="actionBusy"
+      />
       <div class="rename-controls">
-        <input
-          id="edited-game-name"
-          ref="nameInput"
-          v-model="editedName"
-          maxlength="80"
-          autocomplete="off"
-          :disabled="actionBusy"
-        >
         <button
           class="secondary-button"
           type="submit"
@@ -624,6 +633,7 @@ watch(() => [props.game.id, props.recoveryTarget, props.active] as const, async 
           :tasks="tasks"
           :game-id="game.id"
           :snapshot-restore="snapshotRestore"
+          :initial-world="initialWorld"
           :locked="locked || modsActivity.busy"
           :revision="contentRevision"
           @busy="worldExportBusy = $event"
@@ -681,6 +691,7 @@ watch(() => [props.game.id, props.recoveryTarget, props.active] as const, async 
           v-if="supportsMods"
           v-show="contentType === 'mod'"
           ref="modsPanel"
+          :reveal="contentReveal?.kind === 'mod' ? contentReveal : undefined"
           :game="game"
           :locked="locked || packMutationBusy || worldExportBusy"
           :revision="contentRevision"
@@ -723,6 +734,7 @@ watch(() => [props.game.id, props.recoveryTarget, props.active] as const, async 
           installed-only
           :game-id="game.id"
           kind="resource_pack"
+          :reveal="contentReveal?.kind === 'resource_pack' ? contentReveal : undefined"
           :locked="locked || modsActivity.busy"
           :revision="contentRevision"
           @busy="packMutationBusy = $event"
@@ -733,6 +745,7 @@ watch(() => [props.game.id, props.recoveryTarget, props.active] as const, async 
           installed-only
           :game-id="game.id"
           kind="shader_pack"
+          :reveal="contentReveal?.kind === 'shader_pack' ? contentReveal : undefined"
           :locked="locked || modsActivity.busy"
           :revision="contentRevision"
           @busy="packMutationBusy = $event"
@@ -752,6 +765,7 @@ watch(() => [props.game.id, props.recoveryTarget, props.active] as const, async 
 .details-page :deep(.mods-toolbar),.details-content-toolbar{padding:var(--ui-space-3);border:1px solid var(--ui-border);border-radius:var(--ui-radius-lg);background:var(--ui-surface-1)}
 .details-page .content-section{margin:0;border:0;padding-top:var(--ui-space-4)}.details-content-toolbar{display:flex;justify-content:space-between;align-items:center;gap:var(--ui-space-3);margin:0 0 var(--ui-space-3)}.details-content-toolbar select{width:auto;min-width:160px;max-width:65%;min-height:var(--ui-control-height);padding:var(--ui-space-2) var(--ui-space-3);border:1px solid var(--ui-border-strong);border-radius:var(--ui-radius-md);background:var(--ui-surface-1);color:var(--ui-text);font:inherit;font-size:var(--ui-text-label)}.details-content-title{margin:0;font-size:var(--ui-text-body);font-weight:600}.details-add-content,.details-content-toolbar button{display:inline-flex;align-items:center;gap:var(--ui-space-2);min-height:var(--ui-control-height);padding:0 var(--ui-space-3);font-size:var(--ui-text-label)}
 .screenshots-panel,.configs-panel,.runtime-settings{padding-top:var(--ui-space-4)}.runtime-settings{max-width:900px}.rename-form{margin:0 0 var(--ui-space-4)}.runtime-write-controls{border:0;padding:0;margin:0;min-width:0;display:contents}
+.rename-form{display:grid;gap:12px;max-width:680px}
 @media(max-width:900px){.details-heading{flex-basis:100%}.details-primary-actions{width:100%;justify-content:flex-start}.details-profile-picker{flex:1;max-width:280px}.details-primary-actions .play-button{flex:0 0 auto}}
 @media(max-width:600px){.details-primary-actions{gap:var(--ui-space-2)}.details-profile-picker{flex:1 1 160px;min-width:0}.details-primary-actions .play-button{flex:1 1 120px}.details-primary-actions .details-mesh{font-size:var(--ui-text-caption)}.game-page-tabs{gap:var(--ui-space-4)}.details-content-toolbar{flex-wrap:wrap}}
 </style>

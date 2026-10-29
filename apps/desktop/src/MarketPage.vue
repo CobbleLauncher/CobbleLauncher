@@ -1,5 +1,8 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
+import { invoke } from '@tauri-apps/api/core';
+import type { MarketInstallResult } from './market-install-result';
+import type { ManagedGameMod } from './games';
 import { t } from './i18n';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import type { CurseForgePackPreview } from './curseforge';
@@ -12,18 +15,29 @@ import { marketGames, marketGameLocked, type MarketKind } from './market';
 import MarketToolbar from './market/MarketToolbar.vue';
 import SettingsDisclosure from './ui/settings/SettingsDisclosure.vue';
 import { marketTarget, rememberMarketTarget } from './market-preferences';
-import { savedMarketItems, type SavedMarketItem } from './market-saved';
+import { savedMarketItems, savedMarketUndo, undoMarketRemoval, type SavedMarketItem } from './market-saved';
+import UndoNotice from './ui/UndoNotice.vue';
 import { marketWorkstate, rememberMarketWorkstate } from './market-workstate';
 import type { FileInboxMarketLink } from './file-inbox-market';
 
 const props = defineProps<{ games: Game[]; initialKind: MarketKind; initialGameId?: string; initialQuery?: string; initialLink?: FileInboxMarketLink | null }>();
 const activeLink = ref(props.initialLink);
-const emit = defineEmits<{ busy: [value: boolean]; selectedPack: [preview: PackPreview]; selectedCfPack: [preview: CurseForgePackPreview]; installed: [gameId: string]; locate: [gameId: string, kind: MarketKind] }>();
+const emit = defineEmits<{ busy: [value: boolean]; selectedPack: [preview: PackPreview]; selectedCfPack: [preview: CurseForgePackPreview]; installed: [gameId: string, result?: MarketInstallResult]; locate: [gameId: string, kind: MarketKind, result?: MarketInstallResult] }>();
 const categories: Exclude<MarketKind, 'blueprint'>[] = ['modpack', 'mod', 'resource_pack', 'shader_pack'];
 const previousSelection = marketWorkstate<{ kind: MarketKind; provider: string; gameId: string; minecraftVersion?: string; loader?: string }>('market:selection');
 const kind = ref<MarketKind>(props.initialLink?.kind ?? (props.initialQuery || props.initialGameId ? props.initialKind : previousSelection?.kind ?? props.initialKind));
 const gameId = ref(marketTarget(props.games, kind.value, props.initialLink?.gameId ?? props.initialGameId ?? previousSelection?.gameId));
 const busy = ref(false);
+const sourceBusy = new Map<string, boolean>();
+const installedRecords = ref<{modrinth: ManagedGameMod[]; curseforge: ManagedGameMod[]}>({modrinth: [], curseforge: []});
+let recordsRequest = 0;
+async function refreshInstalledRecords() {
+  const current = ++recordsRequest, id = gameId.value;
+  if (kind.value !== 'mod' || !id) { installedRecords.value = {modrinth: [], curseforge: []}; return; }
+  const result = await Promise.allSettled([invoke<ManagedGameMod[]>('list_managed_game_mods', {id}), invoke<ManagedGameMod[]>('list_game_curseforge_mods', {id})]);
+  if (current !== recordsRequest || id !== gameId.value) return;
+  installedRecords.value = { modrinth: result[0].status === 'fulfilled' && Array.isArray(result[0].value) ? result[0].value : [], curseforge: result[1].status === 'fulfilled' && Array.isArray(result[1].value) ? result[1].value : [] };
+}
 const cfAvailable = ref<boolean | null>(null);
 function sharedQueryKey(category: MarketKind, target: string) { return `market:shared-query:${category}:${target || 'global'}`; }
 const sharedQuery = ref(props.initialLink?.project ?? props.initialQuery ?? marketWorkstate<string>(sharedQueryKey(kind.value, gameId.value)) ?? '');
@@ -61,6 +75,7 @@ function openSaved(item: SavedMarketItem) {
   if (item.kind === 'modpack' || gameId.value) savedRequest.value = { serial: ++savedSerial, item };
 }
 const installedName = ref('');
+const installedResult = ref<MarketInstallResult>();
 const status = computed(() => installedName.value ? t('market.installed', { name: installedName.value }) : '');
 function categoryLabel(category: MarketKind) {
   const key = category === 'resource_pack' ? 'resourcePack' : category === 'shader_pack' ? 'shaderPack' : category;
@@ -84,16 +99,25 @@ function browseProps(source: Exclude<MarketProvider, 'all'>) {
     ? { kind: 'modpack', initialQuery, sharedMode, sharedRequest: sharedRequest.value, linkRequest }
     : { initialQuery, sharedMode, sharedRequest: sharedRequest.value, linkRequest };
   const locked = game.value ? marketGameLocked(game.value) : false;
+  const records = installedRecords.value[source];
   if (kind.value === 'mod') return source === 'curseforge'
-    ? { kind: 'mod', game: game.value, locked, initialQuery, sharedMode, sharedRequest: sharedRequest.value, linkRequest }
-    : { game: game.value, locked, initialQuery, sharedMode, sharedRequest: sharedRequest.value, linkRequest };
+    ? { kind: 'mod', game: game.value, locked, installedRecords: records, initialQuery, sharedMode, sharedRequest: sharedRequest.value, linkRequest }
+    : { game: game.value, locked, installedRecords: records, initialQuery, sharedMode, sharedRequest: sharedRequest.value, linkRequest };
   return { gameId: gameId.value, kind: kind.value, locked, browseOnMount: true, initialQuery, sharedMode, sharedRequest: sharedRequest.value, linkRequest };
 }
-function setBusy(value: boolean) { busy.value = value; emit('busy', value); }
-function installed() {
-  if (!game.value) return;
-  installedName.value = game.value.name;
-  emit('installed', game.value.id);
+function setBusy(source: string, value: boolean) {
+  sourceBusy.set(source, value);
+  busy.value = [...sourceBusy.values()].some(Boolean);
+  emit('busy', busy.value);
+}
+function installed(value?: unknown, packResult?: MarketInstallResult) {
+  const result = packResult ?? (value && typeof value === 'object' && 'gameId' in value ? value as MarketInstallResult : undefined);
+  const target = props.games.find(item => item.id === (result?.gameId ?? game.value?.id));
+  if (!target) return;
+  installedName.value = target.name;
+  installedResult.value = result;
+  emit('installed', target.id, result);
+  void refreshInstalledRecords();
 }
 function selectKind(value: MarketKind) {
   if (!busy.value && kind.value !== value) {
@@ -118,13 +142,15 @@ watch([kind, gameId], ([newKind, newGame], [oldKind, oldGame]) => {
   sharedQuery.value = marketWorkstate<string>(sharedQueryKey(newKind, newGame)) ?? '';
   sharedInitialQuery.value = sharedQuery.value;
   sharedRequest.value = { serial: ++sharedSerial, query: sharedQuery.value, minecraftVersion: minecraftVersion.value, loader: filterLoader.value };
-  installedName.value = '';
+  installedName.value = ''; installedResult.value = undefined;
     queryError.value = '';
 });
+watch([kind, gameId], () => { installedRecords.value = {modrinth: [], curseforge: []}; void refreshInstalledRecords(); }, {immediate: true});
 watch(targets, () => { if (gameId.value && !game.value) gameId.value = ''; });
 function rememberTarget() { savedRequest.value = undefined; rememberMarketTarget(kind.value, gameId.value); }
 function selectTarget(value: string) { gameId.value = value; rememberTarget(); }
 onUnmounted(() => {
+  ++recordsRequest;
   rememberMarketWorkstate('market:selection', { kind: kind.value, provider: provider.value, gameId: gameId.value, minecraftVersion: minecraftVersion.value, loader: filterLoader.value });
   rememberMarketWorkstate(sharedQueryKey(kind.value, gameId.value), sharedQuery.value);
 });
@@ -184,14 +210,32 @@ onUnmounted(() => {
         </div>
       </SettingsDisclosure>
       <div class="market-workflow">
-        <p v-if="activeLink" class="setting-hint" role="status">
-          {{ activeLink.provider === 'modrinth' ? 'Modrinth' : 'CurseForge' }} · {{ activeLink.project }}<template v-if="activeLink.version"> · {{ activeLink.version }}</template>
+        <p
+          v-if="activeLink"
+          class="setting-hint"
+          role="status"
+        >
+          {{ activeLink.provider === 'modrinth' ? 'Modrinth' : 'CurseForge' }} · {{ activeLink.project }}<template v-if="activeLink.version">
+            · {{ activeLink.version }}
+          </template>
         </p>
         <p
           v-if="kind !== 'modpack' && !targets.length"
           class="content-empty"
         >
           {{ kind === 'mod' ? t('market.noModGame') : t('market.noGame') }}
+        </p>
+        <p
+          v-if="status"
+          role="status"
+          class="setting-hint"
+        >
+          {{ status }} <button
+            class="text-button"
+            @click="emit('locate', installedResult?.gameId ?? gameId, installedResult?.kind ?? kind, installedResult)"
+          >
+            {{ t('market.viewInstalled') }}
+          </button>
         </p>
         <section
           v-for="source in activeSources"
@@ -214,29 +258,24 @@ onUnmounted(() => {
               :key="`${kind}-${source}-${gameId}`"
               v-bind="browseProps(source)"
               :saved-request="savedRequest"
-              @busy="setBusy"
+              @busy="setBusy(source, $event)"
               @availability="cfAvailable = $event"
-              @installing="setBusy"
+              @installing="setBusy(source, $event)"
               @installed="installed"
               @selected-pack="emit('selectedPack', $event)"
               @selected-cf-pack="emit('selectedCfPack', $event)"
             />
           </KeepAlive>
         </section>
-        <p
-          v-if="status"
-          role="status"
-          class="setting-hint"
-        >
-          {{ status }} <button
-            class="text-button"
-            @click="emit('locate', gameId, kind)"
-          >
-            {{ t('market.viewInstalled') }}
-          </button>
-        </p>
       </div>
     </MarketToolbar>
+    <UndoNotice
+      v-if="savedMarketUndo"
+      :key="savedMarketUndo.revision"
+      :message="t('common.removedSaved', { name: savedMarketUndo.item.title })"
+      @undo="undoMarketRemoval"
+      @dismiss="savedMarketUndo = null"
+    />
   </div>
 </template>
 <style scoped>
