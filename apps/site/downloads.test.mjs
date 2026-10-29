@@ -31,7 +31,7 @@ test('desktop detection stays conservative for mobile and unknown platforms',()=
 test('selects the newest real downloadable asset independently for each OS and architecture',()=>{
   const releases=[
     {...release('draft-newest','2026-10-29T10:00:00Z',[asset('CobbleLauncher-windows-x64.zip','draft-newest')]),draft:true},
-    release('macos-preview-new','2026-10-27T10:00:00Z',[asset('CobbleLauncher-macos-arm64.tar.gz','macos-preview-new'),asset('CobbleLauncher-linux-x64.tar.gz','macos-preview-new')]),
+    release('macos-preview-new','2026-10-30T10:00:00Z',[asset('CobbleLauncher-macos-arm64.tar.gz','macos-preview-new'),asset('CobbleLauncher-linux-x64.tar.gz','macos-preview-new')]),
     release('windows-new','2026-10-26T10:00:00Z',[asset('CobbleLauncher-windows-x64-setup.exe','windows-new'),asset('CobbleLauncher-windows-x64.zip','windows-new'),asset('CobbleLauncher-macos-x64.tar.gz','windows-new')]),
     release('linux-internal','2026-10-28T10:00:00Z',[asset('CobbleLauncher-0.1.0-linux-x64-internal.tar.gz','linux-internal')]),
     release('old-mac','2026-10-20T10:00:00Z',[asset('CobbleLauncher-macos-arm64.tar.gz','old-mac'),asset('CobbleLauncher-macos-x64.tar.gz','old-mac')]),
@@ -52,19 +52,19 @@ test('rejects sidecars, zero-byte files, internal packages and URLs outside the 
     asset('CobbleLauncher-windows-x64.zip','v2',0),
     {...asset('CobbleLauncher-windows-x64.zip','v1'),browser_download_url:'https://example.com/file.zip'},
   ];
-  assert.equal(selectReleaseAssets([release('newest','2026-10-27T10:00:00Z',candidates)])[0].version,null);
+  assert.equal(selectReleaseAssets([release('newest','2026-10-30T10:00:00Z',candidates)])[0].version,null);
 });
 
 test('Windows keeps the real first-render fallback and updates from the release API',async()=>{
-  const releases=[release('v0.1.0-beta.2','2026-10-29T04:15:05Z',[asset('CobbleLauncher-windows-x64-setup.exe','v0.1.0-beta.2'),asset('CobbleLauncher-windows-x64.zip','v0.1.0-beta.2')])];
+  const releases=[release('v0.1.0-beta.3','2026-10-30T10:00:00Z',[asset('CobbleLauncher-windows-x64-setup.exe','v0.1.0-beta.3'),asset('CobbleLauncher-windows-x64.zip','v0.1.0-beta.3')])];
   const {dom,doc,downloads}=fixture({platform:'Win32'},{fetch:async url=>{
     assert.equal(url,releasesApi);return {ok:true,json:async()=>releases};
   }});
   assert.equal(doc.querySelector('[data-get]').href,desktopReleases.find(item=>item.format==='installer').href);
   assert.equal(doc.querySelector('[data-get]').textContent,'Windows x64 安装程序 · Beta');
   await downloads.ready;
-  assert.match(doc.querySelector('[data-get]').href,/v0\.1\.0-beta\.2/);
-  assert.match(doc.querySelector('[data-download-detail]').textContent,/v0\.1\.0-beta\.2/);
+  assert.match(doc.querySelector('[data-get]').href,/v0\.1\.0-beta\.3/);
+  assert.match(doc.querySelector('[data-download-detail]').textContent,/v0\.1\.0-beta\.3/);
   dom.window.close();
 });
 
@@ -79,7 +79,7 @@ test('stable Windows packages omit Beta while the menu retains the real release 
 });
 
 test('published Windows installer becomes primary and the portable ZIP stays selectable',async()=>{
-  const tag='v0.1.0-beta.2',releases=[release(tag,'2026-10-29T10:00:00Z',[
+  const tag='v0.1.0-beta.3',releases=[release(tag,'2026-10-29T10:00:00Z',[
     asset('CobbleLauncher-windows-x64-setup.exe',tag),asset('CobbleLauncher-windows-x64.zip',tag),
   ])];
   const {dom,doc,downloads}=fixture({platform:'Win32'},{fetch:async()=>({ok:true,json:async()=>releases})});
@@ -89,7 +89,7 @@ test('published Windows installer becomes primary and the portable ZIP stays sel
   const main=doc.querySelector('[data-get]'),menu=doc.querySelector('.download-menu');
   assert.equal(main.href,installer);
   assert.equal(main.textContent,'Windows x64 安装程序 · Beta');
-  assert.match(doc.querySelector('[data-download-detail]').textContent,/v0\.1\.0-beta\.2/);
+  assert.match(doc.querySelector('[data-download-detail]').textContent,/v0\.1\.0-beta\.3/);
   assert.equal(menu.querySelectorAll('a[role="menuitem"]').length,5);
   assert.equal([...menu.querySelectorAll('a')].find(link=>link.textContent.includes('Windows x64 安装程序')).href,installer);
   assert.equal([...menu.querySelectorAll('a')].find(link=>link.textContent.includes('便携版 ZIP')).href,portable);
@@ -107,7 +107,7 @@ test('API failure uses current published Windows and macOS assets while Linux st
   const macArm=desktopReleases.find(item=>item.os==='macos'&&item.arch==='arm64');
   const macIntel=desktopReleases.find(item=>item.os==='macos'&&item.arch==='x64');
   assert.equal(doc.querySelector('[data-get]').href,winSetup.href);
-  assert.match(doc.querySelector('[data-get]').href,/v0\.1\.0-beta\.2\/CobbleLauncher-windows-x64-setup\.exe$/);
+  assert.match(doc.querySelector('[data-get]').href,/v0\.1\.0-beta\.3\/CobbleLauncher-windows-x64-setup\.exe$/);
   const menu=doc.querySelector('.download-menu');
   assert.equal([...menu.querySelectorAll('a')].find(link=>link.textContent.includes('便携版 ZIP')).href,winZip.href);
   assert.equal([...menu.querySelectorAll('a')].find(link=>link.textContent.includes('macOS Apple 芯片')).href,macArm.href);
@@ -123,31 +123,31 @@ test('a stale API snapshot does not replace newer published Windows fallbacks',a
   ])];
   const {dom,doc,downloads}=fixture({platform:'Win32'},{fetch:async()=>({ok:true,json:async()=>releases})});
   await downloads.ready;
-  assert.match(doc.querySelector('[data-get]').href,/v0\.1\.0-beta\.2\/CobbleLauncher-windows-x64-setup\.exe$/);
+  assert.match(doc.querySelector('[data-get]').href,/v0\.1\.0-beta\.3\/CobbleLauncher-windows-x64-setup\.exe$/);
   const windowsLinks=[...doc.querySelectorAll('.download-menu a')].filter(link=>link.textContent.includes('Windows x64'));
   assert.equal(windowsLinks.length,2);
-  assert.ok(windowsLinks.every(link=>/v0\.1\.0-beta\.2/.test(link.href)));
+  assert.ok(windowsLinks.every(link=>/v0\.1\.0-beta\.3/.test(link.href)));
   dom.window.close();
 });
 
 test('a newer fetched Windows ZIP is not replaced by the older installer fallback',async()=>{
-  const tag='v0.1.0-beta.3',releases=[release(tag,'2026-10-30T10:00:00Z',[asset('CobbleLauncher-windows-x64.zip',tag)])];
+  const tag='v0.1.0-beta.4',releases=[release(tag,'2026-10-30T10:00:00Z',[asset('CobbleLauncher-windows-x64.zip',tag)])];
   const {dom,doc,downloads}=fixture({platform:'Win32'},{fetch:async()=>({ok:true,json:async()=>releases})});
   await downloads.ready;
   assert.match(doc.querySelector('[data-get]').href,new RegExp(`${tag}/CobbleLauncher-windows-x64\\.zip$`));
-  assert.doesNotMatch(doc.querySelector('[data-get]').href,/v0\.1\.0-beta\.2/);
-  assert.doesNotMatch([...doc.querySelectorAll('.download-menu a')].map(link=>link.href).join('\n'),/v0\.1\.0-beta\.2\/CobbleLauncher-windows-x64-setup\.exe/);
+  assert.doesNotMatch(doc.querySelector('[data-get]').href,/v0\.1\.0-beta\.3/);
+  assert.doesNotMatch([...doc.querySelectorAll('.download-menu a')].map(link=>link.href).join('\n'),/v0\.1\.0-beta\.3\/CobbleLauncher-windows-x64-setup\.exe/);
   dom.window.close();
 });
 
 test('Mac defaults to Apple silicon and clearly offers Intel with preview and notarization status',async()=>{
-  const releases=[release('macos-preview-42','2026-10-27T10:00:00Z',[
+  const releases=[release('macos-preview-42','2026-10-30T10:00:00Z',[
     asset('CobbleLauncher-macos-arm64.tar.gz','macos-preview-42'),asset('CobbleLauncher-macos-x64.tar.gz','macos-preview-42'),
   ])];
   const {dom,doc,downloads,key}=fixture({platform:'MacIntel'},{fetch:async()=>({ok:true,json:async()=>releases})});
   await downloads.ready;
   const main=doc.querySelector('[data-get]');
-  const localDate=new Date('2026-10-27T10:00:00Z').toLocaleDateString('zh-CN',{year:'numeric',month:'numeric',day:'numeric'});
+  const localDate=new Date('2026-10-30T10:00:00Z').toLocaleDateString('zh-CN',{year:'numeric',month:'numeric',day:'numeric'});
   assert.match(main.href,/macos-arm64\.tar\.gz$/);
   assert.equal(main.textContent,'macOS Apple 芯片 · 预览版');
   assert.doesNotMatch(main.textContent,/macos-preview-42/);
@@ -174,10 +174,10 @@ test('Mac defaults to Apple silicon and clearly offers Intel with preview and no
   dom.window.close();
 });
 
-test('Mac packages without a release date show only Preview and accept the older cache shape',async()=>{
+test('an undated legacy Mac cache retains the newer verified public fallback',async()=>{
   const tag='macos-preview-99',file='CobbleLauncher-macos-arm64.tar.gz';
   const items=[
-    {os:'windows',arch:'x64',file:'CobbleLauncher-windows-x64.zip',version:'v0.1.0-beta.2',prerelease:true,href:desktopReleases.find(item=>item.format==='portable').href},
+    {os:'windows',arch:'x64',file:'CobbleLauncher-windows-x64.zip',version:'v0.1.0-beta.3',prerelease:true,href:desktopReleases.find(item=>item.format==='portable').href},
     {os:'macos',arch:'arm64',file,version:tag,prerelease:true,href:asset(file,tag).browser_download_url},
   ];
   const values=new Map([[releaseCacheKey,JSON.stringify({updatedAt:1000,items})]]);
@@ -185,8 +185,8 @@ test('Mac packages without a release date show only Preview and accept the older
   const {dom,doc,downloads}=fixture({platform:'MacIntel'},{storage,now:()=>1001,fetch:()=>{throw new Error('fresh cache should be used');}});
   await downloads.ready;
   const mac=[...doc.querySelectorAll('.download-menu a')].find(link=>link.textContent.includes('Apple 芯片'));
-  assert.equal(mac.href,asset(file,tag).browser_download_url);
-  assert.equal(mac.querySelector('small').textContent,'预览版');
+  assert.equal(mac.href,desktopReleases.find(item=>item.os==='macos'&&item.arch==='arm64').href);
+  assert.match(mac.querySelector('small').textContent,/预览版$/);
   assert.doesNotMatch(mac.textContent,/macos-preview-99/);
   assert.equal(doc.querySelectorAll('.download-menu-note').length,1);
   dom.window.close();
@@ -207,7 +207,7 @@ test('Linux is recognized, but no direct package link is shown without a matchin
 
 test('Linux ARM browsers do not receive an x64 download link',async()=>{
   const {dom,doc,downloads}=fixture({userAgent:'Mozilla/5.0 (X11; Linux aarch64)'},{fetch:async()=>({ok:true,json:async()=>[
-    release('linux-x64','2026-10-27T10:00:00Z',[asset('CobbleLauncher-linux-x64.tar.gz','linux-x64')]),
+    release('linux-x64','2026-10-30T10:00:00Z',[asset('CobbleLauncher-linux-x64.tar.gz','linux-x64')]),
   ]})});
   await downloads.ready;
   assert.equal(doc.querySelector('[data-get]').href,releasesPage);
@@ -219,7 +219,7 @@ test('Linux ARM browsers do not receive an x64 download link',async()=>{
 test('release cache avoids repeat API calls and stale entries survive network failure',async()=>{
   const values=new Map(),storage={getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value)};
   let calls=0,now=1_000;
-  const releases=[release('macos-preview-42','2026-10-27T10:00:00Z',[asset('CobbleLauncher-macos-arm64.tar.gz','macos-preview-42')])];
+  const releases=[release('macos-preview-42','2026-10-30T10:00:00Z',[asset('CobbleLauncher-macos-arm64.tar.gz','macos-preview-42')])];
   const first=fixture({platform:'MacIntel'},{storage,now:()=>now,fetch:async()=>{calls++;return {ok:true,json:async()=>releases};}});
   await first.downloads.ready;first.dom.window.close();
   assert.equal(calls,1);assert.ok(values.has(releaseCacheKey));
@@ -264,7 +264,7 @@ test('outside click, focus exit, selection and language change close the shared 
   toggle.click();doc.querySelector('#language').focus();assert.equal(panel.hidden,true);
   toggle.click();panel.children[0].addEventListener('click',event=>event.preventDefault());panel.children[0].click();assert.equal(panel.hidden,true);
   toggle.click();downloads.setLanguage('en');assert.equal(panel.hidden,true);assert.equal(panel.getAttribute('aria-label'),'Other systems');
-  assert.match(panel.children[0].textContent,/Windows x64.*v0\.1\.0-beta\.2/);dom.window.close();
+  assert.match(panel.children[0].textContent,/Windows x64.*v0\.1\.0-beta\.3/);dom.window.close();
 });
 
 test('download copy no longer says all systems are under validation or unavailable',()=>{

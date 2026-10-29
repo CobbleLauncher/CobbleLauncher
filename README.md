@@ -4,7 +4,7 @@
 
 Cobble is an open-source launcher for Minecraft: Java Edition, built with Rust, Tauri and Vue. Keep your games separate, find compatible content, and get back to playing without digging through folders.
 
-**[Download Windows Beta](https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/CobbleLauncher-windows-x64-setup.exe)** · [Portable ZIP](https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.2/CobbleLauncher-windows-x64.zip) · [Website](https://cobble.yuzhes.com/) · [All releases](https://github.com/CobbleLauncher/CobbleLauncher/releases)
+**[Download Windows Beta](https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.3/CobbleLauncher-windows-x64-setup.exe)** · [Portable ZIP](https://github.com/CobbleLauncher/CobbleLauncher/releases/download/v0.1.0-beta.3/CobbleLauncher-windows-x64.zip) · [Website](https://cobble.yuzhes.com/) · [All releases](https://github.com/CobbleLauncher/CobbleLauncher/releases)
 
 The Windows x64 beta is available as an installer or portable ZIP. The installer supports optional updates from the preview channel. For the portable version, extract the entire ZIP and open **Cobble Launcher.exe**; replace the application files manually when updating. Microsoft Edge WebView2 is required. Update packages have cryptographic signatures, but the Windows executables do not have an Authenticode certificate and Windows may show a publisher warning. The [website](https://cobble.yuzhes.com/) checks GitHub Releases for the latest package for each supported system, with a menu for other systems.
 
@@ -13,7 +13,7 @@ macOS previews are built in CI for Apple Silicon and Intel. They use ad-hoc sign
 ## Play and manage your games
 
 - **Your library, your way.** Continue your last game, pin instances, set custom icons and covers, and create Windows desktop shortcuts.
-- **Bring your existing games.** Discover supported PCL games, reuse matching local files, and copy or move isolated game content through a guided import. Choose where games are stored during setup, or move them to another drive later.
+- **Bring your existing games.** Discover supported PCL games, reuse matching local files, and copy or move isolated game content through a guided import. Import directly during first-run setup or from the empty library. Choose where games are stored during setup, or move them to another drive later.
 - **Simple installation.** Install Vanilla, Fabric, Forge or NeoForge. Reuse matching Java runtimes, or automatically download one on Windows x64 when needed. Choose settings globally or per game. Downloads support automatic source selection, parallel transfers, cancellation and resume.
 - **Content in one place.** Find Mods and modpacks on Modrinth and CurseForge, plus resource packs and shaders on Modrinth. Start with the Mods you want and review a compatible game setup before installing. Each provider keeps its own download rules.
 - **Updates you can undo.** Pin Mod versions, ignore a particular update, choose stable or preview releases, and undo managed changes while preserving later local edits.
@@ -28,7 +28,7 @@ Use `Ctrl+K` to find games, tools and actions, including pinyin initials. Adjust
 - Save named world snapshots with deduplicated storage, or enable automatic backups after a game exits. Restore earlier versions with a rollback option.
 - Browse screenshots and edit supported Mod configuration files with backups. The optional Config Doctor compares current files with backups, restores selected JSON fields or a whole file, and copies compatible keybindings between games.
 - Search, save and preview blueprints, inspect materials, and import files into a game's schematic folder. Optional providers can add online blueprint catalogs.
-- Import existing launcher instances and local modpacks into separate games. Update a local MRPACK into an independent copy, review conflicting JSON fields and choose whether to copy worlds.
+- Import existing launcher instances and local modpacks into separate games. Drop a MRPACK or CurseForge modpack onto the launcher to review and install it. Update a local MRPACK into an independent copy, review conflicting JSON fields and choose whether to copy worlds.
 
 ## Optional tools and multiplayer
 
