@@ -14,6 +14,7 @@ mod market_images;
 mod microsoft;
 mod offline;
 mod onboarding;
+mod pack_drag;
 mod plugin_catalogs;
 mod plugins;
 mod preferences;
@@ -88,6 +89,7 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            pack_drag::handle(window, event);
             if window.label() == "main"
                 && let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) =
                     event
@@ -95,6 +97,31 @@ fn main() {
                 let app = window.app_handle().clone();
                 let paths = paths.clone();
                 tauri::async_runtime::spawn(async move {
+                    let preview_app = app.clone();
+                    let preview_paths = paths.clone();
+                    match tauri::async_runtime::spawn_blocking(move || {
+                        pack_drag::preview(&preview_app, &preview_paths)
+                    })
+                    .await
+                    {
+                        Ok(Ok(Some(preview))) => {
+                            let _ = app.emit_to("main", "native-pack-preview", preview);
+                            return;
+                        }
+                        Ok(Ok(None)) => {}
+                        Ok(Err(error)) => {
+                            let _ = app.emit_to("main", "native-pack-preview-error", error);
+                            return;
+                        }
+                        Err(_) => {
+                            let _ = app.emit_to(
+                                "main",
+                                "native-pack-preview-error",
+                                "FILE_INBOX_UNAVAILABLE",
+                            );
+                            return;
+                        }
+                    }
                     let notice =
                         match plugins::plugin_file_inbox::capture_drop(app.clone(), paths).await {
                             Ok(true) => return,

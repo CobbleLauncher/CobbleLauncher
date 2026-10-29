@@ -294,12 +294,17 @@ function iconUrl(game: HomeGame) { return game.icon_ref ? icons.value.get(game.i
         />
       </div>
       <h2>{{ t('home.empty') }}</h2>
-      <button
-        class="primary-button"
-        @click="$emit('create')"
-      >
-        <AppIcon name="plus" />{{ t('home.create') }}
-      </button>
+      <div class="home-empty-actions">
+        <button
+          class="primary-button"
+          @click="$emit('create')"
+        >
+          <AppIcon name="plus" />{{ t('home.create') }}
+        </button>
+        <button class="text-button home-empty-import" @click="$emit('importLauncher')">
+          <AppIcon name="folder" />{{ t('home.importLauncher') }}
+        </button>
+      </div>
     </section>
     <template v-else-if="all">
       <button
@@ -796,6 +801,7 @@ function iconUrl(game: HomeGame) { return game.icon_ref ? icons.value.get(game.i
 .home-layout-edit{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ui-space-3);margin-top:var(--ui-space-4);padding:var(--ui-space-3);border:1px solid var(--ui-border);border-radius:var(--ui-radius-md);font-size:var(--ui-text-label)}.home-layout-edit>div:not(.home-quick-picker){display:flex;align-items:center;gap:var(--ui-space-1)}.home-layout-edit>div:not(.home-quick-picker)>span{min-width:105px}.home-layout-edit label{display:flex;align-items:center;gap:var(--ui-space-2)}.home-layout-edit .text-button{padding:var(--ui-space-1)}.home-layout-edit>div:not(.home-quick-picker) .text-button,.home-quick-actions .text-button{display:grid;place-items:center;width:var(--ui-control-compact);height:var(--ui-control-compact)}.home-layout-edit>button:last-child{flex:0 0 100%;width:auto;text-align:left}
 .home-quick-picker{display:flex;flex-direction:column;flex-wrap:nowrap;flex:0 0 100%;gap:var(--ui-space-2);max-height:230px;overflow:auto}.home-quick-picker>div{display:flex;align-items:center;gap:var(--ui-space-2)}.home-quick-picker-head{width:100%;flex:none;justify-content:space-between}.home-quick-picker-head input{min-width:180px;flex:1;min-height:var(--ui-control-height);padding:var(--ui-space-2) var(--ui-space-3);border:1px solid var(--ui-border-strong);border-radius:var(--ui-radius-md);background:var(--ui-surface-1);color:var(--ui-text);font:inherit;font-size:var(--ui-text-body)}.home-quick-picker-head>span,.home-quick-picker-count{font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption);color:var(--ui-text-muted)}.home-quick-candidate{width:100%;min-height:var(--ui-control-height);flex:none;justify-content:space-between;font-size:var(--ui-text-body)}.home-quick-candidate>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.home-quick-actions,.home-saved-market-actions{display:flex;flex-wrap:wrap;gap:var(--ui-space-2)}.home-quick-actions>div{display:flex;align-items:center}.home-quick-actions .secondary-button,.home-saved-market-actions .secondary-button{min-height:var(--ui-control-height)}
 .home-pagination{display:flex;align-items:center;justify-content:flex-end;gap:var(--ui-space-4);margin-top:var(--ui-space-4);font-size:var(--ui-text-caption);line-height:var(--ui-leading-caption);color:var(--ui-text-muted)}.home-pagination>span{margin-right:auto}.home-pagination button:disabled{opacity:.45}.home-no-results{text-align:center;padding:var(--ui-space-6) var(--ui-space-3);color:var(--ui-text-muted);font-size:var(--ui-text-body);line-height:var(--ui-leading-body)}.home-empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:calc(2 * var(--ui-space-6)) var(--ui-space-4);gap:var(--ui-space-5)}.home-empty-icon{display:grid;place-items:center;width:76px;height:76px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-lg);background:var(--ui-surface-2);color:var(--ui-text-muted)}.home-empty h2{font-size:var(--ui-text-section);line-height:var(--ui-leading-section);font-weight:600;letter-spacing:normal}.home-empty .primary-button{min-height:var(--ui-launch-height,48px)}
+.home-empty-actions{display:flex;flex-direction:column;align-items:center;gap:var(--ui-space-1)}.home-empty-import{display:inline-flex;align-items:center;gap:var(--ui-space-2)}
 @media(max-width:780px){.home-game-list--grid{grid-template-columns:1fr}}@media(max-width:560px){.home-heading{gap:var(--ui-space-3)}.home-heading-actions{gap:var(--ui-space-2)}.home-add{padding:0 var(--ui-space-2)}.home-empty{padding-top:var(--ui-space-6)}}
 </style>
 <style>

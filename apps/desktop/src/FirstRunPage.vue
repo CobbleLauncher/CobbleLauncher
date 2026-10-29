@@ -8,7 +8,7 @@ import type { FirstRunStep } from './first-run';
 import type { ProfileLibrary } from './games';
 import './onboarding/onboarding.css';
 const props = withDefaults(defineProps<{ step: FirstRunStep; consentAccepted: boolean; meshChoice: boolean | null; busy?: boolean; error?: string; library?: ProfileLibrary; profileBusy?: boolean; profileReady?: boolean; profileError?: string }>(), { busy: false, error: '', library: () => ({ profiles: [], active_id: null }), profileBusy: false, profileReady: false, profileError: '' });
-const emit = defineEmits<{ step: [step: FirstRunStep]; acceptConsent: [version: string]; meshChoice: [enabled: boolean]; addProfile: []; createGame: []; complete: []; defer: []; addOffline: [name: string, note: string | null]; selectProfile: [id: string]; libraryUpdated: [library: ProfileLibrary]; authBusy: [busy: boolean] }>();
+const emit = defineEmits<{ step: [step: FirstRunStep]; acceptConsent: [version: string]; meshChoice: [enabled: boolean]; addProfile: []; createGame: []; importLauncher: []; complete: []; defer: []; addOffline: [name: string, note: string | null]; selectProfile: [id: string]; libraryUpdated: [library: ProfileLibrary]; authBusy: [busy: boolean] }>();
 const screen = computed(() => !props.consentAccepted || props.step === 'consent' ? 'consent' : 'guide');
 function focusHeading(element: Element) { (element.querySelector('[data-step-heading],[data-scene-focus]') as HTMLElement | null)?.focus({ preventScroll: true }); }
 </script>
@@ -51,6 +51,7 @@ function focusHeading(element: Element) { (element.querySelector('[data-step-hea
         @mesh-choice="emit('meshChoice', $event)"
         @add-profile="emit('addProfile')"
         @create-game="emit('createGame')"
+        @import-launcher="emit('importLauncher')"
         @defer="emit('defer')"
       />
     </Transition>

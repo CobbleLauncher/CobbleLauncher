@@ -8,7 +8,7 @@ import LoadingIndicator from '../ui/LoadingIndicator.vue';
 import GuideScene from './GuideScene.vue';
 import GameDirectorySetup from './GameDirectorySetup.vue';
 const props = defineProps<{ step: Exclude<FirstRunStep, 'consent'>; busy?: boolean; error?: string }>();
-const emit = defineEmits<{ step: [step: FirstRunStep]; meshChoice: [enabled: boolean]; addProfile: []; createGame: []; defer: [] }>();
+const emit = defineEmits<{ step: [step: FirstRunStep]; meshChoice: [enabled: boolean]; addProfile: []; createGame: []; importLauncher: []; defer: [] }>();
 const zh = computed(() => locale.value === 'zh-CN');
 const index = computed(() => guideSteps.indexOf(props.step));
 const icons = [Boxes, UserRound, Download, UsersRound];
@@ -28,6 +28,10 @@ async function next() {
   else if (props.step === 'profile') emit('addProfile');
   else if (props.step === 'game') { if (await directory.value?.save()) emit('createGame'); }
   else emit('meshChoice', true);
+}
+async function importLauncher() {
+  if (pending.value || !directoryReady.value) return;
+  if (await directory.value?.save()) emit('importLauncher');
 }
 function skip() { if (props.step === 'profile') emit('step', 'game'); else if (props.step === 'game') emit('step', 'mesh'); else if (props.step === 'mesh') emit('meshChoice', false); else emit('defer'); }
 function focusHeading(element: Element) { (element.querySelector('[data-step-heading]') as HTMLElement | null)?.focus({ preventScroll: true }); }
@@ -82,6 +86,15 @@ function focusHeading(element: Element) { (element.querySelector('[data-step-hea
               @busy="directoryBusy = $event"
               @ready="directoryReady = $event"
             />
+            <button
+              v-if="step === 'game'"
+              type="button"
+              class="text-button guide-import-launcher"
+              :disabled="pending || !directoryReady"
+              @click="importLauncher"
+            >
+              <Download aria-hidden="true" />{{ zh ? '导入 PCL 等启动器游戏' : 'Import from PCL or another launcher' }}
+            </button>
           </div>
         </div>
       </Transition>
@@ -135,6 +148,7 @@ function focusHeading(element: Element) { (element.querySelector('[data-step-hea
 .setup-guide .guide-stage{padding:0 8px}
 .setup-guide .guide-content{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr);align-items:center;gap:clamp(24px,4vw,48px);width:min(100%,820px);padding:24px 0}
 .guide-copy{min-width:0}
+.guide-import-launcher{display:inline-flex;align-items:center;gap:var(--ui-space-2);margin-top:var(--ui-space-3)}
 .setup-guide .guide-description{margin:12px 0 0;max-width:34ch;line-height:1.65}
 @media(max-width:600px){.setup-guide .guide-stage{padding:0}.setup-guide .guide-content{grid-template-columns:1fr;gap:16px;width:min(100%,420px);padding:8px 0 16px}.setup-guide .guide-content-directory :deep(.guide-scene){width:min(100%,300px)}.guide-copy{text-align:center}.setup-guide .guide-description{margin:8px auto 0;max-width:36ch}}
 </style>

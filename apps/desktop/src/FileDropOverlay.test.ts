@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: MIT
+import { flushPromises, mount } from '@vue/test-utils';
+import { afterEach, expect, it, vi } from 'vitest';
+import FileDropOverlay from './FileDropOverlay.vue';
+import { setLocale } from './i18n';
+const events = vi.hoisted(() => ({ handler: undefined as undefined | ((event: { payload: unknown }) => void), stop: vi.fn() }));
+vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => true }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async (_name, handler) => { events.handler = handler; return events.stop; }) }));
+afterEach(() => { vi.clearAllMocks(); setLocale('zh-CN'); });
+it('only native events reveal the overlay, with cautious ZIP copy and cleanup', async () => {
+  const wrapper = mount(FileDropOverlay);
+  await flushPromises();
+  window.dispatchEvent(new Event('dragenter'));
+  expect(wrapper.find('[role="status"]').exists()).toBe(false);
+  events.handler!({ payload: { active: true, kind: 'mrpack', count: 1 } });
+  await flushPromises();
+  expect(wrapper.text()).toContain('拖到这里安装整合包');
+  events.handler!({ payload: { active: true, kind: 'archive', count: 1 } });
+  await flushPromises();
+  expect(wrapper.text()).toContain('拖到这里查看文件');
+  await wrapper.setProps({ blocked: true });
+  expect(wrapper.text()).toContain('请先完成当前操作');
+  window.dispatchEvent(new Event('blur'));
+  await flushPromises();
+  expect(wrapper.find('[role="status"]').exists()).toBe(false);
+  wrapper.unmount();
+  expect(events.stop).toHaveBeenCalledOnce();
+});
+it('clears on native leave/drop and localizes English', async () => {
+  setLocale('en-US');
+  const wrapper = mount(FileDropOverlay);
+  await flushPromises();
+  events.handler!({ payload: { active: true, kind: 'mrpack', count: 1 } });
+  await flushPromises();
+  expect(wrapper.text()).toContain('Drop here to install modpack');
+  events.handler!({ payload: { active: false, kind: 'none', count: 0 } });
+  await flushPromises();
+  expect(wrapper.find('[role="status"]').exists()).toBe(false);
+  wrapper.unmount();
+});

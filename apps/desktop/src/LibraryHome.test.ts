@@ -131,6 +131,9 @@ it('keeps empty creation primary and install failures compact without leaking fi
   const empty = mount(LibraryHome, { props: { games: [], profileLibrary, starting: [], retrying: [] } });
   await empty.get('.home-empty .primary-button').trigger('click');
   expect(empty.emitted('create')).toEqual([[]]);
+  expect(empty.get('.home-empty-import').text()).toContain('Import from PCL or another launcher');
+  await empty.get('.home-empty-import').trigger('click');
+  expect(empty.emitted('importLauncher')).toEqual([[]]);
   empty.unmount();
   const card = mount(GameCard, { props: { game: game(1, { status: 'failed', error: 'File C:/private/world failed' }), profile: null, starting: false, retrying: false } });
   expect(card.get('[role="alert"]').text()).toBe('Installation incomplete');

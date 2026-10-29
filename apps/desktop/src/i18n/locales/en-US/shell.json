@@ -47,6 +47,7 @@
     "gameDesktopOnly": "Start the game in the desktop app.",
     "gameLibraryLoad": "Could not load the game library. Reopen the app.",
     "gameRetry": "Could not retry installation: {cause}",
-    "windowAction": "Window action failed. Try again."
+    "windowAction": "Window action failed. Try again.",
+    "packDropFailed": "Could not read this modpack. Check that the file is complete, then drop it again."
   }
 }

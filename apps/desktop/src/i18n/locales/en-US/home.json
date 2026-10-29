@@ -8,7 +8,7 @@
   "add": "Add",
   "create": "Create game",
   "importPack": "Import modpack",
-  "importLauncher": "Import existing game",
+  "importLauncher": "Import from PCL or another launcher",
   "empty": "No games yet",
   "recent": "Recent games",
   "moreGames": "More games",

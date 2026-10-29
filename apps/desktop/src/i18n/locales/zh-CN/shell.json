@@ -47,6 +47,7 @@
     "gameDesktopOnly": "请在桌面应用中启动游戏",
     "gameLibraryLoad": "无法读取游戏库，请重新打开应用",
     "gameRetry": "无法重试安装：{cause}",
-    "windowAction": "窗口操作失败，请重试"
+    "windowAction": "窗口操作失败，请重试",
+    "packDropFailed": "无法读取整合包。请检查文件是否完整，然后重新拖入。"
   }
 }

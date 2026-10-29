@@ -3,19 +3,22 @@ import { onMounted, onUnmounted, watch, type Ref } from 'vue';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { parsePluginHandoffRequest, type PluginHandoffRequest } from './plugin-handoffs';
 import { parseRecoveryNavigation, type RecoveryNavigationRequest } from './recovery-navigation';
-import type { FileInboxHostRequest } from './file-inbox-host';
+import type { FileInboxResult, FileInboxHostRequest } from './file-inbox-host';
 import { parseFileInboxMarketEvent, type FileInboxMarketLink } from './file-inbox-market';
 
-type Request = { kind: 'generated-blueprint'; blueprintId: string } | { kind: 'inbox' } | { kind: 'inbox-review'; value: FileInboxHostRequest } | { kind: 'inbox-market'; value: FileInboxMarketLink } | { kind: 'game'; gameId: string }
+type PackDropPreview = Extract<FileInboxResult, { kind: 'mrpack' | 'curseforge-pack' }>;
+type Request = { kind: 'pack-preview'; value: PackDropPreview } | { kind: 'generated-blueprint'; blueprintId: string } | { kind: 'inbox' } | { kind: 'inbox-review'; value: FileInboxHostRequest } | { kind: 'inbox-market'; value: FileInboxMarketLink } | { kind: 'game'; gameId: string }
   | { kind: 'handoff'; value: PluginHandoffRequest } | { kind: 'recovery'; value: RecoveryNavigationRequest };
 interface Options {
   native: boolean;
   loading: Ref<boolean>;
   busy: Ref<boolean>;
+  packBlocked?: Ref<boolean>;
   hasGame: (id: string) => boolean;
   refreshGames: () => Promise<void>;
   confirmLeave: () => Promise<boolean>;
   hideTasks: () => void;
+  openPackPreview?: (value: PackDropPreview) => void | Promise<void>;
   openInbox: () => void;
   openInboxReview: (request: FileInboxHostRequest) => Promise<void>;
   openInboxMarket: (request: FileInboxMarketLink) => void;
@@ -35,6 +38,7 @@ export function usePluginNavigation(options: Options) {
     processing = true;
     try {
       while (pending.length && !disposed && !options.busy.value) {
+        if (pending[0]?.kind === 'pack-preview' && options.packBlocked?.value) break;
         const request = pending.shift()!;
         const gameId = request.kind === 'game' ? request.gameId
           : request.kind === 'inbox-market' ? request.value.gameId ?? null
@@ -44,6 +48,7 @@ export function usePluginNavigation(options: Options) {
         if (disposed) return;
         if (gameId !== null && !options.hasGame(gameId)) { options.error('shell.error.handoffGameUnavailable'); continue; }
         if (!await options.confirmLeave() || disposed) continue;
+        if (options.busy.value || options.loading.value) { pending.unshift(request); break; }
         options.hideTasks();
         if (request.kind === 'generated-blueprint') options.openGeneratedBlueprint(request.blueprintId);
         else if (request.kind === 'inbox') options.openInbox();
@@ -51,6 +56,7 @@ export function usePluginNavigation(options: Options) {
         else if (request.kind === 'inbox-market') options.openInboxMarket(request.value);
         else if (request.kind === 'game') options.openGame(request.gameId);
         else if (request.kind === 'recovery') options.openRecovery(request.value);
+        else if (request.kind === 'pack-preview') await options.openPackPreview?.(request.value);
         else options.openHandoff(request.value);
       }
     } catch { options.error('shell.error.windowAction'); }
@@ -67,10 +73,15 @@ export function usePluginNavigation(options: Options) {
     const stop = await listen<unknown>(name, ({ payload }) => { if (!disposed) handler(payload); });
     if (disposed) stop(); else stops.push(stop);
   }
-  watch([options.loading, options.busy], () => { void drain(); });
+  watch([options.loading, options.busy, () => options.packBlocked?.value], () => { void drain(); });
   onMounted(() => {
     if (!options.native) return;
     const registrations = [
+      subscribe('native-pack-preview', payload => {
+        const value = payload as PackDropPreview | null;
+        if (options.openPackPreview && value && ['mrpack', 'curseforge-pack'].includes(value.kind) && typeof value.preview?.preview_id === 'string') enqueue({ kind: 'pack-preview', value });
+      }),
+      subscribe('native-pack-preview-error', () => options.error('shell.error.packDropFailed')),
       subscribe('plugin-generated-blueprint-open', payload => {
         const item = payload as { blueprint_id?: unknown; plugin_id?: unknown } | null;
         if (typeof item?.blueprint_id === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(item.blueprint_id)

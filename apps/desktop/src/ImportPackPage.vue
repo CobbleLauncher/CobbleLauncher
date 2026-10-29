@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 <script setup lang="ts">
 import CompatibilityNotice from './CompatibilityNotice.vue';
-import { onMounted, onUnmounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { RadioGroupItem, RadioGroupRoot } from 'reka-ui';
 import { defaultDownloadSettings, readDownloadSettings, validateDownloadSettings } from './download-settings';
@@ -10,7 +10,7 @@ import { loaderLabel } from './games';
 import { t } from './i18n';
 
 const props = defineProps<{ initialPreview?: PackPreview | null }>();
-const emit = defineEmits<{ created: [game: Game]; curseforge: [] }>();
+const emit = defineEmits<{ created: [game: Game]; curseforge: []; busy: [value: boolean] }>();
 const preview = ref<PackPreview | null>(null);
 const name = ref('');
 const optionalFiles = ref<string[]>([]);
@@ -22,6 +22,7 @@ const picking = ref(false);
 const submitting = ref(false);
 const error = ref('');
 let disposed = false;
+watch([loading, picking, submitting], values => emit('busy', values.some(Boolean)), { immediate: true });
 
 function settingsCause(cause: unknown) {
   const message = String(cause);
@@ -80,7 +81,7 @@ async function create() {
 }
 function fileSize(bytes: number) { return bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`; }
 onMounted(() => { if (props.initialPreview) applyPreview(props.initialPreview); void initialize(); });
-onUnmounted(() => { disposed = true; });
+onUnmounted(() => { disposed = true; emit('busy', false); });
 </script>
 
 <template>

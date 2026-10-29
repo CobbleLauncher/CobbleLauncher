@@ -1,0 +1,17 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div><script type="module">
+import {createApp,h} from 'vue';
+import LibraryHome from '/src/LibraryHome.vue';import SetupGuide from '/src/onboarding/SetupGuide.vue';import FileDropOverlay from '/src/FileDropOverlay.vue';
+import {setLocale} from '/src/i18n/index.ts';import {applyAppearance} from '/src/theme.ts';
+import '/src/style.css';import '/src/ui.css';import '/src/onboarding/onboarding.css';
+const q=new URLSearchParams(location.search);setLocale(q.get('locale')||'zh-CN');applyAppearance({theme:q.get('theme')||'light',accent:'green',density:'standard',scale:100,textSize:14,motion:'reduce'});
+let sequence=0;const callbacks=new Map(),listeners=new Map();
+window.isTauri=true;window.__TAURI_INTERNALS__={transformCallback:fn=>{callbacks.set(++sequence,fn);return sequence},unregisterCallback:id=>callbacks.delete(id),invoke:async(command,args)=>{
+ if(command==='plugin:event|listen'){listeners.set(args.event,args.handler);return args.handler}
+ if(command==='plugin:event|unlisten')return;
+ if(command==='get_launcher_preferences')return {custom_game_directory:false};
+ if(command==='get_default_game_directory_candidate')return {path:'D:\\Games\\Cobble',available_bytes:200000000000};
+ return null;
+}};
+window.fixtureDrag=payload=>callbacks.get(listeners.get('cobble-pack-drag'))?.({payload});
+createApp({setup(){return()=>h('div',{class:'launcher'},[h('header',{class:'titlebar'},'cobble.'),h('main',{class:'app-workspace'},[q.get('scene')==='guide'?h('div',{class:'first-run'},h(SetupGuide,{step:'game',onImportLauncher:()=>window.importRequested=true})):h(LibraryHome,{games:[],profileLibrary:{profiles:[],active_id:null},starting:[],retrying:[],onImportLauncher:()=>window.importRequested=true})]),h(FileDropOverlay)]);}}).mount('#app');
+</script></body></html>

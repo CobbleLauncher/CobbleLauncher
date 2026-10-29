@@ -60,6 +60,16 @@ it('does not advance the game step when saving the chosen folder fails', async (
   await wrapper.findAll('button').find(button=>button.text()==='Choose game')!.trigger('click');await flushPromises();
   expect(wrapper.emitted('createGame')).toEqual([[]]);wrapper.unmount();
 });
+it('saves the selected game folder before forwarding launcher import', async () => {
+  const wrapper=mount(FirstRunPage,{props:{step:'game',consentAccepted:true,meshChoice:null}});await flushPromises();
+  await choose(wrapper);
+  const action=wrapper.findAll('button').find(button=>button.text()==='Import from PCL or another launcher')!;
+  await action.trigger('click');await flushPromises();
+  expect(invoke).toHaveBeenCalledWith('set_default_game_directory',{path:selected.path});
+  expect(wrapper.emitted('importLauncher')).toEqual([[]]);
+  expect(wrapper.emitted('createGame')).toBeUndefined();
+  wrapper.unmount();
+});
 it('discards a folder-picker result that finishes after leaving the step', async () => {
   let finish!:(value:unknown)=>void;
   vi.mocked(invoke).mockImplementation(async command=>command==='get_launcher_preferences'?{custom_game_directory:false}:command==='get_default_game_directory_candidate'?standard:new Promise(resolve=>{finish=resolve;}));

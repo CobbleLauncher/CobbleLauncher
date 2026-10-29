@@ -41,6 +41,7 @@ const GameTransferPage = lazyPage(() => import('./game-transfer/GameTransferPage
 const MarketPage = lazyPage(() => import('./MarketPage.vue'));
 import type { MarketKind } from './market';
 import { incomingBlueprint, pendingBlueprint, type PendingBlueprintRequest } from './blueprints';
+import FileDropOverlay from './FileDropOverlay.vue';
 import type { FileInboxHostRequest, FileInboxResult } from './file-inbox-host';
 import { openPluginHandoff } from './plugin-handoffs';
 import { recoveryNavigationPage } from './recovery-navigation';
@@ -306,6 +307,7 @@ function registerImportedGame(game: Game) {
 }
 function openImportedGame(game: Game) {
   registerImportedGame(game);
+  if (firstRunFlow.value === 'game') { addCreatedGame(game); return; }
   showPage({ view: 'details', gameId: game.id }, 'replace');
 }
 function addCreatedGame(game: Game) {
@@ -362,9 +364,9 @@ async function resumeFirstRun(reviewTerms = false) {
   try { await firstRun.load(); if (await firstRun.save('resume')) { if (reviewTerms) await setFirstRunStep('consent'); showPage({view:'first-run'}); } }
   catch (cause) { error.value = String(cause); }
 }
-function openFirstRunFlow(flow: 'profile' | 'game') {
+function openFirstRunFlow(flow: 'profile' | 'game', gameEntry: 'create' | 'import-launcher' = 'create') {
   if (!firstRun.consentAccepted() || firstRun.busy.value) return;
-  firstRunFlow.value = flow; showPage({view: flow === 'profile' ? 'add-profile' : 'create'});
+  firstRunFlow.value = flow; showPage({view: flow === 'profile' ? 'add-profile' : gameEntry});
 }
 async function deferFirstRun() { if (await firstRun.save('defer')) showPage({view:'library'},'root'); }
 async function completeFirstRun() { if (await firstRun.save('complete')) showPage({view:'library'},'root'); }
@@ -765,8 +767,13 @@ const titlebarStatus = computed(() => {
     : { library: 'Games', 'discover-packs': 'Market', tools: 'Tools', extensions: 'Extensions', settings: 'Settings', mesh: 'Multiplayer', profiles: 'Players' };
   return labels[selectedSection.value] ?? 'Cobble';
 });
+const incomingFileBusy = computed(() => navigationBusy.value || !firstRun.state.value || !firstRun.consentAccepted());
 usePluginNavigation({
-  native, loading: gamesLoading, busy: navigationBusy,
+  native, loading: gamesLoading, busy: navigationBusy, packBlocked: incomingFileBusy,
+  openPackPreview: async result => {
+    if (view.value === 'first-run' && firstRun.state.value?.step === 'game') firstRunFlow.value = 'game';
+    await acceptInboxResult(result);
+  },
   hasGame: id => games.value.some(game => game.id === id && game.status === 'installed'),
   refreshGames: loadGames, confirmLeave: confirmWorkspaceLeave,
   hideTasks: () => { tasksOpen.value = false; },
@@ -1122,6 +1129,7 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
             @mesh-choice="chooseFirstRunMesh"
             @add-profile="openFirstRunFlow('profile')"
             @create-game="openFirstRunFlow('game')"
+            @import-launcher="openFirstRunFlow('game', 'import-launcher')"
             @defer="deferFirstRun"
             @complete="completeFirstRun"
             @add-offline="(name, note) => changeProfile('add_offline_profile', { name, note }, true)"
@@ -1137,6 +1145,7 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
             v-else-if="view === 'import'"
             :key="initialPackPreview?.preview_id ?? 'local'"
             :initial-preview="initialPackPreview"
+            @busy="packPreviewBusy = $event"
             @curseforge="openCfImport()"
             @created="addCreatedGame"
           />
@@ -1151,6 +1160,7 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
             v-else-if="view === 'import-launcher'"
             :games="games"
             :tasks="tasks"
+            @busy="packPreviewBusy = $event"
             @started="registerImportedGame"
             @open="openImportedGame"
           />
@@ -1352,6 +1362,7 @@ onUnmounted(() => { disposed = true; cancelHomeWork?.(); launchIntents.dispose()
         />
       </section>
     </main>
+    <FileDropOverlay :blocked="incomingFileBusy || gamesLoading" />
     <FileInboxHostReview
       v-if="inboxReviewRequest"
       ref="inboxHostReview"
