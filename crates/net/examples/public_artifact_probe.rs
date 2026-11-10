@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             version.version(),
             version.ssl_version().unwrap_or("unavailable")
         );
-        let broker = Broker::new(BrokerConfig::default())?;
+        let broker = Broker::for_launcher(BrokerConfig::default())?;
         let url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
         let reference = broker.get(url, None, 4 * 1024 * 1024).await?;
         if reference.metadata.status != 200 || reference.body.is_empty() {

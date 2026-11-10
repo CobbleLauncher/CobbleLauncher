@@ -175,7 +175,7 @@ pub async fn recognize_modrinth_mods(
     mc: &str,
     loader: &str,
 ) -> Result<ModRecognitionOutcome, Error> {
-    let broker = Broker::new(BrokerConfig::default())?;
+    let broker = Broker::for_launcher(BrokerConfig::default())?;
     recognize_with(directory, mc, loader, move |hash, mc, loader| {
         let broker = broker.clone();
         async move { identify_modrinth_file_with_broker(&broker, &hash, &mc, &loader).await }

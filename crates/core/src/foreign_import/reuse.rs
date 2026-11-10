@@ -90,7 +90,7 @@ pub(super) async fn prepare(
     control: &crate::OperationControl,
 ) -> Result<(), Error> {
     control.check_cancelled()?;
-    let broker = Broker::new(BrokerConfig::default())?;
+    let broker = Broker::for_launcher(BrokerConfig::default())?;
     let metadata = VersionCatalog::fetch_from(&broker, source)
         .await?
         .fetch_version_from(&broker, version, source)

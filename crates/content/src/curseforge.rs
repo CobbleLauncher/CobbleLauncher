@@ -262,7 +262,7 @@ impl CurseForgeClient {
         if api_key.len() > 4096 || !api_key.bytes().all(|byte| byte.is_ascii_graphic()) {
             return Err(ApiError::MissingCredential);
         }
-        let broker = Broker::new(BrokerConfig {
+        let broker = Broker::for_launcher(BrokerConfig {
             max_redirects: 0,
             ..BrokerConfig::default()
         })

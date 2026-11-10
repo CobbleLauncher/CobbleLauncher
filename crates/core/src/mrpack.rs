@@ -148,7 +148,7 @@ pub async fn install_mrpack_controlled(
     let content = ContentStore::open(open("content")?)?;
     let index = open("sha1")?;
     let downloader = DownloadManager::new(ArtifactDownloader::new(
-        Broker::new(BrokerConfig {
+        Broker::for_launcher(BrokerConfig {
             total_timeout: std::time::Duration::from_secs(300),
             ..BrokerConfig::default()
         })?,

@@ -67,7 +67,7 @@ pub async fn get_market_image(
         .map_err(|_| "Image unavailable")?;
     let broker = BROKER
         .get_or_init(|| {
-            Broker::new(BrokerConfig {
+            Broker::for_launcher(BrokerConfig {
                 max_redirects: 0,
                 total_timeout: Duration::from_secs(20),
                 ..Default::default()

@@ -272,7 +272,7 @@ pub(super) struct LiveApi {
 impl LiveApi {
     pub fn new() -> Result<Self, BoxError> {
         Ok(Self {
-            broker: Broker::new(BrokerConfig::default())?,
+            broker: Broker::for_launcher(BrokerConfig::default())?,
             requests: Arc::new(AtomicUsize::new(0)),
         })
     }
@@ -291,16 +291,7 @@ impl LiveApi {
         let response = self
             .broker
             .get_public_metadata(url.as_str(), "modrinth-v2", MAX_METADATA)
-            .await;
-        let response = match response {
-            Ok(response) => response,
-            Err(error) if proxy_retryable(error) => {
-                let body =
-                    cobble_net::fetch_modrinth_via_system_proxy(url.as_str(), MAX_METADATA).await?;
-                return Ok(Some(serde_json::from_slice(&body)?));
-            }
-            Err(error) => return Err(error.into()),
-        };
+            .await?;
         if response.metadata.status == 404 {
             return Ok(None);
         }
@@ -420,7 +411,7 @@ pub async fn identify_modrinth_file(
     mc: &str,
     loader: &str,
 ) -> Result<Option<IdentifiedMod>, BoxError> {
-    let broker = Broker::new(BrokerConfig::default())?;
+    let broker = Broker::for_launcher(BrokerConfig::default())?;
     identify_modrinth_file_with_broker(&broker, hash, mc, loader).await
 }
 
@@ -1462,26 +1453,4 @@ mod tests {
             );
         }
     }
-}
-
-fn proxy_retryable(error: cobble_net::NetError) -> bool {
-    matches!(
-        error,
-        cobble_net::NetError::ForbiddenDestination
-            | cobble_net::NetError::Resolution
-            | cobble_net::NetError::Connect
-            | cobble_net::NetError::Tls
-            | cobble_net::NetError::Timeout(_)
-    )
-}
-
-#[cfg(test)]
-#[test]
-fn proxy_retry_only_for_network_failures() {
-    use cobble_net::NetError;
-    assert!(proxy_retryable(NetError::ForbiddenDestination));
-    assert!(proxy_retryable(NetError::Connect));
-    assert!(!proxy_retryable(NetError::BodyLimit));
-    assert!(!proxy_retryable(NetError::Protocol));
-    assert!(!proxy_retryable(NetError::CredentialScope));
 }

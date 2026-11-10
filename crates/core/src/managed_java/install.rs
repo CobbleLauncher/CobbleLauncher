@@ -78,7 +78,7 @@ pub(super) async fn install_at(
         }
     }
     phase(&control, "java-metadata", 0, 1);
-    let broker = Broker::new(BrokerConfig {
+    let broker = Broker::for_launcher(BrokerConfig {
         total_timeout: Duration::from_secs(300),
         ..Default::default()
     })?;

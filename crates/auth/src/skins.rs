@@ -193,7 +193,7 @@ async fn fetch_profile_appearance(
     } else {
         "classic"
     };
-    let broker = cobble_net::Broker::new(Default::default())?;
+    let broker = cobble_net::Broker::for_launcher(Default::default())?;
     let response = broker
         .get_public_metadata(&url, "profile-textures", 1024 * 1024)
         .await?;

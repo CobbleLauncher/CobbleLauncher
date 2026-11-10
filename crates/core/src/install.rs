@@ -119,7 +119,7 @@ pub async fn install_resources_controlled(
         total: 1,
         reused: 0,
     });
-    let broker = Broker::new(BrokerConfig {
+    let broker = Broker::for_launcher(BrokerConfig {
         total_timeout: std::time::Duration::from_secs(300),
         ..BrokerConfig::default()
     })?;
@@ -605,7 +605,7 @@ mod tests {
                 let content =
                     Arc::new(ContentStore::open(root.open_dir("content").unwrap()).unwrap());
                 let downloader = DownloadManager::new(ArtifactDownloader::new(
-                    Broker::new(BrokerConfig::default()).unwrap(),
+                    Broker::for_launcher(BrokerConfig::default()).unwrap(),
                     DownloadStaging::open(root.open_dir("downloads").unwrap()).unwrap(),
                     ContentStore::open(root.open_dir("content").unwrap()).unwrap(),
                 ));

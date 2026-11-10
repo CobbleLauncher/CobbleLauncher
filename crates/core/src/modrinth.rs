@@ -98,7 +98,7 @@ impl ModDownloads {
         }
         let open =
             |name: &str| Dir::open_ambient_dir(cache.join(name), cap_std::ambient_authority());
-        let broker = Broker::new(BrokerConfig {
+        let broker = Broker::for_launcher(BrokerConfig {
             total_timeout: std::time::Duration::from_secs(300),
             ..BrokerConfig::default()
         })?;

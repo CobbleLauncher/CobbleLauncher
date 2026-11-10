@@ -87,7 +87,7 @@ pub async fn managed_java_space_artifacts(
     if !crate::managed_java::supported_target() {
         return Err("JAVA_MANAGED_ACQUISITION_UNSUPPORTED_PLATFORM".into());
     }
-    let broker = Broker::new(BrokerConfig::default())?;
+    let broker = Broker::for_launcher(BrokerConfig::default())?;
     let cache = ModDownloads::open()?;
     Ok(vec![
         java_archive_artifact(
@@ -207,7 +207,7 @@ pub async fn environment_space_artifacts(
     control: OperationControl,
 ) -> Result<ArtifactSpacePlan, Error> {
     control.check_cancelled()?;
-    let broker = Broker::new(BrokerConfig::default())?;
+    let broker = Broker::for_launcher(BrokerConfig::default())?;
     let fetching = async {
         VersionCatalog::fetch_from(&broker, &source)
             .await?

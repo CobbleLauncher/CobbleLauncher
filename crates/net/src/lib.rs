@@ -13,7 +13,7 @@ mod download;
 mod manager;
 mod metadata_cache;
 mod policy;
-mod public_proxy;
+mod launcher;
 mod tuning;
 pub use artifact::{
     AcceptedArtifactHeaders, ArtifactFile, ArtifactTransferRequest, StrongEtag,
@@ -28,7 +28,6 @@ pub use download::{
 };
 pub use manager::{ActiveDownloadProgress, DownloadManager, DownloadMetrics, ManagedDownloadError};
 pub use metadata_cache::{MetadataCacheConfig, MetadataCacheStats, PublicMetadataCache};
-pub use public_proxy::{fetch_loader_via_system_proxy, fetch_modrinth_via_system_proxy};
 pub use tuning::{DownloadTuning, download_tuning, save_download_tuning};
 #[cfg(test)]
 mod tests;

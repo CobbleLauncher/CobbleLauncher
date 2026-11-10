@@ -470,7 +470,7 @@ pub async fn list_game_versions(
 ) -> Result<Vec<GameVersion>, String> {
     let source = source.download_source().map_err(|e| e.to_string())?;
     let broker =
-        cobble_net::Broker::new(cobble_net::BrokerConfig::default()).map_err(|e| e.to_string())?;
+        cobble_net::Broker::for_launcher(cobble_net::BrokerConfig::default()).map_err(|e| e.to_string())?;
     let catalog =
         VersionCatalog::fetch_from(&broker, &source)
             .await

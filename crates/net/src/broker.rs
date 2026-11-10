@@ -128,6 +128,7 @@ pub(crate) struct Revalidation {
 }
 struct Inner {
     config: BrokerConfig,
+    launcher_client: Option<reqwest::Client>,
     requests: Arc<Semaphore>,
     connections: Arc<Semaphore>,
     dns: Arc<Semaphore>,
@@ -156,6 +157,7 @@ impl Broker {
         Ok(Self {
             inner: Arc::new(Inner {
                 config,
+                launcher_client: None,
                 requests: Arc::new(Semaphore::new(config.max_concurrent)),
                 connections: Arc::new(Semaphore::new(config.max_concurrent)),
                 dns: Arc::new(Semaphore::new(config.max_concurrent)),
@@ -169,6 +171,28 @@ impl Broker {
                 artifact_test_trust: false,
             }),
         })
+    }
+    /// First-party adapters use platform HTTP routing; plugins retain `new`.
+    pub fn for_launcher(config: BrokerConfig) -> Result<Self, NetError> {
+        let mut broker = Self::new(config)?;
+        Arc::get_mut(&mut broker.inner)
+            .ok_or(NetError::InvalidConfig)?
+            .launcher_client = Some(
+            reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .connect_timeout(config.connect_timeout)
+                .read_timeout(config.no_progress_timeout)
+                .user_agent("CobbleLauncher/0.1")
+                .build()
+                .map_err(|_| NetError::InvalidConfig)?,
+        );
+        Ok(broker)
+    }
+    pub(crate) fn uses_system_network(&self) -> bool {
+        self.inner.launcher_client.is_some()
+    }
+    pub(crate) fn launcher_client(&self) -> Option<reqwest::Client> {
+        self.inner.launcher_client.clone()
     }
     pub fn register_credentials(
         &self,
@@ -286,6 +310,11 @@ impl Broker {
         output: &mut W,
         validators: Option<&Revalidation>,
     ) -> Result<ResponseMetadata, NetError> {
+        if self.uses_system_network() {
+            return self
+                .get_launcher_inner(endpoint, credential, max_bytes, output, validators)
+                .await;
+        }
         let _request = self
             .inner
             .requests
@@ -350,6 +379,103 @@ impl Broker {
             } else {
                 drop(response);
                 connection.close().await;
+            }
+            return Ok(metadata);
+        }
+        Err(NetError::RedirectLimit)
+    }
+    async fn get_launcher_inner<W: AsyncWrite + Unpin>(
+        &self,
+        mut endpoint: Endpoint,
+        credential: Option<CredentialId>,
+        max_bytes: u64,
+        output: &mut W,
+        validators: Option<&Revalidation>,
+    ) -> Result<ResponseMetadata, NetError> {
+        let _request = self.artifact_request_lease().await?;
+        let client = self
+            .inner
+            .launcher_client
+            .as_ref()
+            .ok_or(NetError::InvalidConfig)?;
+        let mut stripped = false;
+        for hop in 0..=self.inner.config.max_redirects {
+            let (_, mut headers, _leases) = self
+                .artifact_hop(&endpoint, credential.as_ref().filter(|_| !stripped))
+                .await?;
+            headers.insert(ACCEPT_ENCODING, http::HeaderValue::from_static("identity"));
+            if !stripped && let Some(validators) = validators {
+                for (name, value) in [
+                    ("if-none-match", &validators.etag),
+                    ("if-modified-since", &validators.last_modified),
+                ] {
+                    if let Some(value) = value {
+                        headers.insert(
+                            http::header::HeaderName::from_static(name),
+                            http::HeaderValue::from_str(value).map_err(|_| NetError::Protocol)?,
+                        );
+                    }
+                }
+            }
+            let mut response = client
+                .get(endpoint.url.clone())
+                .headers(headers)
+                .send()
+                .await
+                .map_err(crate::launcher::request_error)?;
+            check_headers(response.headers())?;
+            let status = response.status();
+            if matches!(status.as_u16(), 301 | 302 | 303 | 307 | 308) {
+                if hop == self.inner.config.max_redirects {
+                    return Err(NetError::RedirectLimit);
+                }
+                let location = response
+                    .headers()
+                    .get(LOCATION)
+                    .ok_or(NetError::Protocol)?
+                    .to_str()
+                    .map_err(|_| NetError::InvalidUrl)?;
+                let next = endpoint.redirect(location)?;
+                stripped |= next.origin() != endpoint.origin();
+                endpoint = next;
+                continue;
+            }
+            let mut metadata = ResponseMetadata {
+                status: status.as_u16(),
+                body_bytes: 0,
+                redirects: hop,
+                final_origin: endpoint.origin().0,
+                content_length: content_length(response.headers())?,
+                etag: header_text(response.headers(), "etag")?,
+                last_modified: header_text(response.headers(), "last-modified")?,
+                content_range: header_text(response.headers(), "content-range")?,
+            };
+            if response
+                .headers()
+                .get_all(CONTENT_ENCODING)
+                .iter()
+                .any(|v| v.as_bytes() != b"identity")
+            {
+                return Err(NetError::UnsupportedEncoding);
+            }
+            if status.is_success() {
+                if metadata.content_length.is_some_and(|n| n > max_bytes) {
+                    return Err(NetError::BodyLimit);
+                }
+                while let Some(chunk) = response
+                    .chunk()
+                    .await
+                    .map_err(crate::launcher::request_error)?
+                {
+                    metadata.body_bytes = metadata
+                        .body_bytes
+                        .checked_add(chunk.len() as u64)
+                        .ok_or(NetError::BodyLimit)?;
+                    if metadata.body_bytes > max_bytes {
+                        return Err(NetError::BodyLimit);
+                    }
+                    output.write_all(&chunk).await.map_err(|_| NetError::Sink)?;
+                }
             }
             return Ok(metadata);
         }
@@ -631,7 +757,11 @@ impl Broker {
         endpoint: &Endpoint,
         credential: Option<&CredentialId>,
     ) -> Result<(Vec<SocketAddr>, HeaderMap, ConnectionLeases), NetError> {
-        let addresses = self.resolve(endpoint).await?;
+        let addresses = if self.uses_system_network() {
+            Vec::new()
+        } else {
+            self.resolve(endpoint).await?
+        };
         let mut headers = HeaderMap::new();
         if let Some(id) = credential {
             if !Arc::ptr_eq(&id.identity, &self.inner.identity) {
@@ -871,3 +1001,7 @@ mod lifecycle_tests {
         assert_eq!(broker.inner.dns.available_permits(), 1);
     }
 }
+
+#[cfg(test)]
+#[path = "launcher_tests.rs"]
+mod launcher_tests;

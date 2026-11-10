@@ -81,7 +81,7 @@ pub async fn list_fabric_versions_from(
     source: &DownloadSource,
 ) -> Result<Vec<FabricVersion>, Error> {
     identifier(mc_version)?;
-    let broker = Broker::new(BrokerConfig::default())?;
+    let broker = Broker::for_launcher(BrokerConfig::default())?;
     let entries = source
         .fetch_public_validated(
             &broker,
@@ -127,7 +127,7 @@ pub async fn install_fabric_controlled(
     }
     identifier(mc_version)?;
     identifier(loader_version)?;
-    let broker = Broker::new(BrokerConfig {
+    let broker = Broker::for_launcher(BrokerConfig {
         total_timeout: std::time::Duration::from_secs(300),
         ..BrokerConfig::default()
     })?;

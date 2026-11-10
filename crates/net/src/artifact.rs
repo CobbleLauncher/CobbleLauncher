@@ -398,7 +398,16 @@ impl Broker {
                 // cfg(test) routing is private and never enabled by features.
                 #[cfg(test)]
                 let fixture = self.artifact_fixture();
+                let launcher_client = self.launcher_client();
                 let result = tokio::task::spawn_blocking(move || {
+                    if let Some(client) = launcher_client {
+                        return tokio::runtime::Handle::current().block_on(run_launcher_hop(
+                            worker,
+                            endpoint_for_worker,
+                            headers,
+                            client,
+                        ));
+                    }
                     run_hop(
                         worker,
                         endpoint_for_worker,
@@ -1069,4 +1078,89 @@ mod curseforge_redirect_tests {
             }
         }
     }
+}
+
+// Keep the existing range, cancellation and file-validation state machine;
+// only the HTTP transport differs from restricted plugin transfers.
+async fn run_launcher_hop<S: ArtifactFile>(
+    mut worker: Worker<S>,
+    endpoint: Endpoint,
+    mut headers: HeaderMap,
+    client: reqwest::Client,
+) -> Result<Worker<S>, TransferError> {
+    struct Active(TransferCancellation);
+    impl Drop for Active {
+        fn drop(&mut self) {
+            self.0.0.active.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+    worker.cancel.0.active.fetch_add(1, Ordering::Relaxed);
+    let _active = Active(worker.cancel.clone());
+    let operation = async {
+    worker.check_job_budget()?;
+    let offset = match worker.mode { TransferMode::Resume { offset, .. } => offset, _ => 0 };
+    if worker.file.file_len().map_err(|_| TransferError::Sink)? != offset { return Err(TransferError::InvalidRequest); }
+    headers.insert(
+        http::header::ACCEPT_ENCODING,
+        HeaderValue::from_static("identity"),
+    );
+    if let TransferMode::Resume { offset, etag } = &worker.mode {
+        headers.insert(
+            http::header::RANGE,
+            HeaderValue::from_str(&format!("bytes={offset}-"))
+                .map_err(|_| TransferError::InvalidRequest)?,
+        );
+        headers.insert(
+            http::header::IF_RANGE,
+            HeaderValue::from_str(&etag.0).map_err(|_| TransferError::InvalidRequest)?,
+        );
+    }
+    let cancel = worker.cancel.clone();
+    let mut response = tokio::select! {
+        _ = cancel.cancelled() => return Err(TransferError::Cancelled),
+        result = client.get(endpoint.url).headers(headers).timeout(worker.deadline.saturating_duration_since(Instant::now())).send() => result.map_err(crate::launcher::request_error)?,
+    };
+    worker.status = response.status().as_u16();
+    worker.headers = response.headers().clone();
+    if worker.headers.len() > HEADER_COUNT
+        || worker
+            .headers
+            .iter()
+            .map(|(k, v)| k.as_str().len() + v.as_bytes().len() + 4)
+            .sum::<usize>()
+            > HEADER_BYTES
+    {
+        return Err(NetError::HeaderLimit.into());
+    }
+    worker.finish_headers()?;
+    if !matches!(worker.gate, Gate::Accept) {
+        return Ok(());
+    }
+    worker.last_progress = Instant::now();
+    loop {
+        let chunk = tokio::select! {
+            _ = cancel.cancelled() => return Err(TransferError::Cancelled),
+            result = response.chunk() => result.map_err(crate::launcher::request_error)?,
+        };
+        let Some(chunk) = chunk else {
+            break;
+        };
+        let n = worker.write(&chunk).map_err(|_| TransferError::Sink)?;
+        if let Some(error) = worker.error {
+            return Err(error);
+        }
+        if n != chunk.len() {
+            return Err(TransferError::Sink);
+        }
+    }
+    let expected = worker.expected - if worker.status == 206 { offset } else { 0 };
+    if worker.received != expected { return Err(TransferError::SizeMismatch); }
+    worker.file.flush().map_err(|_| TransferError::Sink)?;
+    worker.check_job_budget()?;
+    Ok(())
+    }.await;
+    let finalized = worker.file.finish_transfer();
+    finalized.map_err(|_| TransferError::Sink)?;
+    operation?;
+    Ok(worker)
 }

@@ -3,8 +3,8 @@
 //! Independently implemented from public profiles and the MIT XMCL behavior
 //! reference (154e2719b1ac962631d80ae4a280382f4f1ac09d); no source copied.
 use crate::{InstallOutcome, InstallProgress};
-use cobble_minecraft::{DownloadSource, PublicFetchError};
-use cobble_net::{Broker, BrokerConfig, NetError};
+use cobble_minecraft::DownloadSource;
+use cobble_net::{Broker, BrokerConfig};
 use cobble_store::SafeRelativePath;
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
@@ -100,7 +100,7 @@ pub async fn list_forge_versions_from(
     source: &DownloadSource,
 ) -> Result<Vec<ForgeVersion>, Error> {
     supported(mc, kind, None)?;
-    let broker = Broker::new(BrokerConfig::default())?;
+    let broker = Broker::for_launcher(BrokerConfig::default())?;
     match kind {
         ForgeKind::Forge => {
             fetch_metadata(
@@ -253,7 +253,7 @@ pub async fn install_forge_controlled(
     )
     .await?;
     control.check_cancelled()?;
-    let broker = Broker::new(BrokerConfig {
+    let broker = Broker::for_launcher(BrokerConfig {
         total_timeout: Duration::from_secs(300),
         ..BrokerConfig::default()
     })?;
@@ -656,15 +656,6 @@ fn parse_sha1(value: &str) -> Result<[u8; 20], Error> {
     Ok(digest)
 }
 
-fn proxy_retryable(error: &Error) -> bool {
-    matches!(
-        error.downcast_ref::<PublicFetchError>(),
-        Some(PublicFetchError::Network(
-            NetError::Connect | NetError::Tls | NetError::Timeout(_)
-        ))
-    )
-}
-
 async fn fetch_metadata<T, F>(
     source: &DownloadSource,
     broker: &Broker,
@@ -675,26 +666,13 @@ async fn fetch_metadata<T, F>(
 where
     F: Fn(&[u8]) -> Result<T, Error> + Sync,
 {
-    match source
+    source
         .fetch_public_validated(broker, url, limit, &parse)
         .await
-    {
-        Err(error) if proxy_retryable(&error) => {
-            let bytes = cobble_net::fetch_loader_via_system_proxy(url, limit).await?;
-            parse(&bytes)
-        }
-        result => result,
-    }
 }
 
 async fn fetch(broker: &Broker, url: &str, limit: u64) -> Result<Vec<u8>, Error> {
-    let response = match broker.get(url, None, limit).await {
-        Ok(response) => response,
-        Err(NetError::Connect | NetError::Tls | NetError::Timeout(_)) => {
-            return Ok(cobble_net::fetch_loader_via_system_proxy(url, limit).await?);
-        }
-        Err(error) => return Err(error.into()),
-    };
+    let response = broker.get(url, None, limit).await?;
     if response.metadata.status != 200 {
         return Err(format!(
             "loader service returned HTTP {} for {url}",
@@ -866,26 +844,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["21.1.10", "21.1.9"]
         );
-    }
-
-    #[test]
-    fn proxy_fallback_stays_limited_to_connection_tls_and_timeout_errors() {
-        for error in [
-            NetError::Connect,
-            NetError::Tls,
-            NetError::Timeout(cobble_net::TimeoutPhase::Total),
-        ] {
-            let error: Error = PublicFetchError::Network(error).into();
-            assert!(proxy_retryable(&error));
-        }
-        for error in [
-            PublicFetchError::HttpStatus(403),
-            PublicFetchError::InvalidResponse,
-            PublicFetchError::Network(NetError::ForbiddenDestination),
-        ] {
-            let error: Error = error.into();
-            assert!(!proxy_retryable(&error));
-        }
     }
 
     #[test]
