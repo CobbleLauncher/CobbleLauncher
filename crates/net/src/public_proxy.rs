@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-//! Narrow, anonymous fallback for public loader downloads through the user's
-//! existing proxy. Call only after the normal broker's connection/TLS failure;
+//! Narrow, anonymous fallback for public loader downloads and Modrinth metadata through the user's
+//! existing proxy. Call only after the normal broker's network failure;
 //! this does not grant provider permissions or change OS proxy configuration.
 
 use crate::{NetError, TimeoutPhase};
@@ -16,6 +16,32 @@ pub async fn fetch_loader_via_system_proxy(url: &str, limit: u64) -> Result<Vec<
     tokio::task::spawn_blocking(move || fetch(&url, limit))
         .await
         .map_err(|_| NetError::Connect)?
+}
+
+/// Anonymous public Modrinth metadata only; provider credentials are never used.
+pub async fn fetch_modrinth_via_system_proxy(url: &str, limit: u64) -> Result<Vec<u8>, NetError> {
+    let url = modrinth_url(url)?;
+    if limit > 8 * 1024 * 1024 {
+        return Err(NetError::BodyLimit);
+    }
+    tokio::task::spawn_blocking(move || fetch(&url, limit))
+        .await
+        .map_err(|_| NetError::Connect)?
+}
+
+fn modrinth_url(value: &str) -> Result<Url, NetError> {
+    let url = Url::parse(value).map_err(|_| NetError::InvalidUrl)?;
+    if url.scheme() != "https"
+        || url.host_str() != Some("api.modrinth.com")
+        || !url.path().starts_with("/v2/")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(NetError::ForbiddenDestination);
+    }
+    Ok(url)
 }
 
 fn public_loader_url(value: &str) -> Result<Url, NetError> {
@@ -153,6 +179,21 @@ mod tests {
             "https://maven.neoforged.net:8443/file",
         ] {
             assert!(public_loader_url(url).is_err());
+        }
+    }
+
+    #[test]
+    fn modrinth_proxy_metadata_is_origin_and_version_bound() {
+        assert!(modrinth_url("https://api.modrinth.com/v2/search?query=test").is_ok());
+        for url in [
+            "http://api.modrinth.com/v2/search",
+            "https://api.modrinth.com.evil.invalid/v2/search",
+            "https://api.modrinth.com/v3/search",
+            "https://user:secret@api.modrinth.com/v2/search",
+            "https://127.0.0.1/v2/search",
+            "https://api.modrinth.com/v2/search#fragment",
+        ] {
+            assert!(modrinth_url(url).is_err());
         }
     }
 

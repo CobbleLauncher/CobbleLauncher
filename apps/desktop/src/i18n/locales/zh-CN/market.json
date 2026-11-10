@@ -44,6 +44,7 @@
   "shownPacks": "已显示 {shown} / {total} 个整合包",
   "emptyPacks": "没有找到符合条件的整合包，试试其他关键词或筛选。",
   "browsePacks": "输入名称搜索，或直接搜索浏览整合包。",
+  "packNetworkFailed": "无法连接 Modrinth，请检查网络或代理后重试。",
   "packSearchFailed": "暂时无法获取整合包，请重试。",
   "invalidVersion": "Minecraft 版本格式无效，例如 1.21.1。",
   "desktopRequired": "请在桌面应用中浏览整合包",

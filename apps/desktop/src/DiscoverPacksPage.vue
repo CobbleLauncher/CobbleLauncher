@@ -67,7 +67,12 @@ async function search(offset = 0, retry = false) {
     hits.value = offset ? [...new Map([...hits.value, ...result.hits].map((hit) => [hit.project_id, hit])).values()] : result.hits;
     if (!offset && props.linkRequest) { linked = findLinkedProject(hits.value, props.linkRequest); linkProjectMissing.value = !linked; }
     total.value = result.total_hits; nextOffset.value = result.offset + result.hits.length; hasMore.value = result.hits.length > 0 && nextOffset.value < result.total_hits;
-  } catch { if (current === searchRequest) searchError.value = t('market.packSearchFailed'); }
+  } catch (error) {
+    if (current === searchRequest) searchError.value = t(
+      /network broker|Timeout|ForbiddenDestination|Resolution|Connect|Tls/.test(String(error))
+        ? 'market.packNetworkFailed' : 'market.packSearchFailed',
+    );
+  }
   finally { if (current === searchRequest) { searching.value = false; if (linked) select(linked); } }
 }
 async function loadVersions() {

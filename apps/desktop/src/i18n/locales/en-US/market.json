@@ -44,6 +44,7 @@
   "shownPacks": "{shown} of {total} modpacks",
   "emptyPacks": "No matching modpacks. Try another search or filter.",
   "browsePacks": "Search for a modpack or browse all results.",
+  "packNetworkFailed": "Could not connect to Modrinth. Check your network or proxy and try again.",
   "packSearchFailed": "Could not load modpacks. Try again.",
   "invalidVersion": "Enter a Minecraft version such as 1.21.1.",
   "desktopRequired": "Browse modpacks in the desktop app.",

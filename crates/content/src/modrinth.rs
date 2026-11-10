@@ -291,7 +291,16 @@ impl LiveApi {
         let response = self
             .broker
             .get_public_metadata(url.as_str(), "modrinth-v2", MAX_METADATA)
-            .await?;
+            .await;
+        let response = match response {
+            Ok(response) => response,
+            Err(error) if proxy_retryable(error) => {
+                let body =
+                    cobble_net::fetch_modrinth_via_system_proxy(url.as_str(), MAX_METADATA).await?;
+                return Ok(Some(serde_json::from_slice(&body)?));
+            }
+            Err(error) => return Err(error.into()),
+        };
         if response.metadata.status == 404 {
             return Ok(None);
         }
@@ -1453,4 +1462,26 @@ mod tests {
             );
         }
     }
+}
+
+fn proxy_retryable(error: cobble_net::NetError) -> bool {
+    matches!(
+        error,
+        cobble_net::NetError::ForbiddenDestination
+            | cobble_net::NetError::Resolution
+            | cobble_net::NetError::Connect
+            | cobble_net::NetError::Tls
+            | cobble_net::NetError::Timeout(_)
+    )
+}
+
+#[cfg(test)]
+#[test]
+fn proxy_retry_only_for_network_failures() {
+    use cobble_net::NetError;
+    assert!(proxy_retryable(NetError::ForbiddenDestination));
+    assert!(proxy_retryable(NetError::Connect));
+    assert!(!proxy_retryable(NetError::BodyLimit));
+    assert!(!proxy_retryable(NetError::Protocol));
+    assert!(!proxy_retryable(NetError::CredentialScope));
 }
